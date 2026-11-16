@@ -1,0 +1,43 @@
+# Entrada única al homelab:  https://{$HOMELAB_HOST}
+# Certificado local de Caddy (la primera vez el navegador avisa; puedes instalar
+# la CA de Caddy en tus equipos: ver docs/respaldos.md, sección Certificado).
+{
+	admin off
+}
+
+https://{$HOMELAB_HOST} {
+	tls internal
+	encode zstd gzip
+
+	# Los clientes de respaldo usan su propio token, no la contraseña web
+	handle /api/backup/* {
+		request_body {
+			max_size 4GB
+		}
+		reverse_proxy bot:8080 {
+			transport http {
+				read_timeout 2h
+				write_timeout 2h
+			}
+		}
+	}
+
+	handle /grafana* {
+		reverse_proxy grafana:3000
+	}
+
+	handle {
+		basic_auth {
+			{$WEB_USER} {$WEB_PASSWORD_HASH}
+		}
+		handle /prometheus* {
+			reverse_proxy prometheus:9090
+		}
+		reverse_proxy host.docker.internal:8000
+	}
+}
+
+# Acceso por http: redirige a https
+http://{$HOMELAB_HOST} {
+	redir https://{host}{uri} permanent
+}

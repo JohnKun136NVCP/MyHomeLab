@@ -1,0 +1,18 @@
+# Todas las alertas van al bot (él decide el formato y solo te las manda a ti).
+route:
+  receiver: bot
+  group_by: [alertname, instance]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 6h
+
+receivers:
+  - name: bot
+    webhook_configs:
+      - url: http://bot:8080/alert
+        send_resolved: true
+
+inhibit_rules:
+  # Si no hay internet no tiene caso avisar también que el VPS no responde
+  - source_matchers: [alertname="SinInternet"]
+    target_matchers: [instance="vps"]

@@ -1,0 +1,3 @@
+Pillow>=10.0      # vista previa de JPG/WEBP/BMP en el Explorador
+telethon>=1.36    # enviar a tus Mensajes guardados (hasta 2 GB por archivo)
+PyMuPDF>=1.24     # vista previa de PDF (sin depender de poppler)

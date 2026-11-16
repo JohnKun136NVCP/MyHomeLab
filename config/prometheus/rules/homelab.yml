@@ -1,0 +1,104 @@
+groups:
+  # ---------------------------------------------------------------- nodos
+  - name: nodos
+    rules:
+      - alert: NodoCaido
+        expr: up{job="node"} == 0
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.instance }} no responde"
+          description: "Prometheus no puede leer node-exporter de {{ $labels.instance }} desde hace 3 min."
+
+      - alert: CPUAlta
+        expr: 100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 90
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "CPU al {{ $value | printf \"%.0f\" }}% en {{ $labels.instance }}"
+
+      - alert: MemoriaBaja
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.08
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Queda menos del 8% de RAM en {{ $labels.instance }}"
+
+      - alert: DiscoCasiLleno
+        expr: |
+          (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}) < 0.10
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "Disco {{ $labels.mountpoint }} de {{ $labels.instance }}: solo queda {{ $value | humanizePercentage }} libre"
+
+      - alert: RaspberryCaliente
+        expr: node_thermal_zone_temp{instance="raspberry"} > 75
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "La Raspberry está a {{ $value | printf \"%.0f\" }} °C"
+
+  # ---------------------------------------------------------------- red
+  - name: red
+    rules:
+      - alert: SinInternet
+        expr: homelab_target_up{name="internet"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Sin internet en casa"
+          description: "No hay respuesta de 1.1.1.1 desde hace 2 minutos."
+
+      - alert: AccessPointCaido
+        expr: homelab_infra_up{role="ap"} == 0
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.name }} ({{ $labels.ip }}) no responde"
+
+      - alert: LatenciaAlta
+        expr: homelab_target_latency_seconds{name="internet"} > 0.25
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Latencia a internet de {{ $value | humanizeDuration }}"
+
+  # ------------------------------------------- anomalías de tráfico
+  # Comparan el tráfico de los últimos 10 min contra el promedio de 7 días.
+  - name: anomalias-trafico
+    rules:
+      - record: homelab:iface_rx_bps:rate10m
+        expr: 8 * rate(node_network_receive_bytes_total{device!~"lo|veth.*|docker.*|br-.*"}[10m])
+      - record: homelab:iface_tx_bps:rate10m
+        expr: 8 * rate(node_network_transmit_bytes_total{device!~"lo|veth.*|docker.*|br-.*"}[10m])
+      - record: homelab:device_bps:rate10m
+        expr: 8 * sum by (mac, name, direction) (rate(homelab_device_bytes_total[10m]))
+
+      - alert: TraficoAnomaloInterfaz
+        expr: |
+          homelab:iface_tx_bps:rate10m > 5e6
+          and homelab:iface_tx_bps:rate10m
+            > 4 * avg_over_time(homelab:iface_tx_bps:rate10m[7d] offset 1h)
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Subida inusual en {{ $labels.instance }}/{{ $labels.device }}: {{ $value | humanize }}bps"
+          description: "Más de 4 veces lo normal de la última semana. ¿Respaldo grande o algo raro?"
+
+      - alert: TraficoAnomaloDispositivo
+        expr: |
+          homelab:device_bps:rate10m > 2e6
+          and homelab:device_bps:rate10m
+            > 5 * avg_over_time(homelab:device_bps:rate10m[7d] offset 1h)
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.name }} ({{ $labels.mac }}) con tráfico {{ $labels.direction }} inusual: {{ $value | humanize }}bps"
+
+      - alert: AlertasIDS
+        expr: increase(homelab_ids_alerts_total{severity="1"}[10m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: "Suricata detectó {{ $value | printf \"%.0f\" }} alertas graves en 10 min"

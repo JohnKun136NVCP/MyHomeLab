@@ -1,0 +1,11 @@
+.env
+config/homelab.yml
+backups/
+frigate-media/
+media/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.7z
+*.7z.0*

@@ -1,0 +1,62 @@
+# ======================================================================
+#  PC / servidor Linux — cámaras (Frigate) y streaming (Jellyfin)
+#    docker compose -f hosts/server/docker-compose.yml --env-file .env up -d
+#  Si por ahora todo va en la Pi 4: Jellyfin funciona (sin transcodificar);
+#  Frigate en la Pi 4 solo para 1-2 cámaras y sin detección pesada.
+# ======================================================================
+name: homelab-server
+
+x-common: &common
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  frigate:
+    <<: *common
+    image: ghcr.io/blakeblackshear/frigate:stable
+    shm_size: "256mb"
+    privileged: false
+    ports:
+      - "5000:5000"     # web y API (red local / VPN)
+      - "1984:1984"     # go2rtc: vista en vivo
+      - "8554:8554"     # RTSP re-transmitido
+      - "8555:8555/tcp"
+      - "8555:8555/udp" # WebRTC
+    environment:
+      FRIGATE_RTSP_USER: ${FRIGATE_RTSP_USER}
+      FRIGATE_RTSP_PASSWORD: ${FRIGATE_RTSP_PASSWORD}
+      TZ: America/Mexico_City
+    volumes:
+      - ../../config/frigate/config.yml:/config/config.yml
+      - ${FRIGATE_MEDIA:-./frigate-media}:/media/frigate
+      - type: tmpfs
+        target: /tmp/cache
+        tmpfs: { size: 1000000000 }
+    # Con iGPU Intel/AMD descomenta para decodificar por hardware:
+    # devices: ["/dev/dri:/dev/dri"]
+
+  jellyfin:
+    <<: *common
+    image: jellyfin/jellyfin:latest
+    ports: ["8096:8096"]
+    environment:
+      TZ: America/Mexico_City
+    volumes:
+      - jellyfin_config:/config
+      - jellyfin_cache:/cache
+      - ${MEDIA_DIR:-./media}:/media:ro
+    # devices: ["/dev/dri:/dev/dri"]   # transcodificación por hardware
+
+  node-exporter:
+    <<: *common
+    image: prom/node-exporter:latest
+    command: ["--path.rootfs=/host"]
+    network_mode: host
+    pid: host
+    volumes: ["/:/host:ro,rslave"]
+
+volumes:
+  jellyfin_config:
+  jellyfin_cache:

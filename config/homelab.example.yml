@@ -1,0 +1,104 @@
+# ======================================================================
+#  MyHomeLab — configuración principal (sin secretos; esos van en .env)
+#  Copia este archivo a config/homelab.yml y ajústalo.
+# ======================================================================
+
+network:
+  cidr: 192.168.0.0/24          # tu red de casa
+  interface: eth0               # interfaz que escanea la Pi (br0 si usas modo puente)
+  gateway: 192.168.0.1          # el módem
+  scan_interval: 120            # segundos entre escaneos ARP
+  port_scan_new_devices: true   # nmap -F a cada dispositivo nuevo (para saber qué es)
+  daily_port_scan: "03:30"      # re-escaneo de puertos de todos (detecta servicios nuevos)
+  # Modo puente: la Pi queda entre el módem y tus AP (ver docs/modo-puente.md).
+  # Solo así se ve el tráfico de CADA dispositivo y funcionan los bloqueos (ACL).
+  bridge_mode: false
+  bridge_interface: br0
+
+# Infraestructura: aparece en el mapa, en «Accesos» (un clic) y se monitorea con ping
+infrastructure:
+  modem:
+    name: Módem
+    ip: 192.168.0.1
+    admin_url: http://192.168.0.1
+  access_points:
+    - name: AP Sala
+      ip: 192.168.0.2
+      admin_url: http://192.168.0.2
+      model: Tenda
+      location: Planta baja
+    - name: AP Recámara
+      ip: 192.168.0.3
+      admin_url: http://192.168.0.3
+      model: Tenda
+      location: Planta alta
+  # Nodos con node-exporter (los scrapea Prometheus)
+  nodes:
+    - name: raspberry
+      target: host.docker.internal:9100
+    - name: servidor
+      target: 192.168.0.10:9100
+    - name: vps
+      target: 10.8.0.1:9100        # IP del VPS dentro de la VPN WireGuard
+  ping_targets:
+    - name: internet
+      host: 1.1.1.1
+    - name: dns-google
+      host: 8.8.8.8
+    - name: vps
+      host: 10.8.0.1
+
+# Accesos de un clic en la web (además de módem y AP)
+links:
+  - name: Grafana
+    url: /grafana/
+    icon: 📊
+  - name: Frigate (cámaras)
+    url: http://192.168.0.10:5000
+    icon: 🎥
+  - name: Jellyfin (streaming)
+    url: http://192.168.0.10:8096
+    icon: 🎬
+  - name: VPN (wg-easy)
+    url: http://10.8.0.1:51821
+    icon: 🔐
+  - name: Prometheus
+    url: /prometheus/
+    icon: 🔥
+
+cameras:
+  frigate_url: http://192.168.0.10:5000     # Frigate en la PC Linux
+  go2rtc_url: http://192.168.0.10:1984      # vista en vivo (WebRTC/MSE)
+  notify_labels: [person, car]              # el bot avisa con foto cuando detecta esto
+  notify_cooldown: 300                      # segundos entre avisos de la misma cámara
+
+anomalies:
+  notify_new_devices: true
+  quarantine_unknown: false     # true = bloquea en automático lo desconocido (solo modo puente)
+  quiet_hours: ["01:00", "07:00"]  # avisos no urgentes se juntan para el reporte diario
+
+reports:
+  daily_time: "09:00"
+  timezone: America/Mexico_City
+
+backups:
+  dir: /data/backups
+  keep_per_device: 5            # cuántos respaldos guardar por dispositivo
+  forward_to_telegram: true     # reenviarte cada respaldo al chat (máx. ~1.9 GB por archivo)
+  # Dispositivos que pueden subir respaldos. El token de cada uno va en .env
+  # como BACKUP_TOKEN_<NOMBRE en mayúsculas>, ej. BACKUP_TOKEN_LAPTOP_WIN
+  devices:
+    - name: laptop-linux
+      os: linux
+    - name: laptop-win
+      os: windows
+    - name: macbook
+      os: macos
+    - name: telefono
+      os: android
+
+social:
+  timezone: America/Mexico_City
+  facebook_page_id: ""          # ID numérico de la página de tu empresa
+  instagram_user_id: ""         # ID de la cuenta Business ligada a esa página
+  telegram_channel: ""          # @tu_canal o -100xxxxxxxxxx (el bot debe ser admin)

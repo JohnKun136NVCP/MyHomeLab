@@ -1,0 +1,145 @@
+# ======================================================================
+#  Raspberry Pi 4 — red, monitoreo, alertas, bot y web
+#  Uso (desde la raíz del repo):
+#    docker compose -f hosts/pi/docker-compose.yml --env-file .env up -d
+#    ... --profile ids up -d      # además Suricata (IDS), recomendado en modo puente
+# ======================================================================
+name: homelab-pi
+
+x-common: &common
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  # --- Web de entrada (HTTPS local + contraseña) -------------------------
+  caddy:
+    <<: *common
+    image: caddy:2-alpine
+    ports: ["80:80", "443:443"]
+    environment:
+      HOMELAB_HOST: ${HOMELAB_HOST}
+      WEB_USER: ${WEB_USER:-admin}
+      WEB_PASSWORD_HASH: ${WEB_PASSWORD_HASH}
+    volumes:
+      - ../../config/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on: [grafana, bot]
+
+  # --- Escaneo de red, anomalías, ACL, métricas y app web -----------------
+  netwatch:
+    <<: *common
+    build: { context: ../../services, dockerfile: netwatch/Dockerfile }
+    network_mode: host            # necesita ver la red real para ARP/nmap/nftables
+    cap_add: [NET_RAW, NET_ADMIN]
+    environment:
+      HOMELAB_CONFIG: /config/homelab.yml
+      DATA_DIR: /data
+      PROMETHEUS_URL: http://127.0.0.1:9090/prometheus
+      BOT_URL: http://127.0.0.1:8080
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      # docker0: la alcanzan Caddy y Prometheus, pero no el resto de la red
+      LISTEN: 172.17.0.1:8000
+      SURICATA_EVE: /suricata/eve.json
+    volumes:
+      - ../../config/homelab.yml:/config/homelab.yml:ro
+      - netwatch_data:/data
+      - prom_targets:/data/prom-targets
+      - suricata_logs:/suricata:ro
+
+  # --- Bot de Telegram + receptor de respaldos + alertas -----------------
+  bot:
+    <<: *common
+    build: { context: ../../services, dockerfile: bot/Dockerfile }
+    ports: ["127.0.0.1:8080:8080"]
+    environment:
+      HOMELAB_CONFIG: /config/homelab.yml
+      DATA_DIR: /data
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_ALLOWED_IDS: ${TELEGRAM_ALLOWED_IDS}
+      TELEGRAM_API_URL: ${TELEGRAM_API_URL:-https://api.telegram.org}
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      PROMETHEUS_URL: http://prometheus:9090/prometheus
+      NETWATCH_URL: http://host.docker.internal:8000
+      META_PAGE_TOKEN: ${META_PAGE_TOKEN:-}
+      BACKUP_TOKEN_LAPTOP_LINUX: ${BACKUP_TOKEN_LAPTOP_LINUX:-}
+      BACKUP_TOKEN_LAPTOP_WIN: ${BACKUP_TOKEN_LAPTOP_WIN:-}
+      BACKUP_TOKEN_MACBOOK: ${BACKUP_TOKEN_MACBOOK:-}
+      BACKUP_TOKEN_TELEFONO: ${BACKUP_TOKEN_TELEFONO:-}
+    volumes:
+      - ../../config/homelab.yml:/config/homelab.yml:ro
+      - bot_data:/data
+      - ${BACKUPS_DIR:-./backups}:/data/backups
+      # archivos que el servidor Bot API local guarda (misma ruta que en el host)
+      - ${TELEGRAM_API_DATA:-/var/lib/telegram-bot-api}:${TELEGRAM_API_DATA:-/var/lib/telegram-bot-api}:ro
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  # --- Métricas ----------------------------------------------------------
+  prometheus:
+    <<: *common
+    image: prom/prometheus:latest
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.external-url=/prometheus/
+      - --web.enable-lifecycle
+    ports: ["127.0.0.1:9090:9090"]   # netwatch (red del host) la consulta aquí
+    volumes:
+      - ../../config/prometheus:/etc/prometheus:ro
+      - prom_data:/prometheus
+      - prom_targets:/etc/prometheus/targets:ro
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  alertmanager:
+    <<: *common
+    image: prom/alertmanager:latest
+    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
+    volumes:
+      - ../../config/alertmanager:/etc/alertmanager:ro
+
+  grafana:
+    <<: *common
+    image: grafana/grafana-oss:latest
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: https://${HOMELAB_HOST}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - ../../config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+
+  node-exporter:
+    <<: *common
+    image: prom/node-exporter:latest
+    command: ["--path.rootfs=/host", "--web.listen-address=:9100"]
+    network_mode: host
+    pid: host
+    volumes: ["/:/host:ro,rslave"]
+
+  # --- IDS (opcional): docker compose ... --profile ids up -d -------------
+  suricata:
+    <<: *common
+    profiles: ["ids"]
+    image: jasonish/suricata:latest
+    network_mode: host
+    cap_add: [NET_ADMIN, NET_RAW, SYS_NICE]
+    command: ["-i", "${CAPTURE_INTERFACE:-eth0}"]
+    volumes:
+      - suricata_logs:/var/log/suricata
+      - suricata_rules:/var/lib/suricata
+
+volumes:
+  caddy_data:
+  netwatch_data:
+  bot_data:
+  prom_data:
+  prom_targets:
+  grafana_data:
+  suricata_logs:
+  suricata_rules:
