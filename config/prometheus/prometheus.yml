@@ -20,7 +20,7 @@ scrape_configs:
   # (netwatch la escribe en targets/nodes.json; no hay que editar esto).
   - job_name: node
     file_sd_configs:
-      - files: ["/etc/prometheus/targets/nodes.json"]
+      - files: ["/prometheus-targets/nodes.json"]
         refresh_interval: 1m
 
   # Dispositivos, latencias, tráfico por dispositivo, eventos e IDS

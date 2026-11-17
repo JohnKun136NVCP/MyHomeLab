@@ -94,7 +94,7 @@ services:
     volumes:
       - ../../config/prometheus:/etc/prometheus:ro
       - prom_data:/prometheus
-      - prom_targets:/etc/prometheus/targets:ro
+      - prom_targets:/prometheus-targets:ro   # fuera de /etc/prometheus (que es de solo lectura)
     extra_hosts: ["host.docker.internal:host-gateway"]
 
   alertmanager:
