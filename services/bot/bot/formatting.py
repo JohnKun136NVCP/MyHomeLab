@@ -28,6 +28,27 @@ def alertmanager(payload: dict) -> str:
     return "\n".join(lines)
 
 
+def uptime_kuma(body: dict) -> str:
+    """Webhook de Uptime Kuma (tipo «Webhook», cuerpo application/json)."""
+    hb = body.get("heartbeat") or {}
+    mon = body.get("monitor") or {}
+    status = hb.get("status")
+    icon = {0: "🔴", 1: "✅", 2: "🟡", 3: "🔧"}.get(status, "📈")
+    if not hb and not mon:                       # botón «Probar» de Uptime Kuma
+        return f"📈 <b>Uptime Kuma</b>: {esc(body.get('msg') or 'prueba')}"
+    name = mon.get("name") or "monitor"
+    target = mon.get("url") or mon.get("hostname") or ""
+    state = {0: "CAÍDO", 1: "arriba de nuevo", 2: "pendiente", 3: "en mantenimiento"}.get(status, "")
+    lines = [f"{icon} <b>{esc(name)}</b> {state}"]
+    if target and target != "https://":
+        lines.append(f"   <code>{esc(target)}</code>")
+    if hb.get("msg"):
+        lines.append(f"   {esc(hb['msg'])}")
+    if hb.get("ping") and status == 1:
+        lines.append(f"   respuesta en {hb['ping']} ms")
+    return "\n".join(lines)
+
+
 def netwatch_events(events: list[dict]) -> str:
     if not events:
         return ""

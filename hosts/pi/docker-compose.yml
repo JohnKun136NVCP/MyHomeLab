@@ -185,6 +185,8 @@ services:
     ports: ["3001:3001"]            # http://IP-de-la-Pi:3001
     volumes:
       - uptime_kuma:/app/data
+    # para monitorear servicios de la propia Pi (Bot API, nginx…): host.docker.internal
+    extra_hosts: ["host.docker.internal:host-gateway"]
 
   vaultwarden:
     <<: *common

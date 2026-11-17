@@ -308,3 +308,19 @@ def test_local_api_file_removed_after_copy(bot, tmp_path):
     finally:
         Fake.local_file = old
     assert dest.read_bytes() == b"y" * 100 and not src.exists()
+
+
+def test_uptime_kuma_webhook(bot):
+    hdr = {"Authorization": "Bearer interno", "Content-Type": "application/json"}
+    down = {"heartbeat": {"status": 0, "msg": "timeout of 48000ms exceeded", "time": "2026-11-17 19:40"},
+            "monitor": {"name": "Página empresa", "url": "https://miempresa.mx"},
+            "msg": "[Página empresa] [🔴 Down] timeout"}
+    code, _ = http(bot, "POST", "/notify", json.dumps(down).encode(), hdr)
+    assert code == 200 and wait(lambda: any("Página empresa</b> CAÍDO" in t for t in sent_texts()))
+    up = {"heartbeat": {"status": 1, "msg": "200 - OK", "ping": 87}, "monitor": {"name": "Página empresa"}}
+    http(bot, "POST", "/notify", json.dumps(up).encode(), hdr)
+    assert wait(lambda: any("arriba de nuevo" in t and "87 ms" in t for t in sent_texts()))
+    http(bot, "POST", "/notify", json.dumps({"msg": "Uptime Kuma Testing"}).encode(), hdr)
+    assert wait(lambda: any("Uptime Kuma Testing" in t for t in sent_texts()))
+    code, _ = http(bot, "POST", "/notify", json.dumps(down).encode(), {"Content-Type": "application/json"})
+    assert code == 401

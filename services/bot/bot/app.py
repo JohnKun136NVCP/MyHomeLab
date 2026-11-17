@@ -191,7 +191,12 @@ class BotApp:
         if not self._internal_ok(request):
             return JSONResponse({"error": "no autorizado"}, 401)
         body = await request.json()
-        text = formatting.netwatch_events(body.get("events", [])) if "events" in body else esc(body.get("text", ""))
+        if "events" in body:
+            text = formatting.netwatch_events(body.get("events", []))
+        elif "heartbeat" in body or "monitor" in body or "msg" in body:      # webhook de Uptime Kuma
+            text = formatting.uptime_kuma(body)
+        else:
+            text = esc(body.get("text", ""))
         await asyncio.to_thread(self.notify, text)
         return JSONResponse({"ok": True})
 
