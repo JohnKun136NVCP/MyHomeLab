@@ -232,6 +232,8 @@ const views = {
           ${f.generate ? `<label class="small"><input type="checkbox" data-gen="${f.key}"> generar uno nuevo</label>` : ""}`;
       } else if (f.kind === "profiles") {
         input = Object.entries(f.options).map(([k, label]) => `<label class="chk"><input type="checkbox" data-profile="${k}" ${f.value.includes(k) ? "checked" : ""}> <b>${k}</b> — ${esc(label)}</label>`).join("");
+      } else if (f.kind === "select") {
+        input = `<select id="${id}" ${data}>${Object.entries(f.options).map(([k, l]) => `<option value="${esc(k)}" ${k === (f.value ?? "") ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
       } else if (f.kind === "bool") {
         const on = f.value === true || f.value === "true";
         input = `<label class="chk"><input type="checkbox" id="${id}" ${data} data-bool="1" ${on ? "checked" : ""}> activado</label>`;
@@ -303,6 +305,7 @@ const views = {
         if (toks.length) $("#toks").innerHTML = `<div class="banner">Tokens nuevos (cópialos ahora, no se vuelven a mostrar):<br>${toks.map(([d, t]) => `<b>${esc(d)}</b>: <span class="mono" style="user-select:all">${esc(t)}</span>`).join("<br>")}</div>`;
         const n = r.env_changed.length + (r.yaml_changed ? 1 : 0);
         toast(n ? `Guardado (${n} cambio${n > 1 ? "s" : ""})` : "No había cambios");
+        if (r.dns_msg) setTimeout(() => toast(`DNS de salida: ${r.dns_msg}`), 2600);
         if (andApply && n) await apply(r.restart);
         else if (n && !toks.length) setTimeout(() => views.ajustes(), 600);
       } catch (e) { toast(e.message); }
@@ -371,6 +374,7 @@ const views = {
       if (!d.enabled) return;
       const card = document.createElement("div"); card.className = "card";
       card.innerHTML = `<h3>🛡 DNS (AdGuard) <a href="${esc(d.url)}" target="_blank" class="small">abrir</a></h3>
+        ${(d.upstream || []).length ? `<p class="small muted">Sale por: ${d.upstream.map((u) => esc(u.replace(/^https:\/\//, ""))).join(", ")}</p>` : ""}
         ${d.error ? `<p class="muted">${esc(d.error)}</p>` : `<p>${d.queries} consultas · <b style="color:var(--warn)">${d.blocked}</b> bloqueadas · <b style="color:var(--bad)">${d.malware}</b> malware/phishing</p>
         <table><tr><th>Equipo</th><th>Consultas</th></tr>${d.top_clients.slice(0, 8).map((c) => `<tr><td>${esc(c.name || c.ip)} <span class="muted small">${c.ip}</span></td><td>${c.n}</td></tr>`).join("")}</table>`}`;
       view.querySelector(".grid2")?.append(card);

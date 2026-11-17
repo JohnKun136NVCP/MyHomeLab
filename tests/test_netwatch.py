@@ -331,3 +331,71 @@ def test_adguard_autodetect():
     assert a.enabled
     off = AdGuard("")                       # adguard_url: "" = apagado a propósito
     assert not off.enabled and off.poll() == []
+
+
+def test_controld_upstream(tmp_path):
+    """Control D como DNS de salida de AdGuard (servidor AdGuard falso)."""
+    import base64
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from netwatch.adguard import AdGuard, upstream_urls
+    state = {"upstream": ["https://dns10.quad9.net/dns-query"], "posts": []}
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _ok(self, obj):
+            b = json.dumps(obj).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+
+        def _auth(self):
+            if self.headers.get("Authorization") != "Basic " + base64.b64encode(b"admin:clave").decode():
+                self.send_response(401)
+                self.end_headers()
+                return False
+            return True
+
+        def do_GET(self):
+            if self._auth():
+                self._ok({"upstream_dns": state["upstream"]} if self.path.startswith("/control/dns_info")
+                         else {"data": []} if "querylog" in self.path else {})
+
+        def do_POST(self):
+            if self._auth():
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                state["posts"].append(body)
+                state["upstream"] = body["upstream_dns"]
+                self._ok({})
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+
+    assert upstream_urls("controld-family") == ["https://freedns.controld.com/family"]
+    assert upstream_urls("controld-custom", "abc123xyz") == ["https://dns.controld.com/abc123xyz"]
+    assert upstream_urls("controld-custom", "") == [] and upstream_urls("") == []
+
+    bad = AdGuard(url, "admin", "mal")
+    ok, msg = bad.set_upstream(["https://freedns.controld.com/family"])
+    assert not ok and "usuario" in msg
+
+    ag = AdGuard(url, "admin", "clave")
+    assert ag.get_upstream() == ["https://dns10.quad9.net/dns-query"]
+    ok, msg = ag.set_upstream(["https://freedns.controld.com/family"])
+    assert ok and state["upstream"] == ["https://freedns.controld.com/family"]
+    ok, msg = ag.set_upstream(["https://freedns.controld.com/family"])
+    assert ok and msg == "ya estaba así" and len(state["posts"]) == 1
+
+    # El monitor lo vuelve a poner si AdGuard se reinstaló
+    from netwatch import monitor as M
+    mon = M.Monitor({"network": {"networks": [{"name": "casa", "cidr": "192.168.1.0/24"}]},
+                     "dns": {"adguard_url": url, "upstream": "controld-p2"}}, DB(tmp_path / "n.db"), tmp_path)
+    mon.adguard.user, mon.adguard.password = "admin", "clave"
+    mon.poll_dns()
+    assert state["upstream"] == ["https://freedns.controld.com/p2"]
+    srv.shutdown()

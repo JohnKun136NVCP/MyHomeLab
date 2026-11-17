@@ -337,7 +337,7 @@ def build_app(mon: Monitor) -> Starlette:
                             for ip, n in ag.top_clients()[:15]],
             "top_blocked": [{"domain": k, "n": v} for item in st.get("top_blocked_domains") or []
                             for k, v in item.items()][:15],
-            "url": ag.url})
+            "url": ag.url, "upstream": ag.upstream or ag.get_upstream()})
 
     # --------------------------------------------------- accesos y cámaras
     async def links(_):
@@ -407,6 +407,11 @@ def build_app(mon: Monitor) -> Starlette:
                  "desc": "¿Están arriba tu página, el VPS y tus servicios?", "check": "http://127.0.0.1:3001"},
                 {"name": "Vaultwarden", "icon": "🔑", "url": "/vault/", "group": "Servicios",
                  "desc": "Tus contraseñas (apps de Bitwarden)", "check": f"{base}/vault/alive"}]
+        if any("controld.com" in u for u in mon.dns_upstream):
+            tools.append({"name": "Control D", "icon": "🧭", "url": "https://controld.com/dashboard",
+                          "group": "Servicios", "desc": "DNS de salida de AdGuard: " +
+                          ", ".join(u.rsplit("/", 1)[-1] for u in mon.dns_upstream),
+                          "check": "https://freedns.controld.com/p0"})
         inf = cfg.get("infrastructure", {}) or {}
         m = inf.get("modem")
         if m and m.get("admin_url"):
@@ -474,9 +479,13 @@ def build_app(mon: Monitor) -> Starlette:
                 item["value"] = v
             groups.setdefault(f["group"], []).append(item)
         ygroups: dict[str, list] = {}
+        from .adguard import UPSTREAMS
         for f in st.YAML_FIELDS:
-            ygroups.setdefault(f["group"], []).append({**f, "kind": f.get("kind", "text"),
-                                                       "value": st.yaml_get(data, f["path"])})
+            item = {**f, "kind": f.get("kind", "text"), "value": st.yaml_get(data, f["path"])}
+            if item.get("options") == "UPSTREAMS":
+                item["options"] = {k: v[0] for k, v in UPSTREAMS.items()}
+                item["value"] = item["value"] or ""
+            ygroups.setdefault(f["group"], []).append(item)
         devs = [{"name": d.get("name"), "os": d.get("os", ""),
                  "token_set": bool(env.get(st.device_env_key(d.get("name", ""))))}
                 for d in (st.yaml_get(data, "backups.devices") or [])]
@@ -548,14 +557,23 @@ def build_app(mon: Monitor) -> Starlette:
                 key = st.device_env_key(d["name"])
                 if not env_now.get(key) and key not in env_up:
                     env_up[key] = new_tokens[d["name"]] = st.new_token()
+        dns_msg = ""
         if yaml_changed:
             st.write_yaml(path, data)
+            from .adguard import upstream_urls
+            urls = upstream_urls(st.yaml_get(data, "dns.upstream") or "", st.yaml_get(data, "dns.controld_resolver") or "")
+            if urls != mon.dns_upstream:
+                mon.dns_upstream = urls
+                if urls and mon.adguard.url:          # se aplica ya, sin reiniciar nada
+                    import asyncio
+                    ok, dns_msg = await asyncio.to_thread(mon.adguard.set_upstream, urls)
+                    dns_msg = ("✅ " if ok else "⚠ ") + dns_msg
         changed = st.write_env(env_up) if env_up else []
         restart = st.restart_for(changed)
         if yaml_changed:
             restart = "all" if restart == "all" else sorted(set(restart) | {"netwatch", "bot"})
         return JSONResponse({"ok": True, "env_changed": changed, "yaml_changed": yaml_changed,
-                             "new_tokens": new_tokens, "restart": restart})
+                             "new_tokens": new_tokens, "restart": restart, "dns_msg": dns_msg})
 
     async def settings_yaml(request: Request):
         raw = (await request.json()).get("raw", "")

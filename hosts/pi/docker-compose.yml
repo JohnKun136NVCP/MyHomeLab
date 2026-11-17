@@ -131,7 +131,9 @@ services:
   node-exporter:
     <<: *common
     image: prom/node-exporter:latest
-    command: ["--path.rootfs=/host", "--web.listen-address=:9100"]
+    # Sin las interfaces virtuales de Docker (vethXXXX, br-XXXX, docker0) en las métricas
+    command: ["--path.rootfs=/host", "--web.listen-address=:9100",
+              "--collector.netdev.device-exclude=^(veth.*|br-.*|docker[0-9]+|lo)$"]
     network_mode: host
     pid: host
     volumes: ["/:/host:ro,rslave"]

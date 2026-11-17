@@ -13,7 +13,7 @@ from pathlib import Path
 from homelab_common import http_json
 
 from . import acl, names, roam, scanner
-from .adguard import AdGuard
+from .adguard import AdGuard, upstream_urls
 from .inbound import Inbound, service_name
 from .classify import classify
 from .db import DB
@@ -58,6 +58,9 @@ class Monitor:
                                os.environ.get("CANARY_LOG", "/honeypot/opencanary.log"))
         dns = cfg.get("dns", {}) or {}
         self.adguard = AdGuard(dns.get("adguard_url") if "adguard_url" in dns else None)
+        self.dns_upstream = upstream_urls(dns.get("upstream", ""), dns.get("controld_resolver", ""))
+        self._upstream_checked = 0.0
+        self.upstream_msg = ""
         self._name_budget = int(net.get("names_per_cycle", 8))
         self.write_prom_targets()
 
@@ -334,7 +337,14 @@ class Monitor:
             self.db.prune_inbound()
 
     def poll_dns(self) -> None:
-        for b in self.adguard.poll():
+        dangers = self.adguard.poll()
+        # Mantén el DNS de salida elegido en Ajustes (por si reinstalas AdGuard), cada 30 min
+        if self.dns_upstream and self.adguard.reachable and time.time() - self._upstream_checked > 1800:
+            self._upstream_checked = time.time()
+            ok, self.upstream_msg = self.adguard.set_upstream(self.dns_upstream)
+            if not ok:
+                log.warning("DNS de salida: %s", self.upstream_msg)
+        for b in dangers:
             dev = next((d for d in self.db.devices() if d["ip"] == b["client"]), None)
             who = f"{dev['display_name']} ({b['client']})" if dev else b["client"]
             if not self.db.recent_event("dns_danger", f"{b['client']}|{b['domain']}", 6 * 3600):

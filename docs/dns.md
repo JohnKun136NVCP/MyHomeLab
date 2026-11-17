@@ -27,3 +27,24 @@ sudo docker compose -f hosts/pi/docker-compose.yml --env-file .env --profile dns
   Pi se apaga sin secundario, la casa se queda sin DNS.
 
 Bot: `/dns`. Web: tarjeta «DNS» en el Resumen.
+
+## Control D como DNS de salida (filtro familiar)
+AdGuard le pregunta a internet a través del servidor que elijas en **⚙ Ajustes → DNS de
+salida**; se aplica al guardar, sin reiniciar nada:
+
+| Opción | Qué bloquea |
+|---|---|
+| Control D: malware | sitios maliciosos |
+| Control D: malware + anuncios | lo anterior y anuncios/rastreadores |
+| **Control D familiar** | malware, anuncios y **contenido para adultos** (y pone YouTube en modo restringido) |
+| Control D con tu perfil | lo que configures en controld.com (pon el ID de tu resolver) |
+
+Así conservas lo mejor de los dos: AdGuard sigue registrando **qué equipo** pidió qué y
+avisando al bot, y Control D aplica sus categorías. netwatch revisa cada 30 min que siga
+puesto (por si reinstalas AdGuard).
+
+**Solo para algunos equipos** (por ejemplo los de los niños): en AdGuard → Clientes →
+agrega el equipo y en «Servidores DNS de subida» pon `https://freedns.controld.com/family`;
+el resto de la casa sigue con el DNS general.
+
+Ninguna de estas opciones quita los anuncios de YouTube (ver arriba).

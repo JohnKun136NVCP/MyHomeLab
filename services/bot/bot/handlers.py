@@ -195,7 +195,8 @@ class Handlers:
                          f"{d['malware']} malware/phishing\n<b>Más consultas</b>\n" + "\n".join(
                              f"  {esc(c['name'] or c['ip'])}: {c['n']}" for c in d["top_clients"][:8])
                    + ("\n<b>Más bloqueados</b>\n" + "\n".join(f"  {esc(b['domain'])}: {b['n']}"
-                                                              for b in d["top_blocked"][:5]) if d["top_blocked"] else ""))
+                                                              for b in d["top_blocked"][:5]) if d["top_blocked"] else "")
+                   + ("\n🧭 Sale por: " + ", ".join(esc(u) for u in d.get("upstream") or []) if d.get("upstream") else ""))
 
     # ---------------------------------------------------------------- ACL
     def cmd_bloquear(self, chat, arg):

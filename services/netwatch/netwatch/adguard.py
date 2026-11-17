@@ -12,6 +12,26 @@ log = logging.getLogger("netwatch.adguard")
 
 DANGER = ("blocked_safebrowsing", "blocked_parental")
 
+# DNS de salida (lo que AdGuard le pregunta a internet). Control D gratis por DoH:
+# https://controld.com/free-dns
+UPSTREAMS = {
+    "": ("Lo que tenga AdGuard (no tocar)", []),
+    "controld-p1": ("Control D: bloquea malware", ["https://freedns.controld.com/p1"]),
+    "controld-p2": ("Control D: malware + anuncios", ["https://freedns.controld.com/p2"]),
+    "controld-family": ("Control D familiar: malware, anuncios y contenido para adultos",
+                        ["https://freedns.controld.com/family"]),
+    "controld-custom": ("Control D con tu perfil (ID del resolver)", []),
+    "quad9": ("Quad9 (bloquea malware)", ["https://dns.quad9.net/dns-query"]),
+    "cloudflare": ("Cloudflare (sin filtro)", ["https://cloudflare-dns.com/dns-query"]),
+}
+
+
+def upstream_urls(choice: str, resolver_id: str = "") -> list[str]:
+    if choice == "controld-custom":
+        rid = "".join(c for c in (resolver_id or "") if c.isalnum())
+        return [f"https://dns.controld.com/{rid}"] if rid else []
+    return list(UPSTREAMS.get(choice, ("", []))[1])
+
 
 class AdGuard:
     DEFAULT_URL = "http://127.0.0.1:3002"
@@ -29,6 +49,7 @@ class AdGuard:
         self.error = ""
         self._seen: set[str] = set()
         self._first = True    # al arrancar no reavisamos lo que ya estaba en el historial
+        self.upstream: list[str] = []
 
     @property
     def enabled(self) -> bool:
@@ -81,6 +102,40 @@ class AdGuard:
         except (urllib.error.URLError, OSError, ValueError) as e:
             self.error = f"AdGuard no responde en {self.url}: {e}"
             return []
+
+    def _post(self, path: str, body: dict) -> None:
+        req = urllib.request.Request(self.url + path, data=json.dumps(body).encode(), method="POST",
+                                     headers={"Content-Type": "application/json"})
+        if self.user:
+            tok = base64.b64encode(f"{self.user}:{self.password}".encode()).decode()
+            req.add_header("Authorization", f"Basic {tok}")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            r.read()
+
+    def get_upstream(self) -> list[str]:
+        try:
+            return list((self._get("/control/dns_info") or {}).get("upstream_dns") or [])
+        except (urllib.error.URLError, OSError, ValueError):
+            return []
+
+    def set_upstream(self, urls: list[str]) -> tuple[bool, str]:
+        """Cambia el DNS de salida de AdGuard. Regresa (ok, mensaje)."""
+        if not urls:
+            return True, "sin cambios"
+        if not self.url:
+            return False, "AdGuard no está configurado"
+        try:
+            if sorted(self.get_upstream()) == sorted(urls):
+                return True, "ya estaba así"
+            self._post("/control/dns_config", {"upstream_dns": urls})
+            self.upstream = urls
+            return True, "DNS de salida actualizado"
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                return False, "AdGuard no aceptó el usuario/contraseña (Ajustes → AdGuard)"
+            return False, f"AdGuard respondió {e.code}: {e.read()[:200]!r}"
+        except (urllib.error.URLError, OSError) as e:
+            return False, f"AdGuard no responde: {e}"
 
     def top_clients(self) -> list[tuple[str, int]]:
         out = []

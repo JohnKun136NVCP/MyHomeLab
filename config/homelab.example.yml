@@ -104,6 +104,10 @@ links:
 # equipos y te avisa si alguien intentó abrir un dominio de malware/phishing.
 dns:
   adguard_url: http://127.0.0.1:3002      # vacío = sin AdGuard
+  # DNS de salida de AdGuard: "" (no tocar), controld-p1, controld-p2, controld-family,
+  # controld-custom (+ controld_resolver), quad9, cloudflare
+  upstream: ""
+  controld_resolver: ""
 
 cameras:
   frigate_url: http://192.168.1.10:5000     # Frigate en la PC Linux
