@@ -4,9 +4,8 @@
 #    docker compose -f hosts/pi/docker-compose.yml --env-file .env up -d
 #    ... --profile ids up -d        # Suricata (IDS), recomendado en modo puente
 #    ... --profile dns up -d        # AdGuard Home (DNS de la casa)
-#    ... --profile honeypot up -d   # OpenCanary en la red del laboratorio
 #    ... --profile servicios up -d  # Uptime Kuma y Vaultwarden
-#  Varios a la vez:  --profile dns --profile honeypot --profile servicios
+#  Varios a la vez:  --profile dns --profile servicios
 # ======================================================================
 name: homelab-pi
 
@@ -40,11 +39,13 @@ services:
     build: { context: ../../services, dockerfile: netwatch/Dockerfile }
     network_mode: host            # necesita ver la red real para ARP/nmap/nftables
     cap_add: [NET_RAW, NET_ADMIN]
+    env_file: ../../.env
     environment:
-      HOMELAB_CONFIG: /config/homelab.yml
+      HOMELAB_CONFIG: /homelab/config/homelab.yml
+      HOMELAB_ENV: /homelab/.env
+      HOMELAB_RUN: /homelab/run
       DATA_DIR: /data
       UFW_LOG: /hostlog/ufw.log
-      CANARY_LOG: /honeypot/opencanary.log
       ADGUARD_USER: ${ADGUARD_USER:-}
       ADGUARD_PASSWORD: ${ADGUARD_PASSWORD:-}
       PROMETHEUS_URL: http://127.0.0.1:9090/prometheus
@@ -54,11 +55,13 @@ services:
       LISTEN: 172.17.0.1:8000
       SURICATA_EVE: /suricata/eve.json
     volumes:
-      - ../../config/homelab.yml:/config/homelab.yml:ro
+      # Ajustes de la web: lee y escribe estos archivos (copias en run/)
+      - ../../config:/homelab/config
+      - ../../.env:/homelab/.env
+      - ../../run:/homelab/run
       - netwatch_data:/data
       - prom_targets:/data/prom-targets
       - suricata_logs:/suricata:ro
-      - honeypot_logs:/honeypot:ro
       - /var/log:/hostlog:ro         # log de UFW (intentos bloqueados)
       # nmcli del contenedor habla con el NetworkManager de la Pi (cambiar de SSID)
       - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
@@ -68,6 +71,7 @@ services:
     <<: *common
     build: { context: ../../services, dockerfile: bot/Dockerfile }
     ports: ["127.0.0.1:8080:8080"]
+    env_file: ../../.env          # incluye los BACKUP_TOKEN_* de todos tus equipos
     environment:
       HOMELAB_CONFIG: /config/homelab.yml
       DATA_DIR: /data
@@ -78,10 +82,6 @@ services:
       PROMETHEUS_URL: http://prometheus:9090/prometheus
       NETWATCH_URL: http://host.docker.internal:8000
       META_PAGE_TOKEN: ${META_PAGE_TOKEN:-}
-      BACKUP_TOKEN_LAPTOP_LINUX: ${BACKUP_TOKEN_LAPTOP_LINUX:-}
-      BACKUP_TOKEN_LAPTOP_WIN: ${BACKUP_TOKEN_LAPTOP_WIN:-}
-      BACKUP_TOKEN_MACBOOK: ${BACKUP_TOKEN_MACBOOK:-}
-      BACKUP_TOKEN_TELEFONO: ${BACKUP_TOKEN_TELEFONO:-}
     volumes:
       - ../../config/homelab.yml:/config/homelab.yml:ro
       - bot_data:/data
@@ -161,21 +161,6 @@ services:
       - adguard_work:/opt/adguardhome/work
       - adguard_conf:/opt/adguardhome/conf
 
-  # --- Honeypot en el laboratorio (opcional): --profile honeypot -------------
-  honeypot:
-    <<: *common
-    profiles: ["honeypot"]
-    build: { context: ../../services/honeypot }
-    network_mode: host              # escucha SOLO en HONEYPOT_IP (la IP de la Pi en el lab)
-    environment:
-      HONEYPOT_IP: ${HONEYPOT_IP:-192.168.100.5}
-      HONEYPOT_NODE: ${HONEYPOT_NODE:-lab-canary}
-    cap_drop: [ALL]
-    cap_add: [NET_BIND_SERVICE]     # puertos 21 y 23
-    security_opt: ["no-new-privileges:true"]
-    volumes:
-      - honeypot_logs:/var/log/opencanary
-
   # --- Servicios (opcional): --profile servicios ------------------------------
   uptime-kuma:
     <<: *common
@@ -207,7 +192,6 @@ volumes:
   grafana_data:
   suricata_logs:
   suricata_rules:
-  honeypot_logs:
   adguard_work:
   adguard_conf:
   uptime_kuma:

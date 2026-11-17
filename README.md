@@ -24,6 +24,7 @@ flowchart LR
 
 | Pediste | Cómo quedó | Dónde |
 |---|---|---|
+| Un solo lugar para todo y sin editar archivos | Web → **Inicio** (todas las herramientas con su estado) y **⚙ Ajustes** (edita `.env` y `homelab.yml`, enciende servicios y aplica cambios) | [ajustes](docs/ajustes.md) |
 | Ver dispositivos y tráfico de toda la casa | Escaneo ARP/nmap cada 2 min (sirve con cualquier AP); **varias redes/SSID con una sola Wi-Fi** ([roaming](docs/redes-multiples.md)), tipo de dispositivo por fabricante/puertos, latencias; tráfico **por dispositivo** en modo puente | `services/netwatch`, [modo puente](docs/modo-puente.md) |
 | Gráficas en Grafana | Tableros «Red de casa» y «Nodos: Raspberry, PC y VPS» ya cargados | `config/grafana` |
 | Detección de anomalías | Dispositivo nuevo, ARP spoofing en el módem/AP, puertos nuevos, tráfico 4–5× arriba de lo normal (casa, VPS y cada dispositivo), IDS Suricata, AP o internet caídos | `monitor.py`, `config/prometheus/rules` |
@@ -35,10 +36,9 @@ flowchart LR
 | Estado y tráfico del VPS en Grafana y reportes | node-exporter del VPS por la VPN; `/vps` y reporte diario | `hosts/vps` |
 | Publicar en redes de la empresa a cierta hora | `/programar` para Facebook, Instagram y tu canal de Telegram | [redes sociales](docs/redes-sociales.md) |
 | App web | Resumen, Dispositivos, Tráfico, Por AP, **Mapa** (árbol Internet → módem → AP → dispositivos), Cámaras, Accesos de un clic a tus AP, ACL y Eventos | `https://IP-de-la-Pi` |
-| IPs entrantes | Web → **Conexiones**: grafo interactivo de quién se conecta a qué servicio (permitidas, bloqueadas por UFW, honeypot), por hora y por IP | [conexiones](docs/conexiones.md) |
+| IPs entrantes | Web → **Conexiones**: grafo interactivo de quién se conecta a qué servicio (permitidas y bloqueadas por UFW), por hora y por IP | [conexiones](docs/conexiones.md) |
 | Hostnames y buscar equipos | DNS del módem/Tenda, mDNS, NetBIOS y AdGuard; botón «🔎 Buscar en la red» | [conexiones](docs/conexiones.md) |
 | DNS con filtro | AdGuard Home (perfil `dns`), aviso de dominios de malware | [dns](docs/dns.md) |
-| Honeypot | OpenCanary solo en la red del laboratorio (perfil `honeypot`) | [honeypot](docs/honeypot.md) |
 | Uptime Kuma y Vaultwarden | perfil `servicios` | [servicios](docs/servicios.md) |
 | CrowdSec del VPS | métricas y alerta de ataques | [VPN](docs/vpn.md) |
 | Laboratorio CCNA | Containerlab con OSPF y ejercicios | [lab/](lab/README.md) |

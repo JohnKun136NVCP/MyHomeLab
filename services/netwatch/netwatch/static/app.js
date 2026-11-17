@@ -109,7 +109,7 @@ document.addEventListener("mousemove", (e) => {
   tip.style.top = (e.clientY - r.top + 10) + "px";
 });
 
-const ACTION_COLOR = { permitida: "#3ecf8e", bloqueada: "#f2555a", honeypot: "#c084fc" };
+const ACTION_COLOR = { permitida: "#3ecf8e", bloqueada: "#f2555a" };
 function hourlyBars(rows, hours) {
   const W = 800, H = 200, P = { l: 40, r: 10, t: 10, b: 24 };
   const now = Math.floor(Date.now() / 3600000) * 3600;
@@ -191,6 +191,146 @@ async function chartCard(el, title, q, range) {
 
 /* ------------------------------------------------------------------ vistas */
 const views = {
+  async inicio() {
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Tu homelab</h2>
+      <a href="#ajustes"><button>⚙ Ajustes</button></a></div>
+      <div class="grid" id="kpis"></div><br><div id="tools"><p class="muted">Revisando servicios…</p></div>`;
+    api("/api/summary").then((s) => {
+      $("#kpis").innerHTML = `
+        <a class="card kpi" href="#dispositivos"><div class="l">Equipos en línea</div><div class="v">${s.devices_online}</div><div class="muted small">${s.unknown} sin revisar</div></a>
+        <a class="card kpi" href="#eventos"><div class="l">Eventos 24 h</div><div class="v">${s.events_24h}</div><div class="muted small">${s.critical_24h} críticos</div></a>
+        <a class="card kpi" href="#resumen"><div class="l">Internet</div><div class="v">${s.targets.internet ? (s.targets.internet.up ? "✅" : "❌") : "—"}</div><div class="muted small">${s.targets.internet?.latency != null ? (s.targets.internet.latency * 1000).toFixed(0) + " ms" : ""}</div></a>
+        <a class="card kpi" href="#conexiones"><div class="l">Conexiones</div><div class="v" style="font-size:22px;margin-top:8px">Ver →</div></a>`;
+    }).catch(() => {});
+    const j = await api("/api/tools");
+    const sections = [["Homelab", [
+      { name: "Resumen", icon: "🏠", url: "#resumen", desc: "Estado de la red", status: true },
+      { name: "Dispositivos", icon: "💻", url: "#dispositivos", desc: "Quién está conectado", status: true },
+      { name: "Conexiones", icon: "🔌", url: "#conexiones", desc: "Quién se conecta a la Pi", status: true },
+      { name: "Mapa", icon: "🗺", url: "#mapa", desc: "Módem → AP → equipos", status: true },
+      ...j.tools.filter((t) => t.group === "Homelab")]]];
+    for (const g of ["Servicios", "Red", "Tus enlaces"]) {
+      const ts = j.tools.filter((t) => t.group === g);
+      if (ts.length) sections.push([g, ts]);
+    }
+    $("#tools").innerHTML = sections.map(([g, ts]) => `<h3>${esc(g)}</h3><div class="links">${ts.map((t) =>
+      `<a class="link" href="${esc(t.url)}" ${t.url.startsWith("#") ? "" : 'target="_blank" rel="noopener"'}>
+        <span class="i">${t.icon || "🔗"}</span><div style="min-width:0"><b>${esc(t.name)}</b>
+        ${t.status === true ? '<span class="dot on" title="responde"></span>' : t.status === false ? '<span class="dot off" title="no responde"></span>' : ""}
+        <div class="muted small" style="overflow:hidden;text-overflow:ellipsis">${esc(t.desc || "")}</div></div></a>`).join("")}</div><br>`).join("")
+      + `<p class="muted small">¿Falta algo? Agrega enlaces en Ajustes → editor avanzado (sección <span class="mono">links</span>).</p>`;
+  },
+
+  async ajustes() {
+    const s = await api("/api/settings");
+    const field = (f) => {
+      const id = `f_${f.key || f.path.replace(/\./g, "_")}`;
+      const data = f.key ? `data-env="${f.key}"` : `data-yaml="${f.path}"`;
+      let input;
+      if (f.kind === "secret" || f.kind === "password") {
+        input = `<input type="password" id="${id}" ${data} placeholder="${f.set ? esc(f.hint || "guardado") + " · escribe para cambiar" : "sin configurar"}" autocomplete="new-password">
+          ${f.generate ? `<label class="small"><input type="checkbox" data-gen="${f.key}"> generar uno nuevo</label>` : ""}`;
+      } else if (f.kind === "profiles") {
+        input = Object.entries(f.options).map(([k, label]) => `<label class="chk"><input type="checkbox" data-profile="${k}" ${f.value.includes(k) ? "checked" : ""}> <b>${k}</b> — ${esc(label)}</label>`).join("");
+      } else if (f.kind === "bool") {
+        const on = f.value === true || f.value === "true";
+        input = `<label class="chk"><input type="checkbox" id="${id}" ${data} data-bool="1" ${on ? "checked" : ""}> activado</label>`;
+      } else {
+        input = `<input id="${id}" ${data} value="${esc(f.value ?? "")}" ${f.kind === "number" ? 'inputmode="numeric"' : ""}>`;
+      }
+      return `<div class="frow"><label for="${id}">${esc(f.label)}</label><div>${input}${f.help ? `<div class="muted small">${esc(f.help)}</div>` : ""}</div></div>`;
+    };
+    const card = (title, fields) => `<div class="card"><h3>${esc(title)}</h3>${fields.map(field).join("")}</div>`;
+    const ap = s.apply;
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Ajustes</h2>
+        <button id="save">💾 Guardar</button><button class="primary" id="saveapply">💾 Guardar y aplicar</button></div>
+      ${s.env_exists ? "" : '<div class="banner">No encuentro el .env del homelab montado en el contenedor. Actualiza (git pull) y levanta de nuevo.</div>'}
+      ${ap.installed ? "" : '<div class="banner">Para que «aplicar» funcione desde aquí, corre una vez en la Pi: <span class="mono">sudo ./scripts/install-apply-service.sh</span>. Mientras, guarda y aplica a mano con <span class="mono">docker compose … up -d</span>.</div>'}
+      <div id="applybox"></div>
+      <div class="grid2">${Object.entries(s.env_groups).map(([g, fs]) => card(g, fs)).join("")}
+        ${Object.entries(s.yaml_groups).map(([g, fs]) => card(g + " (homelab.yml)", fs)).join("")}
+        <div class="card"><h3>Equipos que respaldan</h3>
+          <table id="devs"><tr><th>Nombre</th><th>Sistema</th><th>Token</th><th></th></tr>
+          ${s.devices.map((d) => devRow(d)).join("")}</table>
+          <button id="adddev" style="margin-top:8px">＋ Agregar equipo</button>
+          <div class="muted small">Al guardar, cada equipo nuevo recibe su token. Cópialo a su cliente de respaldo.</div>
+          <div id="toks"></div></div>
+      </div><br>
+      <div class="card"><h3>Editor avanzado: homelab.yml</h3>
+        <p class="muted small">Todo lo demás (redes, access points, cámaras, enlaces…). Se valida antes de guardar y queda copia en run/.</p>
+        <textarea id="yraw" spellcheck="false" style="width:100%;height:340px" class="mono">${esc(s.yaml_raw)}</textarea>
+        <div class="toolbar" style="margin-top:8px"><button id="ysave">💾 Guardar YAML</button><button class="primary" id="ysaveapply">💾 Guardar YAML y aplicar</button></div></div>`;
+    function devRow(d) {
+      return `<tr data-dev><td><input value="${esc(d.name)}" data-dname style="width:150px"></td>
+        <td><select data-dos>${["linux", "windows", "macos", "android", "ios"].map((o) => `<option ${o === d.os ? "selected" : ""}>${o}</option>`).join("")}</select></td>
+        <td>${d.token_set ? '<span class="pill ok">guardado</span>' : '<span class="pill">nuevo</span>'}</td>
+        <td style="white-space:nowrap">${d.token_set ? `<button data-regen="${esc(d.name)}" title="Generar otro (el viejo deja de servir)">↻</button>` : ""}<button data-del>🗑</button></td></tr>`;
+    }
+    const showApply = (st) => {
+      if (!st) return;
+      const box = $("#applybox");
+      if (st.pending) box.innerHTML = '<div class="banner">⏳ Aplicando cambios… (la página puede reconectarse sola)</div>';
+      else if (st.log) box.innerHTML = `<div class="card"><h3>${st.ok ? "✅ Cambios aplicados" : "⚠ Algo falló al aplicar"} <span class="muted small">${ago(st.ts)}</span></h3>
+        <details ${st.ok ? "" : "open"}><summary class="small">Ver bitácora</summary><pre class="mono small" style="white-space:pre-wrap;max-height:260px;overflow:auto">${esc(st.log.join("\n"))}</pre></details></div>`;
+    };
+    showApply(ap);
+    const poll = async () => {
+      for (let i = 0; i < 90; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try { const st = await api("/api/apply"); showApply(st); if (!st.pending) return; } catch { /* netwatch reiniciando */ }
+      }
+    };
+    const collect = () => {
+      const env = {}, yaml = {}, generate = {};
+      view.querySelectorAll("[data-env]").forEach((el) => { env[el.dataset.env] = el.dataset.bool ? el.checked : el.value; });
+      const prof = [...view.querySelectorAll("[data-profile]")].filter((c) => c.checked).map((c) => c.dataset.profile);
+      if (view.querySelector("[data-profile]")) env.COMPOSE_PROFILES = prof;
+      view.querySelectorAll("[data-yaml]").forEach((el) => { yaml[el.dataset.yaml] = el.dataset.bool ? el.checked : el.value; });
+      view.querySelectorAll("[data-gen]").forEach((el) => { if (el.checked) generate[el.dataset.gen] = true; });
+      const devices = [...view.querySelectorAll("tr[data-dev]")].map((tr) => ({ name: tr.querySelector("[data-dname]").value, os: tr.querySelector("[data-dos]").value }));
+      return { env, yaml, generate, devices };
+    };
+    const apply = async (restart) => {
+      const services = restart === "all" ? "all" : restart.filter((x) => x !== "*");
+      const force = restart === "all" ? ["netwatch", "bot"] : restart.filter((x) => ["netwatch", "bot", "caddy"].includes(x));
+      await api("/api/apply", { method: "POST", body: JSON.stringify({ services: services.length ? services : "all", force }) });
+      showApply({ pending: true }); poll();
+    };
+    const save = async (andApply) => {
+      try {
+        const r = await api("/api/settings", { method: "POST", body: JSON.stringify(collect()) });
+        const toks = Object.entries(r.new_tokens || {});
+        if (toks.length) $("#toks").innerHTML = `<div class="banner">Tokens nuevos (cópialos ahora, no se vuelven a mostrar):<br>${toks.map(([d, t]) => `<b>${esc(d)}</b>: <span class="mono" style="user-select:all">${esc(t)}</span>`).join("<br>")}</div>`;
+        const n = r.env_changed.length + (r.yaml_changed ? 1 : 0);
+        toast(n ? `Guardado (${n} cambio${n > 1 ? "s" : ""})` : "No había cambios");
+        if (andApply && n) await apply(r.restart);
+        else if (n && !toks.length) setTimeout(() => views.ajustes(), 600);
+      } catch (e) { toast(e.message); }
+    };
+    $("#save").onclick = () => save(false);
+    $("#saveapply").onclick = () => save(true);
+    $("#adddev").onclick = () => $("#devs").insertAdjacentHTML("beforeend", devRow({ name: "", os: "linux", token_set: false }));
+    $("#devs").addEventListener("click", async (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      if (b.dataset.del !== undefined) b.closest("tr").remove();
+      if (b.dataset.regen && confirm(`¿Generar otro token para ${b.dataset.regen}? El actual deja de funcionar en ese equipo.`)) {
+        const r = await api("/api/settings/token", { method: "POST", body: JSON.stringify({ device: b.dataset.regen }) });
+        $("#toks").innerHTML = `<div class="banner">Token nuevo de <b>${esc(r.device)}</b> (cópialo ahora): <span class="mono" style="user-select:all">${esc(r.token)}</span></div>`;
+        await apply(["bot"]);
+      }
+    });
+    const ysave = async (andApply) => {
+      try {
+        await api("/api/settings/yaml", { method: "POST", body: JSON.stringify({ raw: $("#yraw").value }) });
+        toast("homelab.yml guardado");
+        if (andApply) await apply(["netwatch", "bot"]);
+      } catch (e) { toast(e.message); }
+    };
+    $("#ysave").onclick = () => ysave(false);
+    $("#ysaveapply").onclick = () => ysave(true);
+    if (ap.pending) poll();
+  },
+
   async resumen() {
     const [s, ev] = await Promise.all([api("/api/summary"), api("/api/events?limit=8")]);
     $("#mode").textContent = s.bridge_mode ? `modo puente · ${s.interface}` : `modo pasivo · ${s.interface}`;
@@ -360,7 +500,7 @@ const views = {
     view.innerHTML = `<div class="toolbar"><h2 class="grow">Conexiones entrantes a la Pi</h2>
       <input id="cq" placeholder="Filtrar IP, nombre, origen…" style="width:220px">
       <select id="ca"><option value="">Todas</option><option value="permitida">Permitidas</option>
-        <option value="bloqueada">Bloqueadas (UFW)</option><option value="honeypot">Honeypot</option></select>
+        <option value="bloqueada">Bloqueadas (UFW)</option></select>
       <select id="ch"><option value="1">1 hora</option><option value="6">6 horas</option><option value="24" selected>24 horas</option>
         <option value="168">7 días</option></select></div>
       <div id="cbody"><p class="muted">Cargando…</p></div>`;
@@ -376,7 +516,6 @@ const views = {
           <div class="card kpi"><div class="l">IPs distintas</div><div class="v">${j.ips.length}</div></div>
           <div class="card kpi"><div class="l">Permitidas</div><div class="v" style="color:var(--ok)">${sum("permitida")}</div></div>
           <div class="card kpi"><div class="l">Bloqueadas</div><div class="v" style="color:var(--bad)">${sum("bloqueada")}</div></div>
-          <div class="card kpi"><div class="l">Honeypot</div><div class="v" style="color:var(--c4)">${sum("honeypot")}</div></div>
           <div class="card kpi"><div class="l">Desde Internet</div><div class="v">${j.ips.filter((r) => r.origin === "Internet").length}</div><div class="muted small">IPs públicas</div></div>
         </div><br>
         <div class="card"><h3>Por hora</h3>${hourlyBars(j.hourly.filter((r) => !act || r.action === act), Math.min(hours, 168))}</div><br>
@@ -384,20 +523,20 @@ const views = {
           <div class="legend" style="margin:0 0 8px">${[["casa", "#5aa9ff"], ["laboratorio", "#2dd4bf"], ["otra red (vía Tenda)", "#f5a524"], ["VPN", "#c084fc"], ["Internet", "#f2555a"]]
             .map(([k, c]) => `<span><i style="background:${c};border-radius:50%"></i>${k}</span>`).join("")}</div>
           <div style="overflow-x:auto">${flowGraph(ips, act)}</div></div><br>
-        <div class="grid2"><div class="card" style="overflow:auto"><h3>Detalle por IP</h3><table><tr><th>IP</th><th>Origen</th><th>Servicios</th><th>✔</th><th>⛔</th><th>🍯</th><th>Última</th></tr>
+        <div class="grid2"><div class="card" style="overflow:auto"><h3>Detalle por IP</h3><table><tr><th>IP</th><th>Origen</th><th>Servicios</th><th>✔</th><th>⛔</th><th>Última</th></tr>
           ${ips.map((r) => `<tr class="iprow" data-ip="${r.ip}" style="cursor:pointer"><td class="mono">${esc(r.ip)}<div class="muted small">${esc(r.name)}</div></td>
             <td><span class="dot" style="background:${ORIGIN_COLOR(r.origin)}"></span> ${esc(r.origin)}</td>
             <td class="small">${Object.keys(r.ports).map((p) => esc(r.services[p])).join(", ")}</td>
-            <td>${r.actions.permitida || ""}</td><td>${r.actions.bloqueada || ""}</td><td>${r.actions.honeypot || ""}</td>
-            <td class="small">${ago(r.last)}</td></tr>`).join("") || '<tr><td colspan="7" class="muted">Nada todavía.</td></tr>'}</table></div>
+            <td>${r.actions.permitida || ""}</td><td>${r.actions.bloqueada || ""}</td>
+            <td class="small">${ago(r.last)}</td></tr>`).join("") || '<tr><td colspan="6" class="muted">Nada todavía.</td></tr>'}</table></div>
           <div class="card" id="ipd"><h3>Selecciona una IP</h3><p class="muted">Haz clic en una IP del grafo o de la tabla.</p></div></div>`;
       const showIp = async (ip) => {
         const d = await api(`/api/inbound/${ip}`);
         const r = j.ips.find((x) => x.ip === ip) || { ports: {}, services: {}, actions: {} };
         $("#ipd").innerHTML = `<h3>${esc(ip)} · ${esc(d.origin)}</h3>
           ${r.name ? `<p>Equipo: <b>${esc(r.name)}</b> <span class="mono small">${esc(r.mac)}</span></p>` : ""}
-          <table><tr><th>Servicio</th><th>Permitidas</th><th>Bloqueadas</th><th>Honeypot</th></tr>${Object.entries(r.ports).map(([p, a]) =>
-            `<tr><td>${esc(r.services[p])} <span class="muted">:${p}</span></td><td>${a.permitida || ""}</td><td>${a.bloqueada || ""}</td><td>${a.honeypot || ""}</td></tr>`).join("")}</table>
+          <table><tr><th>Servicio</th><th>Permitidas</th><th>Bloqueadas</th></tr>${Object.entries(r.ports).map(([p, a]) =>
+            `<tr><td>${esc(r.services[p])} <span class="muted">:${p}</span></td><td>${a.permitida || ""}</td><td>${a.bloqueada || ""}</td></tr>`).join("")}</table>
           <h3 style="margin-top:12px">Por hora</h3>${hourlyBars(d.hourly, Math.min(hours, 168))}
           <h3 style="margin-top:12px">Eventos</h3>${evList(d.events.slice(0, 8))}
           <p class="small muted">Bloquearla en el firewall de la Pi:</p><code class="mono small" style="user-select:all">${esc(d.ufw)}</code>
@@ -554,10 +693,10 @@ function treeSVG(root, onlyOnline) {
 /* ------------------------------------------------------------------ router */
 async function route() {
   clearInterval(timer);
-  const name = (location.hash || "#resumen").slice(1);
+  const name = (location.hash || "#inicio").slice(1);
   document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + name));
   try {
-    await (views[name] || views.resumen)();
+    await (views[name] || views.inicio)();
   } catch (e) {
     view.innerHTML = `<div class="banner">Error: ${esc(e.message)}</div>`;
   }

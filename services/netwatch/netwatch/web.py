@@ -17,7 +17,7 @@ from homelab_common import http_json, prom_query, prom_range
 
 import ipaddress
 
-from . import acl, metrics, scanner
+from . import acl, metrics, scanner, settings as st
 from .inbound import service_name
 from .classify import ICONS, TYPES
 from .monitor import Monitor
@@ -382,6 +382,209 @@ def build_app(mon: Monitor) -> Starlette:
         except OSError as e:
             return PlainTextResponse(f"Sin imagen: {e}", 502)
 
+    # ---------------------------------------------------- panel de herramientas
+    def tool_list() -> list[dict]:
+        env = st.read_env()
+        host = env.get("HOMELAB_HOST") or os.environ.get("HOMELAB_HOST", "")
+        port = env.get("HTTPS_PORT") or "443"
+        profiles = {p.strip() for p in env.get("COMPOSE_PROFILES", "").split(",") if p.strip()}
+        base = f"https://{host}:{port}" if host else ""
+        tools = [
+            {"name": "Grafana", "icon": "📊", "url": "/grafana/", "group": "Homelab",
+             "desc": "Tableros de red, nodos, DNS y conexiones", "check": f"{base}/grafana/api/health"},
+            {"name": "Prometheus", "icon": "🔥", "url": "/prometheus/targets", "group": "Homelab",
+             "desc": "Métricas y estado de cada fuente", "check": "http://127.0.0.1:9090/prometheus/-/ready"},
+            {"name": "Alertas activas", "icon": "🔔", "url": "/prometheus/alerts", "group": "Homelab",
+             "desc": "Reglas y lo que está sonando", "check": "http://127.0.0.1:9090/prometheus/-/ready"},
+        ]
+        if "dns" in profiles or mon.adguard.reachable:
+            tools.append({"name": "AdGuard Home", "icon": "🛡", "url": f"http://{host}:3002", "group": "Servicios",
+                          "desc": "DNS de la casa y bloqueo de anuncios/malware",
+                          "check": mon.adguard.url or "http://127.0.0.1:3002"})
+        if "servicios" in profiles:
+            tools += [
+                {"name": "Uptime Kuma", "icon": "📈", "url": f"http://{host}:3001", "group": "Servicios",
+                 "desc": "¿Están arriba tu página, el VPS y tus servicios?", "check": "http://127.0.0.1:3001"},
+                {"name": "Vaultwarden", "icon": "🔑", "url": "/vault/", "group": "Servicios",
+                 "desc": "Tus contraseñas (apps de Bitwarden)", "check": f"{base}/vault/alive"}]
+        inf = cfg.get("infrastructure", {}) or {}
+        m = inf.get("modem")
+        if m and m.get("admin_url"):
+            tools.append({"name": m.get("name", "Módem"), "icon": "📶", "url": m["admin_url"], "group": "Red",
+                          "desc": m.get("ip", ""), "status": mon.infra_status.get(m.get("name"), {}).get("up")})
+        for ap in inf.get("access_points", []) or []:
+            if ap.get("admin_url"):
+                tools.append({"name": ap["name"], "icon": "📡", "url": ap["admin_url"], "group": "Red",
+                              "desc": " · ".join(x for x in (ap.get("model"), ap.get("location"), ap.get("ip")) if x),
+                              "status": mon.infra_status.get(ap["name"], {}).get("up")})
+        seen = {t["url"] for t in tools}
+        known = {"/grafana/", "/prometheus/", "/vault/"}
+        for link in cfg.get("links", []) or []:
+            if link.get("url") in seen or link.get("url") in known or \
+                    any(k in link.get("url", "") for k in (":3001", ":3002")):
+                continue
+            tools.append({"name": link["name"], "icon": link.get("icon", "🔗"), "url": link["url"],
+                          "group": "Tus enlaces", "desc": link.get("desc", link["url"]),
+                          "check": link["url"] if link["url"].startswith("http") else None})
+        return tools
+
+    def check_url(url: str) -> bool:
+        import ssl
+        import urllib.error
+        import urllib.request
+        ctx = ssl.create_default_context()
+        ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE     # certificados locales
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, method="GET"), timeout=4, context=ctx):
+                return True
+        except urllib.error.HTTPError as e:
+            return e.code < 500           # 401/403/404 = el servicio sí contesta
+        except (urllib.error.URLError, OSError, ValueError):
+            return False
+
+    async def tools(_):
+        import asyncio
+        items = tool_list()
+
+        async def one(t):
+            if "status" not in t and t.get("check"):
+                t["status"] = await asyncio.to_thread(check_url, t["check"])
+            t.pop("check", None)
+            return t
+        return JSONResponse({"tools": await asyncio.gather(*(one(t) for t in items))})
+
+    # -------------------------------------------------------------- ajustes
+    def cfg_path():
+        from pathlib import Path
+        return Path(os.environ.get("HOMELAB_CONFIG", "/config/homelab.yml"))
+
+    async def settings_get(_):
+        env = st.read_env()
+        data, raw = st.read_yaml(cfg_path())
+        groups: dict[str, list] = {}
+        for f in st.FIELDS:
+            v = env.get(f["key"], "")
+            item = {k: f[k] for k in ("key", "label", "kind", "help", "generate") if k in f}
+            item.setdefault("kind", "text")
+            if item["kind"] in ("secret", "password"):
+                item.update(set=bool(v), hint=st.mask(v) if item["kind"] == "secret" else ("guardada" if v else ""))
+            elif item["kind"] == "profiles":
+                item.update(value=[p for p in v.split(",") if p], options=st.PROFILES)
+            else:
+                item["value"] = v
+            groups.setdefault(f["group"], []).append(item)
+        ygroups: dict[str, list] = {}
+        for f in st.YAML_FIELDS:
+            ygroups.setdefault(f["group"], []).append({**f, "kind": f.get("kind", "text"),
+                                                       "value": st.yaml_get(data, f["path"])})
+        devs = [{"name": d.get("name"), "os": d.get("os", ""),
+                 "token_set": bool(env.get(st.device_env_key(d.get("name", ""))))}
+                for d in (st.yaml_get(data, "backups.devices") or [])]
+        return JSONResponse({"env_groups": groups, "yaml_groups": ygroups, "devices": devs,
+                             "yaml_raw": raw, "env_exists": st.ENV_PATH.exists(),
+                             "apply": st.apply_status()})
+
+    async def settings_save(request: Request):
+        b = await request.json()
+        env_up: dict[str, str | None] = {}
+        for k, v in (b.get("env") or {}).items():
+            f = st.FIELD_BY_KEY.get(k)
+            if not f:
+                continue
+            kind = f.get("kind", "text")
+            if kind in ("secret", "password") and (v is None or v == ""):
+                continue                      # vacío = no cambiar
+            if kind == "password":
+                if len(v) < 8:
+                    return JSONResponse({"error": "La contraseña de la web debe tener al menos 8 caracteres"}, 400)
+                try:
+                    v = st.hash_password(v)
+                except ImportError:
+                    return JSONResponse({"error": "Falta bcrypt en el contenedor (reconstruye netwatch)"}, 400)
+            elif kind == "profiles":
+                v = ",".join(p for p in (v or []) if p in st.PROFILES)
+            elif kind == "bool":
+                v = "true" if v in (True, "true", "1", 1) else "false"
+            elif kind == "number" and str(v).strip() and not str(v).strip().isdigit():
+                return JSONResponse({"error": f"{f['label']}: debe ser un número"}, 400)
+            env_up[k] = str(v)
+        for k in [f["key"] for f in st.FIELDS if f.get("generate")]:
+            if (b.get("generate") or {}).get(k):
+                env_up[k] = st.new_token()
+        new_tokens = {}
+        path = cfg_path()
+        data, _ = st.read_yaml(path)
+        yaml_changed = False
+        for p, v in (b.get("yaml") or {}).items():
+            f = next((x for x in st.YAML_FIELDS if x["path"] == p), None)
+            if not f:
+                continue
+            if f.get("kind") == "number":
+                v = int(v) if str(v).strip().isdigit() else None
+                if v is None:
+                    return JSONResponse({"error": f"{f['label']}: debe ser un número"}, 400)
+            elif f.get("kind") == "bool":
+                v = bool(v)
+            if p == "reports.daily_time" and v and not re.match(r"^\d{2}:\d{2}$", str(v)):
+                return JSONResponse({"error": "La hora del reporte va como HH:MM"}, 400)
+            old = st.yaml_get(data, p)
+            if old != v:
+                st.yaml_set(data, p, v)
+                yaml_changed = True
+                if p == "infrastructure.modem.ip" and \
+                        st.yaml_get(data, "infrastructure.modem.admin_url") in (f"http://{old}", f"https://{old}", None):
+                    st.yaml_set(data, "infrastructure.modem.admin_url", f"http://{v}")
+        if "devices" in b:
+            devs = []
+            for d in b["devices"]:
+                name = re.sub(r"[^a-z0-9-]", "-", str(d.get("name", "")).strip().lower()).strip("-")
+                if name and name not in {x["name"] for x in devs}:
+                    devs.append({"name": name, "os": d.get("os") or "linux"})
+            if devs != (st.yaml_get(data, "backups.devices") or []):
+                st.yaml_set(data, "backups.devices", devs)
+                yaml_changed = True
+            env_now = st.read_env()
+            for d in devs:
+                key = st.device_env_key(d["name"])
+                if not env_now.get(key) and key not in env_up:
+                    env_up[key] = new_tokens[d["name"]] = st.new_token()
+        if yaml_changed:
+            st.write_yaml(path, data)
+        changed = st.write_env(env_up) if env_up else []
+        restart = st.restart_for(changed)
+        if yaml_changed:
+            restart = "all" if restart == "all" else sorted(set(restart) | {"netwatch", "bot"})
+        return JSONResponse({"ok": True, "env_changed": changed, "yaml_changed": yaml_changed,
+                             "new_tokens": new_tokens, "restart": restart})
+
+    async def settings_yaml(request: Request):
+        raw = (await request.json()).get("raw", "")
+        try:
+            st.write_yaml_raw(cfg_path(), raw)
+        except (ValueError, Exception) as e:  # noqa: BLE001 - errores de YAML al usuario
+            return JSONResponse({"error": f"YAML inválido: {e}"}, 400)
+        return JSONResponse({"ok": True, "restart": ["netwatch", "bot"]})
+
+    async def settings_token(request: Request):
+        name = str((await request.json()).get("device", ""))
+        data, _ = st.read_yaml(cfg_path())
+        if name not in {d.get("name") for d in st.yaml_get(data, "backups.devices") or []}:
+            return JSONResponse({"error": "Ese dispositivo no está en la lista"}, 404)
+        tok = st.new_token()
+        st.write_env({st.device_env_key(name): tok})
+        return JSONResponse({"ok": True, "device": name, "token": tok, "restart": ["bot"]})
+
+    async def apply_post(request: Request):
+        b = await request.json() if int(request.headers.get("content-length") or 0) else {}
+        try:
+            req = st.request_apply(b.get("services", "all"), b.get("force", []))
+        except RuntimeError as e:
+            return JSONResponse({"error": str(e)}, 400)
+        return JSONResponse({"ok": True, "request": req})
+
+    async def apply_get(_):
+        return JSONResponse(st.apply_status())
+
     routes = [
         Route("/", index), Route("/health", health), Route("/metrics", prom_metrics),
         Route("/api/summary", summary), Route("/api/devices", devices),
@@ -397,6 +600,11 @@ def build_app(mon: Monitor) -> Starlette:
         Route("/api/links", links), Route("/api/cameras", cameras),
         Route("/api/inbound", inbound), Route("/api/inbound/{ip}", inbound_ip),
         Route("/api/lookup", lookup, methods=["POST"]), Route("/api/dns", dns),
+        Route("/api/tools", tools), Route("/api/settings", settings_get),
+        Route("/api/settings", settings_save, methods=["POST"]),
+        Route("/api/settings/yaml", settings_yaml, methods=["POST"]),
+        Route("/api/settings/token", settings_token, methods=["POST"]),
+        Route("/api/apply", apply_post, methods=["POST"]), Route("/api/apply", apply_get),
         Route("/api/cameras/{name}/snapshot", camera_snapshot),
         Mount("/static", StaticFiles(directory=STATIC), name="static"),
     ]

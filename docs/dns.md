@@ -11,10 +11,12 @@ sudo docker compose -f hosts/pi/docker-compose.yml --env-file .env --profile dns
 1. Abre `http://IP-de-la-Pi:3002` y sigue el asistente. En «Interfaz web de administración»
    deja **todas las interfaces, puerto 3000** (por dentro; afuera es 3002). En «Servidor DNS»,
    puerto 53.
-2. Crea usuario y contraseña y ponlos en `.env` (`ADGUARD_USER`, `ADGUARD_PASSWORD`).
+2. Crea usuario y contraseña y ponlos en web → ⚙ Ajustes → AdGuard (o en `.env`).
+   netwatch encuentra AdGuard solo en `http://127.0.0.1:3002`; si lo cambiaste de puerto,
+   pon la URL en Ajustes → Red.
 3. En AdGuard → Configuración general activa **«Usar el servicio de navegación segura»**
    (eso detecta malware/phishing). Filtros → Listas de bloqueo: con la de AdGuard basta.
-4. Recrea netwatch: `... up -d --force-recreate netwatch`.
+4. «Guardar y aplicar» en Ajustes (o `... up -d --force-recreate netwatch`).
 
 ## Que los equipos lo usen
 - **Red de casa:** en el módem (`http://192.168.1.254`) busca DHCP → DNS primario = IP de la

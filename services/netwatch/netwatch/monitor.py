@@ -57,8 +57,7 @@ class Monitor:
         self.inbound = Inbound(db, os.environ.get("UFW_LOG", "/hostlog/ufw.log"),
                                os.environ.get("CANARY_LOG", "/honeypot/opencanary.log"))
         dns = cfg.get("dns", {}) or {}
-        self.adguard = AdGuard(dns.get("adguard_url", ""))
-        self.honeypot_ports = set((cfg.get("honeypot", {}) or {}).get("ports", []) or [])
+        self.adguard = AdGuard(dns.get("adguard_url") if "adguard_url" in dns else None)
         self._name_budget = int(net.get("names_per_cycle", 8))
         self.write_prom_targets()
 

@@ -187,7 +187,8 @@ class Handlers:
     def cmd_dns(self, chat, _):
         d = reports._netwatch("/api/dns")
         if not d.get("enabled"):
-            return self.reply(chat, "AdGuard no está configurado (dns.adguard_url en homelab.yml).")
+            return self.reply(chat, "No encuentro AdGuard. ¿Está levantado (perfil «dns» en Ajustes)? "
+                                    "Si usa otra dirección, ponla en Ajustes → AdGuard.")
         if d.get("error"):
             return self.reply(chat, f"⚠ {esc(d['error'])}")
         self.reply(chat, f"🛡 <b>DNS</b>: {d['queries']} consultas · {d['blocked']} bloqueadas · "

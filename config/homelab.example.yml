@@ -105,11 +105,6 @@ links:
 dns:
   adguard_url: http://127.0.0.1:3002      # vacío = sin AdGuard
 
-# Honeypot (perfil «honeypot»): solo informativo, los puertos están en
-# services/honeypot/opencanary.conf.template
-honeypot:
-  ports: [21, 23, 1433, 2222, 3306, 3389, 5900, 6379]
-
 cameras:
   frigate_url: http://192.168.1.10:5000     # Frigate en la PC Linux
   go2rtc_url: http://192.168.1.10:1984      # vista en vivo (WebRTC/MSE)

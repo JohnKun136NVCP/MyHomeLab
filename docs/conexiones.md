@@ -1,14 +1,12 @@
 # Conexiones entrantes (web → Conexiones)
 
 Muestra **quién se conecta a la Raspberry**: desde qué red (casa, laboratorio, oficinas por
-el NAT del Tenda, VPN o Internet), a qué servicio y si se permitió, se bloqueó o cayó en el
-honeypot. Clic en una IP para ver su historial, eventos y el comando para bloquearla en UFW.
+el NAT del Tenda, VPN o Internet), a qué servicio y si se permitió o se bloqueó. Clic en una IP para ver su historial, eventos y el comando para bloquearla en UFW.
 
 | Fuente | Qué ve | Requisito |
 |---|---|---|
 | conntrack (`/proc/net/nf_conntrack`) | conexiones **permitidas**, incluidas las que Docker redirige (web, Grafana…) | nada (Docker ya carga el módulo) |
 | Log de UFW (`/var/log/ufw.log`) | intentos **bloqueados** por el firewall | `sudo ufw logging low` |
-| Log del honeypot | alguien tocó un servicio falso | perfil `honeypot` |
 
 Se ignoran DNS, DHCP, mDNS, NTP y similares (ruido). Se guardan 14 días.
 

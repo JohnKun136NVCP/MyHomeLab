@@ -33,6 +33,10 @@ say "Docker usa docker0 = 172.17.0.1 (netwatch escucha ahí para Caddy y Prometh
 ip -4 addr show docker0 2>/dev/null | grep -q 172.17.0.1 || \
   echo "   ⚠ docker0 no es 172.17.0.1: cambia LISTEN de netwatch en hosts/pi/docker-compose.yml"
 
+say "Servicio para aplicar cambios desde la web (Ajustes)"
+mkdir -p run
+sudo ./scripts/install-apply-service.sh
+
 say "Levantando servicios"
 sudo docker compose -f hosts/pi/docker-compose.yml --env-file .env up -d --build
 

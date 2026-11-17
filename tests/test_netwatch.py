@@ -276,3 +276,58 @@ def test_resolve_names_and_probe(tmp_path, monkeypatch):
     r = mon.probe("192.168.1.77")
     assert r["reachable"] and r["mac"] == "aa:00:00:00:00:77" and r["type"] == "Computadora"
     assert db.device("aa:00:00:00:00:77")["hostname"] == "DESKTOP-OFICINA"
+
+
+# ------------------------------------------------------------- ajustes
+def test_env_roundtrip(tmp_path, monkeypatch):
+    from netwatch import settings as st
+    monkeypatch.setattr(st, "RUN_DIR", tmp_path)
+    env = tmp_path / ".env"
+    env.write_text("# comentario\nTELEGRAM_BOT_TOKEN=123:abc\nWEB_PASSWORD_HASH=$$2a$$14$$xyz\n\nHTTPS_PORT=443\n")
+    assert st.read_env(env)["WEB_PASSWORD_HASH"] == "$2a$14$xyz"
+    ino = env.stat().st_ino
+    changed = st.write_env({"HTTPS_PORT": "8443", "WEB_PASSWORD_HASH": "$2b$12$nuevo", "NUEVA": "x y",
+                            "TELEGRAM_BOT_TOKEN": "123:abc"}, env)
+    assert sorted(changed) == ["HTTPS_PORT", "NUEVA", "WEB_PASSWORD_HASH"]
+    txt = env.read_text()
+    assert txt.startswith("# comentario\n") and "WEB_PASSWORD_HASH=$$2b$$12$$nuevo" in txt and "HTTPS_PORT=8443" in txt
+    assert env.stat().st_ino == ino                       # mismo archivo: Docker sigue viéndolo
+    assert len(list(tmp_path.glob(".env.*.bak"))) == 1
+    st.write_env({"NUEVA": None}, env)
+    assert "NUEVA" not in env.read_text()
+    assert st.mask("abcdefghijk") == "••••••hijk" and st.mask("") == ""
+    assert st.device_env_key("laptop-win") == "BACKUP_TOKEN_LAPTOP_WIN"
+    assert st.restart_for(["HTTPS_PORT", "BACKUP_TOKEN_X"]) == ["bot", "caddy", "grafana", "vaultwarden"]
+    assert st.restart_for(["COMPOSE_PROFILES"]) == "all"
+
+
+def test_yaml_and_apply(tmp_path, monkeypatch):
+    from netwatch import settings as st
+    monkeypatch.setattr(st, "RUN_DIR", tmp_path)
+    y = tmp_path / "homelab.yml"
+    y.write_text("infrastructure:\n  modem: {ip: 192.168.1.1}\n")
+    data, _ = st.read_yaml(y)
+    st.yaml_set(data, "infrastructure.modem.ip", "192.168.1.254")
+    st.yaml_set(data, "dns.adguard_url", "")
+    st.write_yaml(y, data)
+    data, raw = st.read_yaml(y)
+    assert st.yaml_get(data, "infrastructure.modem.ip") == "192.168.1.254" and data["dns"]["adguard_url"] == ""
+    import pytest as _p
+    with _p.raises(Exception):
+        st.write_yaml_raw(y, "esto: [no cierra")
+    with _p.raises(ValueError):
+        st.write_yaml_raw(y, "- una lista")
+    assert st.apply_status()["installed"] is False
+    st.request_apply(["bot"], ["bot"])
+    s = st.apply_status()
+    assert s["pending"] is True and json.loads((tmp_path / "apply-request").read_text())["services"] == ["bot"]
+
+
+def test_adguard_autodetect():
+    from netwatch.adguard import AdGuard
+    a = AdGuard(None)                       # sin dns: en homelab.yml
+    assert a.auto and a.url == "http://127.0.0.1:3002" and not a.enabled
+    a.reachable = True
+    assert a.enabled
+    off = AdGuard("")                       # adguard_url: "" = apagado a propósito
+    assert not off.enabled and off.poll() == []

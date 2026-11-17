@@ -14,8 +14,14 @@ DANGER = ("blocked_safebrowsing", "blocked_parental")
 
 
 class AdGuard:
-    def __init__(self, url: str, user: str = "", password: str = ""):
-        self.url = (url or "").rstrip("/")
+    DEFAULT_URL = "http://127.0.0.1:3002"
+
+    def __init__(self, url: str | None, user: str = "", password: str = ""):
+        # Sin «dns.adguard_url» en homelab.yml: se prueba el de la Pi y se usa si responde.
+        # Con «adguard_url: ""» queda apagado a propósito.
+        self.auto = url is None
+        self.url = (self.DEFAULT_URL if url is None else url or "").rstrip("/")
+        self.reachable = False
         self.user = user or os.environ.get("ADGUARD_USER", "")
         self.password = password or os.environ.get("ADGUARD_PASSWORD", "")
         self.stats: dict = {}
@@ -26,7 +32,7 @@ class AdGuard:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.url)
+        return bool(self.url) and (self.reachable or not self.auto)
 
     def _get(self, path: str):
         req = urllib.request.Request(self.url + path)
@@ -38,7 +44,7 @@ class AdGuard:
 
     def poll(self) -> list[dict]:
         """Actualiza estadísticas y nombres. Regresa bloqueos peligrosos nuevos."""
-        if not self.enabled:
+        if not self.url:
             return []
         try:
             self.stats = self._get("/control/stats") or {}
@@ -60,14 +66,20 @@ class AdGuard:
                     danger.append({"client": e.get("client", ""), "domain": (e.get("question") or {}).get("name", ""),
                                    "reason": "malware/phishing" if status == "blocked_safebrowsing"
                                    else "control parental", "time": e.get("time", "")})
+            self.reachable = True
             if self._first:
                 self._first, danger = False, []
             if len(self._seen) > 5000:
                 self._seen = set(list(self._seen)[-1000:])
             self.error = ""
             return danger
+        except urllib.error.HTTPError as e:
+            self.reachable = True      # responde, pero no nos deja entrar
+            self.error = ("AdGuard pide usuario y contraseña: pon ADGUARD_USER y ADGUARD_PASSWORD en Ajustes"
+                          if e.code in (401, 403) else f"AdGuard respondió {e.code}")
+            return []
         except (urllib.error.URLError, OSError, ValueError) as e:
-            self.error = f"AdGuard no responde: {e}"
+            self.error = f"AdGuard no responde en {self.url}: {e}"
             return []
 
     def top_clients(self) -> list[tuple[str, int]]:

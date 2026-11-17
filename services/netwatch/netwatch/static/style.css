@@ -90,3 +90,15 @@ button.danger:hover { border-color: var(--bad); color: var(--bad); }
 svg.flow text { fill: var(--text); font-size: 12px; }
 svg.flow .lk { transition: opacity .12s; }
 .iprow:hover td { background: #5aa9ff14; }
+
+a.card.kpi { color: var(--text); }
+a.card.kpi:hover { border-color: var(--accent); }
+.frow { display: grid; grid-template-columns: 190px 1fr; gap: 10px; align-items: start; padding: 7px 0;
+  border-bottom: 1px solid var(--line); }
+.frow:last-child { border-bottom: 0; }
+.frow > label { color: var(--muted); padding-top: 6px; }
+.frow input:not([type=checkbox]), .frow select { width: 100%; }
+label.chk { display: block; padding: 3px 0; }
+textarea { font: 12.5px ui-monospace, Menlo, monospace; color: var(--text); background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+@media (max-width: 700px) { .frow { grid-template-columns: 1fr; } }
