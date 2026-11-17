@@ -3,6 +3,9 @@
 # la CA de Caddy en tus equipos: ver docs/respaldos.md, sección Certificado).
 {
 	admin off
+	# Al entrar por IP el navegador no manda SNI; sin esto Caddy (dentro de Docker)
+	# no sabe qué certificado usar y el navegador marca ERR_SSL_PROTOCOL_ERROR.
+	default_sni {$HOMELAB_HOST}
 }
 
 https://{$HOMELAB_HOST}:443 {
