@@ -1,15 +1,17 @@
 # ======================================================================
-#  VPS — VPN WireGuard (centro de la red) + métricas para Grafana
-#    docker compose -f hosts/vps/docker-compose.yml --env-file .env up -d
+#  VPS — métricas para Grafana (+ VPN wg-easy opcional)
 #
-#  El VPS es el «punto de reunión»: tu Pi, tu PC, tu laptop y tu teléfono se
-#  conectan a él, así llegas a casa aunque tu internet tenga CGNAT (Telmex/Izzi
-#  suelen tenerlo) y Prometheus en la Pi lee las métricas del VPS por el túnel.
+#  Si YA tienes un túnel WireGuard entre la Pi y el VPS (p. ej. wg-hoshimy):
+#    VPN_VPS_IP=<IP del VPS en ese túnel> en .env  y solo:
+#    docker compose -f hosts/vps/docker-compose.yml --env-file .env up -d
+#  Para crear además una VPN con web y QR para teléfono/laptop (wg-easy):
+#    docker compose -f hosts/vps/docker-compose.yml --env-file .env --profile wg-easy up -d
 # ======================================================================
 name: homelab-vps
 
 services:
   wg-easy:
+    profiles: ["wg-easy"]
     image: ghcr.io/wg-easy/wg-easy:14
     restart: unless-stopped
     network_mode: host          # wg0 queda en el host: node-exporter puede escuchar en 10.8.0.1
@@ -29,11 +31,12 @@ services:
 
   node-exporter:
     image: prom/node-exporter:latest
-    restart: unless-stopped
+    restart: always
     network_mode: host
     pid: host
-    # Solo dentro de la VPN: nadie en internet ve tus métricas
-    command: ["--path.rootfs=/host", "--web.listen-address=10.8.0.1:9100"]
+    # Solo dentro del túnel: nadie en internet ve tus métricas.
+    # Si el túnel aún no está arriba falla y Docker lo reintenta solo.
+    command: ["--path.rootfs=/host", "--web.listen-address=${VPN_VPS_IP:-10.8.0.1}:9100"]
     volumes: ["/:/host:ro,rslave"]
 
 volumes:

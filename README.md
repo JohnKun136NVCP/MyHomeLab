@@ -36,7 +36,7 @@ flowchart LR
 | Publicar en redes de la empresa a cierta hora | `/programar` para Facebook, Instagram y tu canal de Telegram | [redes sociales](docs/redes-sociales.md) |
 | App web | Resumen, Dispositivos, Tráfico, Por AP, **Mapa** (árbol Internet → módem → AP → dispositivos), Cámaras, Accesos de un clic a tus AP, ACL y Eventos | `https://IP-de-la-Pi` |
 | Streaming propio | Jellyfin en la PC | `hosts/server` |
-| VPN | WireGuard (wg-easy) en el VPS: funciona aunque tu internet tenga CGNAT | [VPN](docs/vpn.md) |
+| VPN | Reutiliza tu túnel WireGuard Pi ↔ VPS; wg-easy opcional para teléfono/laptop | [VPN](docs/vpn.md) |
 
 ## Instalación
 
@@ -70,8 +70,8 @@ Pon la IP de la PC en `infrastructure.nodes`, `cameras.frigate_url` y `links` de
 ```bash
 docker compose -f hosts/vps/docker-compose.yml --env-file .env up -d
 ```
-Crea en wg-easy un cliente para la Pi y otro para cada equipo; en la Pi:
-`sudo ./scripts/pi-vpn.sh raspberry.conf`. Detalles en [docs/vpn.md](docs/vpn.md).
+Con tu túnel WireGuard existente basta poner `VPN_VPS_IP` en `.env` (solo métricas).
+Para una VPN nueva con web y QR: `--profile wg-easy`. Detalles en [docs/vpn.md](docs/vpn.md).
 
 ### 4. Equipos que se respaldan
 | Equipo | Cliente |

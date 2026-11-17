@@ -27,15 +27,28 @@ for d in (cfg.get("backups", {}) or {}).get("devices", []) or []:
     print("BACKUP_TOKEN_" + re.sub(r"[^A-Z0-9]", "_", d["name"].upper()))
 EOF
 
+# Docker sin sudo solo funciona si tu sesión ya tiene el grupo «docker»
+# (recién instalado hay que cerrar sesión). Si no, usamos sudo.
+if docker info >/dev/null 2>&1; then DOCKER=(docker); else DOCKER=(sudo docker); fi
+
 if ! grep -qE '^WEB_PASSWORD_HASH=.+' .env; then
   echo
-  read -r -s -p "Contraseña para entrar a la web del homelab: " pw; echo
-  if command -v docker >/dev/null; then
-    h="$(docker run --rm caddy:2-alpine caddy hash-password --plaintext "$pw")"
-    sed -i "s|^WEB_PASSWORD_HASH=.*|WEB_PASSWORD_HASH=${h//\$/\$\$}|" .env
-    echo "  WEB_PASSWORD_HASH generado"
+  if ! command -v docker >/dev/null; then
+    echo "  Docker aún no está instalado: la contraseña de la web se pedirá al final de install-pi.sh"
   else
-    echo "  (instala Docker y vuelve a correr esto para generar el hash)"
+    while :; do
+      read -r -s -p "Contraseña para entrar a la web del homelab: " pw; echo
+      read -r -s -p "Repítela: " pw2; echo
+      [[ -n "$pw" && "$pw" == "$pw2" ]] && break
+      echo "  No coinciden o está vacía; otra vez."
+    done
+    if h="$("${DOCKER[@]}" run --rm caddy:2-alpine caddy hash-password --plaintext "$pw")" && [[ "$h" == \$2* ]]; then
+      sed -i "s|^WEB_PASSWORD_HASH=.*|WEB_PASSWORD_HASH=${h//\$/\$\$}|" .env
+      echo "  WEB_PASSWORD_HASH generado"
+    else
+      echo "  ✘ No pude generar el hash con Docker. Revisa 'sudo docker info' y vuelve a correr este script."
+      exit 1
+    fi
   fi
 fi
 echo

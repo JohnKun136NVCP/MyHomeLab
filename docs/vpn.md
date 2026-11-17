@@ -1,5 +1,20 @@
 # VPN con WireGuard (VPS como centro)
 
+## Si ya tienes un túnel Pi ↔ VPS (recomendado: reutilízalo)
+No hace falta wg-easy. Con tu túnel (por ejemplo `wg-hoshimy`):
+1. En el VPS: `sudo wg show` → la IP del VPS en el túnel (ej. `10.66.0.1`). Ponla en `.env`
+   como `VPN_VPS_IP` y levanta solo las métricas:
+   `docker compose -f hosts/vps/docker-compose.yml --env-file .env up -d`
+2. En el UFW del VPS: `sudo ufw allow in on wg-hoshimy from IP_DE_LA_PI to any port 9100 proto tcp`
+3. En `config/homelab.yml` de la Pi: `nodes: - {name: vps, target: 10.66.0.1:9100}` y, si
+   quieres, un `ping_targets` al VPS. Reinicia: `docker compose ... up -d`.
+4. Prometheus corre en Docker en la Pi y sale por el túnel del host sin configurar nada más.
+
+El resto de esta guía es para crear una VPN nueva con wg-easy (web + QR para tu
+teléfono y laptop): perfil `--profile wg-easy`.
+
+## VPN nueva con wg-easy
+
 Muchos internet de casa en México (Telmex, Izzi, Totalplay) están detrás de **CGNAT**: no
 puedes abrir puertos hacia tu casa. Por eso la VPN vive en el **VPS** y todos se conectan
 a él: la Pi, la PC, tu laptop y tu teléfono.

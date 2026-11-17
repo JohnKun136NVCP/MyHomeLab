@@ -60,12 +60,14 @@ infrastructure:
     # - name: servidor
     #   target: 192.168.1.10:9100
     # - name: vps
-    #   target: 10.8.0.1:9100        # IP del VPS dentro de la VPN WireGuard
+    #   target: 10.66.0.1:9100       # IP del VPS dentro de tu túnel WireGuard (wg-hoshimy)
   ping_targets:
     - name: internet
       host: 1.1.1.1
     - name: dns-google
       host: 8.8.8.8
+    # - name: vps
+    #   host: 10.66.0.1             # ping al VPS por el túnel
 
 # Accesos de un clic en la web (además de módem y AP)
 links:
@@ -78,9 +80,9 @@ links:
   - name: Jellyfin (streaming)
     url: http://192.168.1.10:8096
     icon: 🎬
-  - name: VPN (wg-easy)
-    url: http://10.8.0.1:51821
-    icon: 🔐
+  # - name: VPN (wg-easy)          # solo si usas el perfil wg-easy en el VPS
+  #   url: http://10.8.0.1:51821
+  #   icon: 🔐
   - name: Prometheus
     url: /prometheus/
     icon: 🔥
