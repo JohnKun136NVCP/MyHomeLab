@@ -13,12 +13,14 @@
   .\Respaldo-Homelab.ps1                 # hace el respaldo
   .\Respaldo-Homelab.ps1 -Programar      # tarea programada cada 12 semanas
   .\Respaldo-Homelab.ps1 -SoloLocal      # no sube nada, solo deja el .7z
+  .\Respaldo-Homelab.ps1 -Instalar       # se copia a tu perfil y crea accesos en Inicio y Escritorio
 #>
 [CmdletBinding()]
 param(
     [switch]$Configurar,
     [switch]$Programar,
-    [switch]$SoloLocal
+    [switch]$SoloLocal,
+    [switch]$Instalar
 )
 $ErrorActionPreference = "Stop"
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -26,6 +28,30 @@ $ConfigFile = Join-Path $Here "homelab-backup.json"
 $SecretFile = Join-Path $env:LOCALAPPDATA "MyHomeLab\backup-secret.xml"
 
 function Say($m, $c = "Cyan") { Write-Host "==> $m" -ForegroundColor $c }
+
+# ------------------------------------------------- instalar (accesos directos)
+if ($Instalar) {
+    $dest = Join-Path $env:LOCALAPPDATA "MyHomeLab"
+    New-Item -ItemType Directory -Force $dest | Out-Null
+    Copy-Item $MyInvocation.MyCommand.Path (Join-Path $dest "Respaldo-Homelab.ps1") -Force
+    if (Test-Path $ConfigFile) { Copy-Item $ConfigFile (Join-Path $dest "homelab-backup.json") -Force }
+    $ws = New-Object -ComObject WScript.Shell
+    $places = @([Environment]::GetFolderPath("Programs"), [Environment]::GetFolderPath("Desktop"))
+    foreach ($dir in $places) {
+        foreach ($item in @(@("Respaldo MyHomeLab", ""), @("Respaldo MyHomeLab (configurar)", "-Configurar"))) {
+            $lnk = $ws.CreateShortcut((Join-Path $dir "$($item[0]).lnk"))
+            $lnk.TargetPath = "powershell.exe"
+            # -NoExit: la ventana se queda abierta al terminar (o si falla) para ver el resultado
+            $lnk.Arguments = "-NoExit -NoProfile -ExecutionPolicy Bypass -File `"$dest\Respaldo-Homelab.ps1`" $($item[1])"
+            $lnk.WorkingDirectory = $dest
+            $lnk.IconLocation = "shell32.dll,7"
+            $lnk.Save()
+        }
+    }
+    Say "Instalado en $dest. Accesos «Respaldo MyHomeLab» en el menú Inicio y el Escritorio." "Green"
+    exit 0
+}
+
 
 # ---------------------------------------------------------------- configuración
 if ($Configurar -or -not (Test-Path $ConfigFile)) {

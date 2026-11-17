@@ -5,6 +5,7 @@
 #    ./respaldo-homelab.sh                hace el respaldo y lo sube
 #    ./respaldo-homelab.sh --programar    revisión mensual con launchd (respalda si pasaron 90 días)
 #    ./respaldo-homelab.sh --solo-local   no sube nada
+#    ./respaldo-homelab.sh --instalar     comando «respaldo-homelab» + icono en el Escritorio
 #  Requiere: brew install sevenzip   (comando 7zz)
 # ======================================================================
 set -euo pipefail
@@ -14,6 +15,18 @@ say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 
 keychain_get() { security find-generic-password -a "$USER" -s "$1" -w 2>/dev/null; }
 keychain_set() { security add-generic-password -U -a "$USER" -s "$1" -w "$2"; }
+
+if [[ "${1:-}" == "--instalar" ]]; then
+  mkdir -p "$HOME/.local/bin"
+  install -m 755 "$0" "$HOME/.local/bin/respaldo-homelab"
+  grep -q '.local/bin' "$HOME/.zshrc" 2>/dev/null || \
+    printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$HOME/.zshrc"
+  CMDF="$HOME/Desktop/Respaldo MyHomeLab.command"     # doble clic = abre Terminal y respalda
+  printf '#!/bin/bash\n"$HOME/.local/bin/respaldo-homelab"\necho\nread -r -p "Enter para cerrar…"\n' > "$CMDF"
+  chmod +x "$CMDF"
+  say "Instalado: comando «respaldo-homelab» (terminal nueva) e icono «Respaldo MyHomeLab» en el Escritorio."
+  exit 0
+fi
 
 if [[ "${1:-}" == "--configurar" || ! -f "$CONF" ]]; then
   mkdir -p "$(dirname "$CONF")"

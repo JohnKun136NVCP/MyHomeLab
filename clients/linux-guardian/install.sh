@@ -63,6 +63,17 @@ if [[ -f "$HOME/.config/systemd/user/linux-guardian-reminder.timer" ]]; then
   "$VENV/bin/python" "$DEST/guardian.py" --install-reminder >/dev/null && echo "    recordatorio actualizado al venv"
 fi
 
+# ~/.local/bin en el PATH (algunas distros no lo traen en zsh)
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
+       [[ -f "$rc" ]] && ! grep -q 'MyHomeLab: ~/.local/bin' "$rc" && \
+         printf '\n# MyHomeLab: ~/.local/bin en el PATH\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc"
+     done
+     echo "    Agregué ~/.local/bin a tu PATH: abre una terminal nueva para usar «linux-guardian»" ;;
+esac
+command -v update-desktop-database >/dev/null && update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+
 echo
 echo "✔ Listo. Ábrelo desde el menú (Linux Guardian) o con:  linux-guardian"
 echo "  Todo lo de Python vive en: $VENV"

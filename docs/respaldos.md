@@ -16,6 +16,16 @@ la Pi con `PUT https://IP-de-la-Pi/api/backup/<dispositivo>/<archivo>`. La Pi:
 | Android | `respaldo-termux.sh` o mandarle archivos al bot | Cámara, Documentos, Descargas, WhatsApp, lista de apps |
 | iPhone | mandarle archivos al bot | lo que compartas desde Fotos/Archivos |
 
+## Instalar el cliente (para no buscar la carpeta cada vez)
+Cada equipo solo necesita su script (no el repo completo). Una vez configurado:
+
+| Sistema | Comando | Queda |
+|---|---|---|
+| Linux | `clients/linux-guardian/install.sh` | «Linux Guardian» en el menú y el comando `linux-guardian` |
+| Windows | `.\Respaldo-Homelab.ps1 -Instalar` | «Respaldo MyHomeLab» en Inicio y en el Escritorio (y uno «(configurar)») |
+| macOS | `./respaldo-homelab.sh --instalar` | comando `respaldo-homelab` e icono en el Escritorio |
+| Android | `bash respaldo-termux.sh --instalar` | comando `respaldo-homelab` y botón en la pantalla de inicio con Termux:Widget |
+
 ## Agregar un dispositivo
 1. En `config/homelab.yml` → `backups.devices`: `- {name: laptop-trabajo, os: windows}`
 2. En `.env`: `BACKUP_TOKEN_LAPTOP_TRABAJO=` y corre `./scripts/gen-secrets.sh` (lo llena).

@@ -7,6 +7,8 @@
 #    bash respaldo-termux.sh --configurar
 #    bash respaldo-termux.sh              # respaldo ahora
 #    bash respaldo-termux.sh --programar  # cada semana revisa y respalda si pasaron 90 días
+#    bash respaldo-termux.sh --instalar   # comando «respaldo-homelab» + botón en la pantalla
+#                                           de inicio (app Termux:Widget de F-Droid)
 #  También puedes mandarle archivos al bot directamente desde Telegram.
 # ======================================================================
 set -euo pipefail
@@ -14,6 +16,17 @@ CONF="$HOME/.config/myhomelab/backup.conf"
 STATE="$HOME/.config/myhomelab/last-backup"
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 notify() { command -v termux-notification >/dev/null && termux-notification -t "MyHomeLab" -c "$1" || true; }
+
+if [[ "${1:-}" == "--instalar" ]]; then
+  install -m 755 "$0" "$PREFIX/bin/respaldo-homelab"
+  mkdir -p "$HOME/.shortcuts"; chmod 700 "$HOME/.shortcuts"
+  printf '#!/data/data/com.termux/files/usr/bin/bash\nrespaldo-homelab\nread -r -p "Enter para cerrar…"\n' \
+    > "$HOME/.shortcuts/Respaldo MyHomeLab"
+  chmod 700 "$HOME/.shortcuts/Respaldo MyHomeLab"
+  say "Instalado. Comando: respaldo-homelab. Para el botón: mantén presionada la pantalla de inicio →"
+  say "Widgets → Termux:Widget → «Respaldo MyHomeLab»."
+  exit 0
+fi
 
 if [[ "${1:-}" == "--configurar" || ! -f "$CONF" ]]; then
   mkdir -p "$(dirname "$CONF")"
