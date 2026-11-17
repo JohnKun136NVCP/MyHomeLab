@@ -29,6 +29,8 @@ HELP = """🛡 <b>MyHomeLab</b>
 /dispositivos – quién está conectado
 /nuevos – dispositivos sin revisar
 /eventos – últimos eventos anómalos
+/conexiones – quién se conectó a la Pi (24 h)
+/dns – resumen de AdGuard
 
 <b>Red</b>
 /bloquear MAC [23:00-07:00] – ACL (corta el internet en modo puente)
@@ -169,6 +171,30 @@ class Handlers:
         from .formatting import netwatch_events
         evs = reports._netwatch("/api/events?limit=10")["events"]
         self.reply(chat, netwatch_events(evs) or "Sin eventos. Todo tranquilo. ✅")
+
+    def cmd_conexiones(self, chat, _):
+        j = reports._netwatch("/api/inbound?hours=24")
+        if not j["ips"]:
+            return self.reply(chat, "Sin conexiones entrantes registradas en 24 h.")
+        icon = {"permitida": "✅", "bloqueada": "⛔", "honeypot": "🍯"}
+        lines = [f"🔌 <b>Conexiones entrantes (24 h)</b> · {len(j['ips'])} IPs"]
+        for r in j["ips"][:15]:
+            acts = " ".join(f"{icon.get(a, a)}{n}" for a, n in r["actions"].items())
+            svcs = ", ".join(sorted(set(r["services"].values())))
+            lines.append(f"<code>{r['ip']}</code> {esc(r['name'] or '')} · {esc(r['origin'])} · {esc(svcs)} · {acts}")
+        self.reply(chat, "\n".join(lines))
+
+    def cmd_dns(self, chat, _):
+        d = reports._netwatch("/api/dns")
+        if not d.get("enabled"):
+            return self.reply(chat, "AdGuard no está configurado (dns.adguard_url en homelab.yml).")
+        if d.get("error"):
+            return self.reply(chat, f"⚠ {esc(d['error'])}")
+        self.reply(chat, f"🛡 <b>DNS</b>: {d['queries']} consultas · {d['blocked']} bloqueadas · "
+                         f"{d['malware']} malware/phishing\n<b>Más consultas</b>\n" + "\n".join(
+                             f"  {esc(c['name'] or c['ip'])}: {c['n']}" for c in d["top_clients"][:8])
+                   + ("\n<b>Más bloqueados</b>\n" + "\n".join(f"  {esc(b['domain'])}: {b['n']}"
+                                                              for b in d["top_blocked"][:5]) if d["top_blocked"] else ""))
 
     # ---------------------------------------------------------------- ACL
     def cmd_bloquear(self, chat, arg):

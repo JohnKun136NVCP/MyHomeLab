@@ -97,6 +97,13 @@ groups:
         annotations:
           summary: "{{ $labels.name }} ({{ $labels.mac }}) con tráfico {{ $labels.direction }} inusual: {{ $value | humanize }}bps"
 
+      - alert: CrowdSecMuchosBloqueos
+        expr: sum by (instance) (cs_active_decisions) - sum by (instance) (cs_active_decisions offset 1h) > 25
+        labels: { severity: warning }
+        annotations:
+          summary: "CrowdSec bloqueó {{ $value | printf \"%.0f\" }} IPs nuevas en 1 h en {{ $labels.instance }}"
+          description: "Están atacando el VPS más de lo normal (fuerza bruta o escaneos)."
+
       - alert: AlertasIDS
         expr: increase(homelab_ids_alerts_total{severity="1"}[10m]) > 0
         labels: { severity: critical }

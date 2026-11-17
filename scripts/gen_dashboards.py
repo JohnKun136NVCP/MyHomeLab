@@ -82,6 +82,13 @@ red = dashboard("homelab-red", "Red de casa", [
     table("Infraestructura (1 = responde)", "homelab_infra_up", 0, 28, 12),
     ts("Alertas IDS (Suricata)", [("sum by (severity) (increase(homelab_ids_alerts_total[10m]))",
                                    "severidad {{severity}}")], 12, 28, 12, unit="none"),
+    ts("Conexiones entrantes a la Pi (24 h)", [("homelab_inbound_24h", "{{action}}")], 0, 36, 12, unit="none"),
+    ts("DNS: consultas y bloqueos (AdGuard)", [("homelab_dns_queries", "consultas"),
+                                               ("homelab_dns_blocked", "bloqueadas"),
+                                               ("homelab_dns_malware", "malware/phishing")], 12, 36, 12, unit="none"),
+    table("DNS: equipos que más consultan", "topk(10, homelab_dns_client_queries)", 0, 44, 12),
+    ts("CrowdSec (VPS): IPs bloqueadas", [("sum by (instance) (cs_active_decisions)", "{{instance}}")],
+       12, 44, 12, unit="none"),
 ])
 
 # ------------------------------------------------------------------ Nodos

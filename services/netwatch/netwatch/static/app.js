@@ -75,7 +75,109 @@ function lineChart(series, unit = "bps") {
     const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
     return `<span><i style="background:${COLORS[i % COLORS.length]}"></i>${esc(s.name)} · prom ${fmt(avg)} · máx ${fmt(Math.max(...vals))}</span>`;
   }).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}${lines}</svg><div class="legend">${legend}</div>`;
+  const id = "c" + Math.random().toString(36).slice(2, 8);
+  CHARTS[id] = { series, x0, x1, P, W, H, fmt, X, Y };
+  return `<div class="chartwrap" data-chart="${id}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}${lines}
+    <line class="xh" x1="0" x2="0" y1="${P.t}" y2="${H - P.b}" stroke="#8a91a5" stroke-dasharray="3 3" visibility="hidden"/></svg>
+    <div class="tip" hidden></div></div><div class="legend">${legend}</div>`;
+}
+
+/* Cursor sobre una gráfica: línea vertical + valores de cada serie en ese momento */
+const CHARTS = {};
+document.addEventListener("mousemove", (e) => {
+  const wrap = e.target.closest?.(".chartwrap");
+  document.querySelectorAll(".chartwrap").forEach((w) => {
+    if (w !== wrap) { w.querySelector(".tip").hidden = true; w.querySelector(".xh").setAttribute("visibility", "hidden"); }
+  });
+  if (!wrap) return;
+  const c = CHARTS[wrap.dataset.chart]; if (!c) return;
+  const svg = wrap.querySelector("svg"), r = svg.getBoundingClientRect();
+  const vx = ((e.clientX - r.left) / r.width) * c.W;
+  if (vx < c.P.l || vx > c.W - c.P.r) return;
+  const t = c.x0 + ((vx - c.P.l) / (c.W - c.P.l - c.P.r)) * (c.x1 - c.x0);
+  const rows = c.series.map((s, i) => {
+    let best = s.points[0];
+    for (const p of s.points) if (Math.abs(p[0] - t) < Math.abs(best[0] - t)) best = p;
+    return `<div><i style="background:${COLORS[i % COLORS.length]}"></i>${esc(s.name)}: <b>${c.fmt(best[1])}</b></div>`;
+  });
+  const xh = wrap.querySelector(".xh"); xh.setAttribute("x1", vx); xh.setAttribute("x2", vx); xh.setAttribute("visibility", "visible");
+  const tip = wrap.querySelector(".tip");
+  tip.innerHTML = `<div class="muted small">${new Date(t * 1000).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}</div>${rows.join("")}`;
+  tip.hidden = false;
+  const left = e.clientX - r.left + 14;
+  tip.style.left = (left + 220 > r.width ? left - 240 : left) + "px";
+  tip.style.top = (e.clientY - r.top + 10) + "px";
+});
+
+const ACTION_COLOR = { permitida: "#3ecf8e", bloqueada: "#f2555a", honeypot: "#c084fc" };
+function hourlyBars(rows, hours) {
+  const W = 800, H = 200, P = { l: 40, r: 10, t: 10, b: 24 };
+  const now = Math.floor(Date.now() / 3600000) * 3600;
+  const start = now - (hours - 1) * 3600;
+  const buckets = {};
+  rows.forEach((r) => { (buckets[r.hour] ??= {})[r.action] = r.n; });
+  const n = hours, bw = (W - P.l - P.r) / n;
+  const max = Math.max(1, ...Object.values(buckets).map((b) => Object.values(b).reduce((a, x) => a + x, 0)));
+  let bars = "";
+  for (let i = 0; i < n; i++) {
+    const h = start + i * 3600, b = buckets[h] || {};
+    let y = H - P.b;
+    const total = Object.values(b).reduce((a, x) => a + x, 0);
+    const label = `${new Date(h * 1000).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}: ` +
+      (Object.entries(b).map(([k, v]) => `${k} ${v}`).join(", ") || "sin conexiones");
+    for (const act of ["permitida", "bloqueada", "honeypot"]) {
+      if (!b[act]) continue;
+      const hh = (b[act] / max) * (H - P.t - P.b);
+      y -= hh;
+      bars += `<rect x="${P.l + i * bw + 1}" y="${y}" width="${Math.max(1, bw - 2)}" height="${hh}" fill="${ACTION_COLOR[act]}"><title>${esc(label)}</title></rect>`;
+    }
+    if (!total) bars += `<rect x="${P.l + i * bw}" y="${P.t}" width="${bw}" height="${H - P.t - P.b}" fill="transparent"><title>${esc(label)}</title></rect>`;
+    if (i % Math.ceil(n / 8) === 0) bars += `<text x="${P.l + i * bw}" y="${H - 6}" fill="#8a91a5" font-size="11">${
+      hours > 48 ? new Date(h * 1000).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })
+                 : new Date(h * 1000).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}</text>`;
+  }
+  const axis = [0, 0.5, 1].map((f) => `<text x="${P.l - 6}" y="${H - P.b - f * (H - P.t - P.b) + 4}" text-anchor="end" fill="#8a91a5" font-size="11">${Math.round(max * f)}</text>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:200px">${axis}${bars}</svg>
+    <div class="legend">${Object.entries(ACTION_COLOR).map(([k, c]) => `<span><i style="background:${c}"></i>${k}</span>`).join("")}</div>`;
+}
+
+/* Grafo origen → servicio: IPs a la izquierda, puertos de la Pi a la derecha */
+const ORIGIN_COLOR = (o) => o.startsWith("Internet") ? "#f2555a" : o === "VPN" ? "#c084fc" : o.includes("vía") ? "#f5a524"
+  : o.startsWith("lab") ? "#2dd4bf" : "#5aa9ff";
+function flowGraph(ips, onlyAction) {
+  const top = ips.slice(0, 30);
+  const svc = {};
+  top.forEach((r) => Object.entries(r.ports).forEach(([p, acts]) => {
+    const n = Object.entries(acts).filter(([a]) => !onlyAction || a === onlyAction).reduce((s, [, v]) => s + v, 0);
+    if (n) (svc[p] ??= { port: p, name: r.services[p], n: 0 }).n += n;
+  }));
+  const svcs = Object.values(svc).sort((a, b) => b.n - a.n);
+  if (!top.length || !svcs.length) return '<p class="muted">Sin conexiones en este periodo.</p>';
+  const rowH = 26, H = Math.max(top.length, svcs.length) * rowH + 20, W = 900, xl = 240, xr = 640;
+  const yIp = (i) => 14 + i * rowH, ySv = (i) => 14 + i * ((H - 28) / Math.max(1, svcs.length - 1 || 1));
+  const maxN = Math.max(...top.map((r) => r.total), 1);
+  let links = "", nodes = "";
+  top.forEach((r, i) => {
+    Object.entries(r.ports).forEach(([p, acts]) => {
+      Object.entries(acts).forEach(([a, n]) => {
+        if (!n || (onlyAction && a !== onlyAction)) return;
+        const j = svcs.findIndex((s) => s.port === p); if (j < 0) return;
+        const y1 = yIp(i), y2 = svcs.length === 1 ? H / 2 : ySv(j), mx = (xl + xr) / 2;
+        links += `<path class="lk" data-ip="${r.ip}" data-port="${p}" d="M${xl},${y1}C${mx},${y1} ${mx},${y2} ${xr},${y2}"
+          stroke="${ACTION_COLOR[a]}" stroke-width="${1 + 7 * Math.sqrt(n / maxN)}" fill="none" opacity=".45"><title>${esc(r.ip)} → ${esc(r.services[p])} (${p}): ${n} ${a}</title></path>`;
+      });
+    });
+    const label = r.name ? `${r.name} · ${r.ip}` : r.ip;
+    nodes += `<g class="nd" data-ip="${r.ip}" style="cursor:pointer"><circle cx="${xl}" cy="${yIp(i)}" r="6" fill="${ORIGIN_COLOR(r.origin)}"/>
+      <text x="${xl - 12}" y="${yIp(i) + 4}" text-anchor="end">${esc(label.slice(0, 34))}</text>
+      <title>${esc(r.ip)} · ${esc(r.origin)} · ${r.total} conexiones</title></g>`;
+  });
+  svcs.forEach((s, j) => {
+    const y = svcs.length === 1 ? H / 2 : ySv(j);
+    nodes += `<g class="sv" data-port="${s.port}"><rect x="${xr}" y="${y - 10}" width="190" height="20" rx="6" fill="#1f2330" stroke="#2a2f3d"/>
+      <text x="${xr + 10}" y="${y + 4}">${esc(s.name)} <tspan fill="#8a91a5">:${s.port} · ${s.n}</tspan></text></g>`;
+  });
+  return `<svg class="flow" viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px">${links}${nodes}</svg>`;
 }
 
 async function chartCard(el, title, q, range) {
@@ -125,6 +227,14 @@ const views = {
         <div class="card"><h3>Últimos eventos <a href="#eventos" class="small">ver todos</a></h3>${evList(ev.events)}</div>
       </div>`;
     chartCard($("#c-home"), "Tráfico de la casa (24 h)", "home", "24h");
+    api("/api/dns").then((d) => {
+      if (!d.enabled) return;
+      const card = document.createElement("div"); card.className = "card";
+      card.innerHTML = `<h3>🛡 DNS (AdGuard) <a href="${esc(d.url)}" target="_blank" class="small">abrir</a></h3>
+        ${d.error ? `<p class="muted">${esc(d.error)}</p>` : `<p>${d.queries} consultas · <b style="color:var(--warn)">${d.blocked}</b> bloqueadas · <b style="color:var(--bad)">${d.malware}</b> malware/phishing</p>
+        <table><tr><th>Equipo</th><th>Consultas</th></tr>${d.top_clients.slice(0, 8).map((c) => `<tr><td>${esc(c.name || c.ip)} <span class="muted small">${c.ip}</span></td><td>${c.n}</td></tr>`).join("")}</table>`}`;
+      view.querySelector(".grid2")?.append(card);
+    }).catch(() => {});
   },
 
   async dispositivos() {
@@ -142,7 +252,8 @@ const views = {
         <tr data-mac="${d.mac}">
           <td><span class="dot ${d.online ? "on" : ""}"></span></td>
           <td><input class="nm" value="${esc(d.name || "")}" placeholder="${esc(d.display_name)}" style="width:170px">
-              ${d.known ? "" : '<span class="new">NUEVO</span>'}<div class="muted small">${esc(d.hostname || "")}</div></td>
+              ${d.known ? "" : '<span class="new">NUEVO</span>'}</td>
+          <td class="small">${d.hostname ? `<b>${esc(d.hostname)}</b><div class="muted">${esc(d.hostname_src || "")}</div>` : '<span class="muted">—</span>'}</td>
           <td><select class="tp">${j.types.map((t) => `<option ${t === d.display_type ? "selected" : ""}>${t}</option>`).join("")}</select></td>
           <td class="mono">${esc(d.ip)}<div class="muted small">${esc(d.network || "")}</div></td>
           <td class="mono">${esc(d.mac)}${d.random_mac ? ' <span class="pill" title="MAC privada/aleatoria">privada</span>' : ""}<div class="muted small">${esc(d.vendor || "")}</div></td>
@@ -159,10 +270,11 @@ const views = {
     };
     view.innerHTML = `
       <div class="toolbar"><h2 class="grow">Dispositivos <span class="muted small">${j.devices.filter((d) => d.online).length} en línea · ${j.devices.length} conocidos</span></h2>
-        <input id="flt" placeholder="Buscar nombre, IP, MAC, fabricante…" style="width:280px">
+        <input id="flt" placeholder="Filtrar nombre, hostname, IP, MAC…" style="width:250px">
+        <button id="seek" title="Busca la IP, MAC o nombre en la red aunque no esté en la lista">🔎 Buscar en la red</button>
         <button id="allknown">✔ Marcar todos como revisados</button></div>
       <div class="card" style="overflow:auto"><table><thead><tr>
-        <th data-k="online"></th><th data-k="display_name">Nombre</th><th data-k="display_type">Tipo</th><th data-k="ip">IP / red</th>
+        <th data-k="online"></th><th data-k="display_name">Nombre</th><th data-k="hostname">Hostname</th><th data-k="display_type">Tipo</th><th data-k="ip">IP / red</th>
         <th data-k="mac">MAC / fabricante</th><th data-k="ap">AP</th><th>Puertos</th><th data-k="bytes_down">Tráfico</th><th data-k="last_seen">Visto</th><th></th>
       </tr></thead><tbody id="tb"></tbody></table></div>
       <p class="muted small">El AP no se puede saber por ARP: asígnalo aquí y aparecerá en el mapa y en «Por AP». El tráfico por dispositivo solo existe en modo puente.</p>`;
@@ -171,6 +283,27 @@ const views = {
     view.querySelectorAll("th[data-k]").forEach((th) => th.onclick = () => {
       asc = sortKey === th.dataset.k ? !asc : true; sortKey = th.dataset.k; draw();
     });
+    $("#seek").onclick = async () => {
+      const q = $("#flt").value.trim();
+      if (!q) return toast("Escribe una IP, MAC o nombre en el filtro");
+      const box = document.createElement("div");
+      box.className = "card"; box.style.marginBottom = "12px";
+      box.innerHTML = `<h3>🔎 Buscando «${esc(q)}» en la red… (ping, ARP, nombre y puertos; hasta 1 min)</h3>`;
+      view.querySelector(".card").before(box);
+      try {
+        const r = await api("/api/lookup", { method: "POST", body: JSON.stringify({ q }) });
+        const p = r.probe;
+        box.innerHTML = `<h3>🔎 Resultado para «${esc(q)}»</h3>
+          ${r.matches.length ? `<p>En la lista: ${r.matches.map((d) => `<b>${esc(d.display_name)}</b> <span class="mono small">${d.ip} · ${d.mac}</span>`).join(", ")}</p>` : ""}
+          ${p ? `<table><tr><td>IP</td><td class="mono">${esc(p.ip)} ${p.network ? `(${esc(p.network)})` : "(fuera de tus redes)"}</td></tr>
+            <tr><td>Responde</td><td>${p.reachable ? "✅" : "❌ no responde a ping ni ARP"} ${p.ping_ms != null ? p.ping_ms + " ms" : ""}</td></tr>
+            <tr><td>MAC</td><td class="mono">${esc(p.mac || "—")} ${esc(p.vendor || "")}</td></tr>
+            <tr><td>Nombre</td><td>${esc(p.hostname || "—")} <span class="muted small">${esc(p.hostname_src || "")}</span></td></tr>
+            <tr><td>Tipo</td><td>${esc(p.type)}</td></tr><tr><td>Puertos</td><td class="mono small">${(p.ports || []).map(esc).join(", ") || "—"}</td></tr></table>
+            ${p.note ? `<p class="muted">${esc(p.note)}</p>` : ""}${p.device ? '<p>✅ Agregado a la lista. Recarga para verlo.</p>' : ""}`
+          : (!r.matches.length ? `<p class="muted">No encontré nada con ese nombre. Prueba con la IP (la ves en el equipo o en la lista del módem).</p>` : "")}`;
+      } catch (e) { box.innerHTML = `<p class="banner">${esc(e.message)}</p>`; }
+    };
     $("#allknown").onclick = async () => { await api("/api/devices/known", { method: "POST" }); route(); };
     const patch = (mac, body) => api(`/api/devices/${mac}`, { method: "PATCH", body: JSON.stringify(body) })
       .then((d) => { Object.assign(j.devices.find((x) => x.mac === mac), d); toast("Guardado"); });
@@ -221,6 +354,68 @@ const views = {
         `<tr><td>${esc(n)}</td><td>${bytes(v.down)}</td><td>${bytes(v.up)}</td></tr>`).join("")}</table>`
         : '<p class="muted">Necesita modo puente (ver docs/modo-puente.md).</p>'}
       ${(t.vps || []).length ? `<h3 style="margin-top:14px">VPS hoy</h3>${t.vps.map((v) => `${v.direction}: <b>${bytes(v.bytes)}</b>`).join(" · ")}` : ""}`;
+  },
+
+  async conexiones() {
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Conexiones entrantes a la Pi</h2>
+      <input id="cq" placeholder="Filtrar IP, nombre, origen…" style="width:220px">
+      <select id="ca"><option value="">Todas</option><option value="permitida">Permitidas</option>
+        <option value="bloqueada">Bloqueadas (UFW)</option><option value="honeypot">Honeypot</option></select>
+      <select id="ch"><option value="1">1 hora</option><option value="6">6 horas</option><option value="24" selected>24 horas</option>
+        <option value="168">7 días</option></select></div>
+      <div id="cbody"><p class="muted">Cargando…</p></div>`;
+    const load = async () => {
+      const hours = +$("#ch").value || 24, act = $("#ca").value, q = $("#cq").value.toLowerCase();
+      const j = await api(`/api/inbound?hours=${hours}`);
+      let ips = j.ips.filter((r) => (!act || r.actions[act]) && (!q || `${r.ip} ${r.name} ${r.origin}`.toLowerCase().includes(q)));
+      const sum = (a) => j.ips.reduce((s, r) => s + (r.actions[a] || 0), 0);
+      const warn = [!j.sources.conntrack && "conntrack", !j.sources.ufw && "log de UFW (ver docs/conexiones.md)"].filter(Boolean);
+      $("#cbody").innerHTML = `
+        ${warn.length ? `<div class="banner">Sin datos de: ${warn.join(", ")}</div>` : ""}
+        <div class="grid">
+          <div class="card kpi"><div class="l">IPs distintas</div><div class="v">${j.ips.length}</div></div>
+          <div class="card kpi"><div class="l">Permitidas</div><div class="v" style="color:var(--ok)">${sum("permitida")}</div></div>
+          <div class="card kpi"><div class="l">Bloqueadas</div><div class="v" style="color:var(--bad)">${sum("bloqueada")}</div></div>
+          <div class="card kpi"><div class="l">Honeypot</div><div class="v" style="color:var(--c4)">${sum("honeypot")}</div></div>
+          <div class="card kpi"><div class="l">Desde Internet</div><div class="v">${j.ips.filter((r) => r.origin === "Internet").length}</div><div class="muted small">IPs públicas</div></div>
+        </div><br>
+        <div class="card"><h3>Por hora</h3>${hourlyBars(j.hourly.filter((r) => !act || r.action === act), Math.min(hours, 168))}</div><br>
+        <div class="card"><h3>Quién se conecta a qué <span class="muted small">(pasa el ratón; clic en una IP para el detalle)</span></h3>
+          <div class="legend" style="margin:0 0 8px">${[["casa", "#5aa9ff"], ["laboratorio", "#2dd4bf"], ["otra red (vía Tenda)", "#f5a524"], ["VPN", "#c084fc"], ["Internet", "#f2555a"]]
+            .map(([k, c]) => `<span><i style="background:${c};border-radius:50%"></i>${k}</span>`).join("")}</div>
+          <div style="overflow-x:auto">${flowGraph(ips, act)}</div></div><br>
+        <div class="grid2"><div class="card" style="overflow:auto"><h3>Detalle por IP</h3><table><tr><th>IP</th><th>Origen</th><th>Servicios</th><th>✔</th><th>⛔</th><th>🍯</th><th>Última</th></tr>
+          ${ips.map((r) => `<tr class="iprow" data-ip="${r.ip}" style="cursor:pointer"><td class="mono">${esc(r.ip)}<div class="muted small">${esc(r.name)}</div></td>
+            <td><span class="dot" style="background:${ORIGIN_COLOR(r.origin)}"></span> ${esc(r.origin)}</td>
+            <td class="small">${Object.keys(r.ports).map((p) => esc(r.services[p])).join(", ")}</td>
+            <td>${r.actions.permitida || ""}</td><td>${r.actions.bloqueada || ""}</td><td>${r.actions.honeypot || ""}</td>
+            <td class="small">${ago(r.last)}</td></tr>`).join("") || '<tr><td colspan="7" class="muted">Nada todavía.</td></tr>'}</table></div>
+          <div class="card" id="ipd"><h3>Selecciona una IP</h3><p class="muted">Haz clic en una IP del grafo o de la tabla.</p></div></div>`;
+      const showIp = async (ip) => {
+        const d = await api(`/api/inbound/${ip}`);
+        const r = j.ips.find((x) => x.ip === ip) || { ports: {}, services: {}, actions: {} };
+        $("#ipd").innerHTML = `<h3>${esc(ip)} · ${esc(d.origin)}</h3>
+          ${r.name ? `<p>Equipo: <b>${esc(r.name)}</b> <span class="mono small">${esc(r.mac)}</span></p>` : ""}
+          <table><tr><th>Servicio</th><th>Permitidas</th><th>Bloqueadas</th><th>Honeypot</th></tr>${Object.entries(r.ports).map(([p, a]) =>
+            `<tr><td>${esc(r.services[p])} <span class="muted">:${p}</span></td><td>${a.permitida || ""}</td><td>${a.bloqueada || ""}</td><td>${a.honeypot || ""}</td></tr>`).join("")}</table>
+          <h3 style="margin-top:12px">Por hora</h3>${hourlyBars(d.hourly, Math.min(hours, 168))}
+          <h3 style="margin-top:12px">Eventos</h3>${evList(d.events.slice(0, 8))}
+          <p class="small muted">Bloquearla en el firewall de la Pi:</p><code class="mono small" style="user-select:all">${esc(d.ufw)}</code>
+          <button id="cpy" style="margin-left:8px">Copiar</button>`;
+        $("#cpy").onclick = () => navigator.clipboard?.writeText(d.ufw).then(() => toast("Copiado"));
+      };
+      $("#cbody").querySelectorAll(".nd, .iprow").forEach((el) => el.onclick = () => showIp(el.dataset.ip));
+      const svg = $("#cbody").querySelector("svg.flow");
+      if (svg) svg.addEventListener("mouseover", (e) => {
+        const g = e.target.closest(".nd, .sv"); if (!g) return;
+        const key = g.classList.contains("nd") ? ["ip", g.dataset.ip] : ["port", g.dataset.port];
+        svg.querySelectorAll(".lk").forEach((l) => l.setAttribute("opacity", l.dataset[key[0]] === key[1] ? ".95" : ".07"));
+      });
+      if (svg) svg.addEventListener("mouseleave", () => svg.querySelectorAll(".lk").forEach((l) => l.setAttribute("opacity", ".45")));
+    };
+    ["#ch", "#ca"].forEach((s) => $(s).onchange = load);
+    let deb; $("#cq").oninput = () => { clearTimeout(deb); deb = setTimeout(load, 300); };
+    await load();
   },
 
   async ap() {
@@ -312,7 +507,7 @@ const views = {
 };
 
 const EV_ICON = { new_device: "🆕", arp_spoof: "🕵", ports_changed: "🚪", ids: "🚨", blocked_seen: "⛔",
-  quarantine: "🧪", acl: "🔒" };
+  quarantine: "🧪", acl: "🔒", honeypot: "🍯", dns_danger: "☣", roam_failed: "📶" };
 function evList(evs) {
   if (!evs.length) return '<p class="muted">Sin eventos. Todo tranquilo.</p>';
   return evs.map((e) => `<div class="ev"><span>${EV_ICON[e.kind] || "•"}</span>

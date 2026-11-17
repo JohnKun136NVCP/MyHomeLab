@@ -54,4 +54,21 @@ def render(mon: Monitor) -> str:
     metric("homelab_ids_alerts_total", "counter", "Alertas de Suricata por severidad", [
         (dict(severity=s), n) for s, n in mon.ids_alerts.items()])
     metric("homelab_last_scan_timestamp_seconds", "gauge", "Último escaneo", [({}, mon.last_scan)])
+    day = db.inbound_hourly(__import__("time").time() - 86400)
+    tot: dict[str, int] = {}
+    for r in day:
+        tot[r["action"]] = tot.get(r["action"], 0) + r["n"]
+    metric("homelab_inbound_24h", "gauge", "Conexiones entrantes a la Pi en 24 h por acción", [
+        (dict(action=a), n) for a, n in tot.items()])
+    ag = mon.adguard
+    if ag.enabled and ag.stats:
+        metric("homelab_dns_queries", "gauge", "Consultas DNS (periodo de AdGuard)",
+               [({}, ag.stats.get("num_dns_queries", 0))])
+        metric("homelab_dns_blocked", "gauge", "Consultas bloqueadas por filtros",
+               [({}, ag.stats.get("num_blocked_filtering", 0))])
+        metric("homelab_dns_malware", "gauge", "Bloqueos de malware/phishing",
+               [({}, ag.stats.get("num_replaced_safebrowsing", 0))])
+        names_by_ip = {d["ip"]: d["display_name"] for d in devs}
+        metric("homelab_dns_client_queries", "gauge", "Consultas por cliente (top de AdGuard)", [
+            (dict(ip=ip, name=names_by_ip.get(ip) or ag.names.get(ip, ip)), n) for ip, n in ag.top_clients()])
     return "\n".join(out) + "\n"

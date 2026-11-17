@@ -82,10 +82,12 @@ def vps_block() -> str:
     disk = _val('max(100 * (1 - node_filesystem_avail_bytes{instance="vps",mountpoint="/"} '
                 '/ node_filesystem_size_bytes{instance="vps",mountpoint="/"}))', 0)
     up_s = _val('time() - node_boot_time_seconds{instance="vps"}', 0)
+    cs = _val('sum(cs_active_decisions{instance="vps"})')
     return (f"☁ <b>VPS</b> ✅ (encendido {up_s / 86400:.0f} días)\n"
             f"  CPU {cpu:.0f}% · RAM {mem:.0f}% · disco {disk:.0f}%\n"
             f"  Ahora: ↓ {human_bps(now_rx)} · ↑ {human_bps(now_tx)}\n"
-            f"  Últimas 24 h: ↓ {human_bytes(rx)} · ↑ {human_bytes(tx)}\n")
+            f"  Últimas 24 h: ↓ {human_bytes(rx)} · ↑ {human_bytes(tx)}\n"
+            + (f"  🛡 CrowdSec: {cs:.0f} IPs bloqueadas ahora\n" if cs is not None else ""))
 
 
 def home_block() -> str:

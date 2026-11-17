@@ -23,6 +23,12 @@ scrape_configs:
       - files: ["/prometheus-targets/nodes.json"]
         refresh_interval: 1m
 
+  # CrowdSec del VPS (lista en infrastructure.crowdsec de homelab.yml)
+  - job_name: crowdsec
+    file_sd_configs:
+      - files: ["/prometheus-targets/crowdsec.json"]
+        refresh_interval: 1m
+
   # Dispositivos, latencias, tráfico por dispositivo, eventos e IDS
   - job_name: netwatch
     scrape_interval: 60s

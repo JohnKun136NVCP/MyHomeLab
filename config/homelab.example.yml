@@ -61,6 +61,10 @@ infrastructure:
     #   target: 192.168.1.10:9100
     # - name: vps
     #   target: 10.66.0.1:9100       # IP del VPS dentro de tu túnel WireGuard (wg-hoshimy)
+  # CrowdSec del VPS (métricas por el túnel; ver docs/vpn.md)
+  # crowdsec:
+  #   - name: vps
+  #     target: 10.66.0.1:6060
   ping_targets:
     - name: internet
       host: 1.1.1.1
@@ -86,6 +90,25 @@ links:
   - name: Prometheus
     url: /prometheus/
     icon: 🔥
+  - name: AdGuard (DNS)
+    url: http://192.168.1.5:3002
+    icon: 🛡
+  - name: Uptime Kuma
+    url: http://192.168.1.5:3001
+    icon: 📈
+  - name: Vaultwarden
+    url: /vault/
+    icon: 🔑
+
+# DNS de la casa (perfil «dns»). netwatch lee sus estadísticas, los nombres de los
+# equipos y te avisa si alguien intentó abrir un dominio de malware/phishing.
+dns:
+  adguard_url: http://127.0.0.1:3002      # vacío = sin AdGuard
+
+# Honeypot (perfil «honeypot»): solo informativo, los puertos están en
+# services/honeypot/opencanary.conf.template
+honeypot:
+  ports: [21, 23, 1433, 2222, 3306, 3389, 5900, 6379]
 
 cameras:
   frigate_url: http://192.168.1.10:5000     # Frigate en la PC Linux

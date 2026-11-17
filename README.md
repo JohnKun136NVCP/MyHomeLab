@@ -35,6 +35,13 @@ flowchart LR
 | Estado y tráfico del VPS en Grafana y reportes | node-exporter del VPS por la VPN; `/vps` y reporte diario | `hosts/vps` |
 | Publicar en redes de la empresa a cierta hora | `/programar` para Facebook, Instagram y tu canal de Telegram | [redes sociales](docs/redes-sociales.md) |
 | App web | Resumen, Dispositivos, Tráfico, Por AP, **Mapa** (árbol Internet → módem → AP → dispositivos), Cámaras, Accesos de un clic a tus AP, ACL y Eventos | `https://IP-de-la-Pi` |
+| IPs entrantes | Web → **Conexiones**: grafo interactivo de quién se conecta a qué servicio (permitidas, bloqueadas por UFW, honeypot), por hora y por IP | [conexiones](docs/conexiones.md) |
+| Hostnames y buscar equipos | DNS del módem/Tenda, mDNS, NetBIOS y AdGuard; botón «🔎 Buscar en la red» | [conexiones](docs/conexiones.md) |
+| DNS con filtro | AdGuard Home (perfil `dns`), aviso de dominios de malware | [dns](docs/dns.md) |
+| Honeypot | OpenCanary solo en la red del laboratorio (perfil `honeypot`) | [honeypot](docs/honeypot.md) |
+| Uptime Kuma y Vaultwarden | perfil `servicios` | [servicios](docs/servicios.md) |
+| CrowdSec del VPS | métricas y alerta de ataques | [VPN](docs/vpn.md) |
+| Laboratorio CCNA | Containerlab con OSPF y ejercicios | [lab/](lab/README.md) |
 | Streaming propio | Jellyfin en la PC | `hosts/server` |
 | VPN | Reutiliza tu túnel WireGuard Pi ↔ VPS; wg-easy opcional para teléfono/laptop | [VPN](docs/vpn.md) |
 
@@ -83,7 +90,7 @@ Para una VPN nueva con web y QR: `--profile wg-easy`. Detalles en [docs/vpn.md](
 
 ## Comandos del bot
 `/estado` · `/reporte` · `/vps` · `/dispositivos` · `/nuevos` · `/eventos` · `/bloquear MAC [23:00-07:00]` ·
-`/acl` · `/desbloquear ID` · `/camaras` · `/foto NOMBRE` · `/respaldos` ·
+`/acl` · `/desbloquear ID` · `/conexiones` · `/dns` · `/camaras` · `/foto NOMBRE` · `/respaldos` ·
 `/programar FECHA HORA fb,ig,tg texto` · `/programadas` · `/cancelar ID` · `/publicar_ya ID`.
 Cualquier archivo, foto o video que le mandes se guarda como respaldo del teléfono
 (`#nombre` en el pie para otro dispositivo).

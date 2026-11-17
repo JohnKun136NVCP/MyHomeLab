@@ -19,6 +19,8 @@ setv() {  # setv CLAVE valor  (solo si está vacía o con el valor de ejemplo)
 
 setv INTERNAL_TOKEN "$(rand)"
 setv GRAFANA_ADMIN_PASSWORD "$(rand | cut -c1-20)"
+grep -q '^VW_ADMIN_TOKEN=' .env || echo 'VW_ADMIN_TOKEN=' >> .env
+setv VW_ADMIN_TOKEN "$(rand)$(rand)"
 # Un token por cada dispositivo de config/homelab.yml
 python3 - <<'EOF' | while read -r key; do setv "$key" "$(rand)"; done
 import re, yaml

@@ -2,7 +2,11 @@
 #  Raspberry Pi 4 — red, monitoreo, alertas, bot y web
 #  Uso (desde la raíz del repo):
 #    docker compose -f hosts/pi/docker-compose.yml --env-file .env up -d
-#    ... --profile ids up -d      # además Suricata (IDS), recomendado en modo puente
+#    ... --profile ids up -d        # Suricata (IDS), recomendado en modo puente
+#    ... --profile dns up -d        # AdGuard Home (DNS de la casa)
+#    ... --profile honeypot up -d   # OpenCanary en la red del laboratorio
+#    ... --profile servicios up -d  # Uptime Kuma y Vaultwarden
+#  Varios a la vez:  --profile dns --profile honeypot --profile servicios
 # ======================================================================
 name: homelab-pi
 
@@ -39,6 +43,10 @@ services:
     environment:
       HOMELAB_CONFIG: /config/homelab.yml
       DATA_DIR: /data
+      UFW_LOG: /hostlog/ufw.log
+      CANARY_LOG: /honeypot/opencanary.log
+      ADGUARD_USER: ${ADGUARD_USER:-}
+      ADGUARD_PASSWORD: ${ADGUARD_PASSWORD:-}
       PROMETHEUS_URL: http://127.0.0.1:9090/prometheus
       BOT_URL: http://127.0.0.1:8080
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
@@ -50,6 +58,8 @@ services:
       - netwatch_data:/data
       - prom_targets:/data/prom-targets
       - suricata_logs:/suricata:ro
+      - honeypot_logs:/honeypot:ro
+      - /var/log:/hostlog:ro         # log de UFW (intentos bloqueados)
       # nmcli del contenedor habla con el NetworkManager de la Pi (cambiar de SSID)
       - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
 
@@ -138,6 +148,56 @@ services:
       - suricata_logs:/var/log/suricata
       - suricata_rules:/var/lib/suricata
 
+  # --- DNS de la casa (opcional): --profile dns -----------------------------
+  adguard:
+    <<: *common
+    profiles: ["dns"]
+    image: adguard/adguardhome:latest
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "3002:3000/tcp"      # web de AdGuard: http://IP-de-la-Pi:3002
+    volumes:
+      - adguard_work:/opt/adguardhome/work
+      - adguard_conf:/opt/adguardhome/conf
+
+  # --- Honeypot en el laboratorio (opcional): --profile honeypot -------------
+  honeypot:
+    <<: *common
+    profiles: ["honeypot"]
+    build: { context: ../../services/honeypot }
+    network_mode: host              # escucha SOLO en HONEYPOT_IP (la IP de la Pi en el lab)
+    environment:
+      HONEYPOT_IP: ${HONEYPOT_IP:-192.168.100.5}
+      HONEYPOT_NODE: ${HONEYPOT_NODE:-lab-canary}
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]     # puertos 21 y 23
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - honeypot_logs:/var/log/opencanary
+
+  # --- Servicios (opcional): --profile servicios ------------------------------
+  uptime-kuma:
+    <<: *common
+    profiles: ["servicios"]
+    image: louislam/uptime-kuma:1
+    ports: ["3001:3001"]            # http://IP-de-la-Pi:3001
+    volumes:
+      - uptime_kuma:/app/data
+
+  vaultwarden:
+    <<: *common
+    profiles: ["servicios"]
+    image: vaultwarden/server:latest
+    environment:
+      # Se usa por https://IP:PUERTO/vault (Caddy le pone el certificado)
+      DOMAIN: https://${HOMELAB_HOST}:${HTTPS_PORT:-443}/vault
+      SIGNUPS_ALLOWED: ${VW_SIGNUPS_ALLOWED:-true}   # pon false en .env después de crear tu cuenta
+      ADMIN_TOKEN: ${VW_ADMIN_TOKEN:-}
+      WEBSOCKET_ENABLED: "true"
+    volumes:
+      - ${VW_DATA:-./vaultwarden}:/data
+
 volumes:
   caddy_data:
   netwatch_data:
@@ -147,3 +207,7 @@ volumes:
   grafana_data:
   suricata_logs:
   suricata_rules:
+  honeypot_logs:
+  adguard_work:
+  adguard_conf:
+  uptime_kuma:

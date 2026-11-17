@@ -25,6 +25,12 @@ https://{$HOMELAB_HOST}:443 {
 		}
 	}
 
+	# Vaultwarden tiene su propio inicio de sesión (y las apps de Bitwarden no
+	# saben responder a la contraseña de Caddy), así que va sin basic_auth.
+	handle /vault* {
+		reverse_proxy vaultwarden:80
+	}
+
 	handle /grafana* {
 		reverse_proxy grafana:3000
 	}

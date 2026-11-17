@@ -12,7 +12,9 @@ from pathlib import Path
 
 from homelab_common import http_json
 
-from . import acl, roam, scanner
+from . import acl, names, roam, scanner
+from .adguard import AdGuard
+from .inbound import Inbound, service_name
 from .classify import classify
 from .db import DB
 
@@ -52,6 +54,12 @@ class Monitor:
         self._last_daily_scan = ""
         self._infra_mac: dict[str, str] = {}
         self.stop = threading.Event()
+        self.inbound = Inbound(db, os.environ.get("UFW_LOG", "/hostlog/ufw.log"),
+                               os.environ.get("CANARY_LOG", "/honeypot/opencanary.log"))
+        dns = cfg.get("dns", {}) or {}
+        self.adguard = AdGuard(dns.get("adguard_url", ""))
+        self.honeypot_ports = set((cfg.get("honeypot", {}) or {}).get("ports", []) or [])
+        self._name_budget = int(net.get("names_per_cycle", 8))
         self.write_prom_targets()
 
     # ------------------------------------------------------------ config
@@ -96,13 +104,14 @@ class Monitor:
 
     def write_prom_targets(self) -> None:
         """Lista de nodos para Prometheus (file_sd) a partir de homelab.yml."""
-        nodes = self.cfg.get("infrastructure", {}).get("nodes", []) or []
+        inf = self.cfg.get("infrastructure", {}) or {}
         d = self.data / "prom-targets"
         d.mkdir(parents=True, exist_ok=True)
-        sd = [{"targets": [n["target"]], "labels": {"instance": n["name"]}} for n in nodes]
-        tmp = d / "nodes.json.tmp"
-        tmp.write_text(json.dumps(sd, indent=2))
-        tmp.replace(d / "nodes.json")
+        for fname, key in (("nodes.json", "nodes"), ("crowdsec.json", "crowdsec")):
+            sd = [{"targets": [n["target"]], "labels": {"instance": n["name"]}} for n in inf.get(key) or []]
+            tmp = d / (fname + ".tmp")
+            tmp.write_text(json.dumps(sd, indent=2))
+            tmp.replace(d / fname)
 
     # ------------------------------------------------------------- ciclo
     def run_forever(self) -> None:
@@ -110,8 +119,9 @@ class Monitor:
                  [n["name"] for n in self.networks], self.iface, self.bridge_mode, self.roaming)
         while not self.stop.is_set():
             t0 = time.time()
-            for step in (self.scan_all, self.ping_all, self.sync_acl, self.read_ids, self.daily_port_scan,
-                         self.notify, self.maybe_roam):
+            for step in (self.scan_all, self.ping_all, self.sync_acl, self.read_ids, self.collect_inbound,
+                         self.poll_dns, self.resolve_names, self.daily_port_scan, self.notify,
+                         self.maybe_roam):
                 try:
                     step()
                 except Exception:  # noqa: BLE001 - que un paso no tumbe a los demás
@@ -246,6 +256,93 @@ class Monitor:
         for t in self.cfg.get("infrastructure", {}).get("ping_targets", []) or []:
             lat = scanner.ping(t["host"])
             self.target_status[t["name"]] = {"up": lat is not None, "latency": lat, "host": t["host"]}
+
+    # ------------------------------------------------- nombres de equipos
+    def dns_servers(self, network: str) -> list[str]:
+        """DNS que conocen los nombres de esa red: su gateway (módem o Tenda)."""
+        n = self.net(network)
+        out = [n["gateway"]] if n.get("gateway") else []
+        for i in self.infra:
+            if (i.get("network") or self.home) == network and i.get("ip") and \
+                    (i["role"] == "modem" or i.get("network")):
+                out.append(i["ip"])
+        return list(dict.fromkeys(out))
+
+    def resolve_names(self) -> None:
+        """Busca el nombre de los equipos que no lo tienen (pocos por ciclo, cada 6 h)."""
+        budget = self._name_budget
+        for d in self.db.devices():
+            if budget <= 0:
+                break
+            net = d.get("network") or self.home
+            if not d["online"] or d.get("hostname") or net not in self.reachable() or \
+                    time.time() - (d.get("name_tried") or 0) < 6 * 3600:
+                continue
+            budget -= 1
+            name, how = self.adguard.names.get(d["ip"], ""), "AdGuard"
+            if not name:
+                name, how = names.resolve(d["ip"], self.dns_servers(net))
+            fields = {"name_tried": time.time()}
+            if name:
+                fields.update(hostname=name, hostname_src=how)
+                if not d.get("type") or d.get("type") == "Desconocido":
+                    fields["type"] = classify(d.get("vendor", ""), name, d["ports"], bool(d["random_mac"]))
+            self.db.update_device(d["mac"], **fields)
+
+    def probe(self, ip: str) -> dict:
+        """Busca a fondo una IP que no aparece en la lista (botón «Buscar en la red»)."""
+        net = next((n for n in self.networks if scanner.in_network(ip, n["cidr"])), None)
+        res = {"ip": ip, "network": net["name"] if net else "", "reachable": False}
+        if net and net["name"] not in self.reachable():
+            res["note"] = f"La Pi no está ahora en la red {net['name']} (roaming)"
+        lat = scanner.ping(ip)
+        res["ping_ms"] = round(lat * 1000, 1) if lat is not None else None
+        host = None
+        if net and net["name"] in self.reachable():
+            hs = scanner.discover(ip + "/32", net.get("interface", self.iface))
+            host = next((h for h in hs if h.ip == ip), None)
+        if host is None:
+            mac = scanner.neigh_mac(ip)
+            host = scanner.Host(ip, mac) if mac else None
+        if host:
+            res.update(mac=host.mac, vendor=host.vendor, random_mac=host.random_mac)
+        res["reachable"] = lat is not None or host is not None
+        res["ports"] = scanner.port_scan(ip) if res["reachable"] else []
+        res["hostname"], res["hostname_src"] = (self.adguard.names.get(ip), "AdGuard") \
+            if self.adguard.names.get(ip) else names.resolve(ip, self.dns_servers(net["name"]) if net else [])
+        res["type"] = classify(res.get("vendor", ""), res["hostname"], res["ports"], res.get("random_mac", False))
+        if host and net:   # lo agregamos/actualizamos para que ya aparezca
+            self.db.upsert_seen(host.mac, ip, host.vendor, res["hostname"], host.random_mac, net["name"])
+            self.db.update_device(host.mac, ports=res["ports"], type=res["type"],
+                                  hostname_src=res["hostname_src"], last_port_scan=time.time())
+            res["device"] = self.db.device(host.mac)
+        return res
+
+    # ------------------------------------------------- entrantes y DNS
+    def collect_inbound(self) -> None:
+        for ev in self.inbound.collect():
+            src, port = ev["src_host"], int(ev.get("dst_port") or 0)
+            data = ev.get("logdata") or {}
+            extra = ", ".join(f"{k.lower()}={v}" for k, v in data.items()
+                              if k in ("USERNAME", "PASSWORD", "PATH", "HOSTNAME") and v)[:200]
+            dev = next((d for d in self.db.devices() if d["ip"] == src), None)
+            who = f"{dev['display_name']} ({src})" if dev else src
+            if not self.db.recent_event("honeypot", f"{src}:{port}", 1800):
+                self.db.add_event("critical", "honeypot", f"Honeypot: {who} tocó {service_name(port)}",
+                                  f"Puerto {port}. Nadie debería conectarse aquí: revisa ese equipo."
+                                  + (f" Datos: {extra}" if extra else ""), f"{src}:{port}")
+        if int(time.time()) % 3600 < self.interval:
+            self.db.prune_inbound()
+
+    def poll_dns(self) -> None:
+        for b in self.adguard.poll():
+            dev = next((d for d in self.db.devices() if d["ip"] == b["client"]), None)
+            who = f"{dev['display_name']} ({b['client']})" if dev else b["client"]
+            if not self.db.recent_event("dns_danger", f"{b['client']}|{b['domain']}", 6 * 3600):
+                self.db.add_event("critical" if b["reason"].startswith("malware") else "warning",
+                                  "dns_danger", f"DNS bloqueó {b['reason']}: {b['domain']}",
+                                  f"Lo pidió {who}. Si no lo abriste tú, revisa ese equipo.",
+                                  f"{b['client']}|{b['domain']}")
 
     # ---------------------------------------------------------- roaming
     def maybe_roam(self) -> None:

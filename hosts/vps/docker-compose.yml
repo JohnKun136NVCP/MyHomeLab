@@ -2,10 +2,10 @@
 #  VPS — métricas para Grafana (+ VPN wg-easy opcional)
 #
 #  Si YA tienes un túnel WireGuard entre la Pi y el VPS (p. ej. wg-hoshimy):
-#    VPN_VPS_IP=<IP del VPS en ese túnel> en .env  y solo:
-#    docker compose -f hosts/vps/docker-compose.yml --env-file .env up -d
+#    cp hosts/vps/.env.example hosts/vps/.env  (pon VPN_VPS_IP) y solo:
+#    docker compose -f hosts/vps/docker-compose.yml --env-file hosts/vps/.env up -d
 #  Para crear además una VPN con web y QR para teléfono/laptop (wg-easy):
-#    docker compose -f hosts/vps/docker-compose.yml --env-file .env --profile wg-easy up -d
+#    docker compose -f hosts/vps/docker-compose.yml --env-file hosts/vps/.env --profile wg-easy up -d
 # ======================================================================
 name: homelab-vps
 

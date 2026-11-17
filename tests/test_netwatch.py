@@ -168,3 +168,111 @@ def test_two_interfaces_no_roaming(tmp_path, monkeypatch):
     mon.ping_all()
     assert calls == [("192.168.20.0/24", "wlan0"), ("192.168.200.0/24", "eth0")]
     assert pings[0] == "192.168.200.1"                     # el Tenda por su IP del lab, directo
+
+
+# ------------------------------------------------ nombres, entrantes y honeypot
+def test_dns_packets():
+    import struct
+    from netwatch import names
+    q = names.build_query(names.ptr_name("192.168.1.20"), qid=0x1234)
+    assert q[:2] == b"\x12\x34" and b"\x0220\x011\x03168\x03192\x07in-addr\x04arpa\x00" in q
+    # respuesta con compresión: el nombre de la pregunta y un PTR
+    ans = (struct.pack(">HHHHHH", 0x1234, 0x8180, 1, 1, 0, 0) + q[12:]
+           + b"\xc0\x0c" + struct.pack(">HHIH", 12, 1, 60, 23) + b"\x0eiPhone-de-Mama\x05local\x00")
+    assert names.parse_ptr_answer(ans) == "iPhone-de-Mama.local"
+    assert names.clean("iPhone-de-Mama.local.") == "iPhone-de-Mama"
+    assert names.clean("desktop-abc.lan") == "desktop-abc"
+    qa = names.build_query("tapo-c200", qtype=1, qid=7)
+    a = (struct.pack(">HHHHHH", 7, 0x8180, 1, 1, 0, 0) + qa[12:]
+         + b"\xc0\x0c" + struct.pack(">HHIH", 1, 1, 60, 4) + bytes([192, 168, 1, 20]))
+    assert names.parse_a_answer(a) == "192.168.1.20"
+    assert names.parse_ptr_answer(b"\x00" * 5) == ""
+
+
+def test_parse_conntrack_and_ufw():
+    from netwatch import inbound
+    mine = {"192.168.1.5", "192.168.100.5"}
+    ct = """ipv4     2 tcp      6 431999 ESTABLISHED src=192.168.1.20 dst=192.168.1.5 sport=51234 dport=8443 src=172.18.0.5 dst=192.168.1.20 sport=443 dport=51234 [ASSURED] mark=0 use=1
+ipv4     2 tcp      6 100 ESTABLISHED src=192.168.100.10 dst=192.168.100.5 sport=40000 dport=19180 src=192.168.100.5 dst=192.168.100.10 sport=19180 dport=40000 [ASSURED] use=1
+ipv4     2 udp      17 29 src=192.168.1.30 dst=192.168.1.5 sport=5353 dport=53 src=192.168.1.5 dst=192.168.1.30 sport=53 dport=5353 use=1
+ipv4     2 tcp      6 100 ESTABLISHED src=192.168.1.5 dst=1.1.1.1 sport=40000 dport=443 src=1.1.1.1 dst=192.168.1.5 sport=443 dport=40000 use=1
+ipv4     2 tcp      6 100 ESTABLISHED src=172.17.0.2 dst=192.168.1.5 sport=4 dport=9100 src=x use=1"""
+    rows = inbound.parse_conntrack(ct, mine)
+    assert rows == [("192.168.1.20", 8443, "tcp", "192.168.1.5", 51234),
+                    ("192.168.100.10", 19180, "tcp", "192.168.100.5", 40000)]
+    ufw = ["Nov 17 10:00:01 pi kernel: [UFW BLOCK] IN=eth0 OUT= MAC=aa SRC=148.113.214.202 DST=192.168.1.5 "
+           "LEN=60 TOS=0x00 PROTO=TCP SPT=55555 DPT=22 WINDOW=64240 SYN URGP=0",
+           "Nov 17 10:00:02 pi kernel: [UFW BLOCK] IN=eth0 OUT= SRC=192.168.1.30 DST=224.0.0.251 PROTO=UDP SPT=5353 DPT=5353",
+           "Nov 17 10:00:03 pi kernel: [UFW AUDIT] IN=eth0 SRC=8.8.8.8 DST=192.168.1.5 PROTO=TCP SPT=1 DPT=80"]
+    assert inbound.parse_ufw(ufw, mine) == [("148.113.214.202", 22, "tcp", "eth0", "bloqueada")]
+    canary = ['{"logtype": 1001, "src_host": ""}',
+              '{"dst_port": 2222, "logtype": 4002, "src_host": "192.168.100.30", "logdata": {"USERNAME": "root", "PASSWORD": "123"}}',
+              "basura"]
+    assert [e["src_host"] for e in inbound.parse_canary(canary)] == ["192.168.100.30"]
+    assert inbound.service_name(19180) == "SSH" and inbound.service_name(12345) == "12345"
+
+
+def test_inbound_collect_and_summary(tmp_path, monkeypatch):
+    from netwatch import inbound
+    db = DB(tmp_path / "n.db")
+    ct = tmp_path / "ct"
+    ufw = tmp_path / "ufw.log"
+    can = tmp_path / "canary.log"
+    ufw.write_text("")
+    monkeypatch.setattr(inbound, "local_ifaces", lambda: {"192.168.1.5": "eth0"})
+    ct.write_text("ipv4 2 tcp 6 9 ESTABLISHED src=192.168.1.20 dst=192.168.1.5 sport=1000 dport=8443 src=a\n")
+    ib = inbound.Inbound(db, str(ufw), str(can), str(ct))
+    ib.collect()
+    ib.collect()                                           # la misma conexión no se cuenta dos veces
+    ct.write_text("ipv4 2 tcp 6 9 ESTABLISHED src=192.168.1.20 dst=192.168.1.5 sport=1000 dport=8443 src=a\n"
+                  "ipv4 2 tcp 6 9 ESTABLISHED src=192.168.1.20 dst=192.168.1.5 sport=1001 dport=8443 src=a\n")
+    with open(ufw, "a") as f:
+        f.write("k: [UFW BLOCK] IN=eth0 SRC=148.113.214.202 DST=192.168.1.5 PROTO=TCP SPT=5 DPT=22\n")
+    can.write_text('{"dst_port": 23, "logtype": 6001, "src_host": "192.168.1.66"}\n')
+    hp = ib.collect()
+    assert [e["src_host"] for e in hp] == ["192.168.1.66"]
+    s = {r["ip"]: r for r in db.inbound_summary(0)}
+    assert s["192.168.1.20"]["actions"] == {"permitida": 2} and s["192.168.1.20"]["iface"] == "eth0"
+    assert s["148.113.214.202"]["ports"] == {"22": {"bloqueada": 1}}
+    assert s["192.168.1.66"]["actions"] == {"honeypot": 1}
+    assert sum(r["n"] for r in db.inbound_hourly(0)) == 4
+
+
+def test_honeypot_and_dns_events(tmp_path, monkeypatch):
+    from netwatch import monitor as M
+    db = DB(tmp_path / "n.db")
+    mon = M.Monitor({"network": {"networks": [{"name": "casa", "cidr": "192.168.1.0/24"}]}}, db, tmp_path)
+    monkeypatch.setattr(mon.inbound, "collect", lambda: [{"src_host": "192.168.1.66", "dst_port": 2222,
+                                                          "logdata": {"USERNAME": "root"}}])
+    mon.collect_inbound()
+    mon.collect_inbound()                                  # no repite el aviso en 30 min
+    monkeypatch.setattr(mon.adguard, "poll", lambda: [{"client": "192.168.1.66", "domain": "malo.example",
+                                                       "reason": "malware/phishing"}])
+    mon.poll_dns()
+    evs = db.events()
+    assert [e["kind"] for e in evs].count("honeypot") == 1 and "username=root" in evs[-1]["detail"]
+    assert any(e["kind"] == "dns_danger" and e["level"] == "critical" for e in evs)
+
+
+def test_resolve_names_and_probe(tmp_path, monkeypatch):
+    from netwatch import monitor as M
+    db = DB(tmp_path / "n.db")
+    cfg = {"network": {"networks": [{"name": "casa", "interface": "eth0", "cidr": "192.168.1.0/24"}]},
+           "infrastructure": {"modem": {"name": "Módem", "ip": "192.168.1.254"}}}
+    mon = M.Monitor(cfg, db, tmp_path)
+    db.upsert_seen("aa:00:00:00:00:20", "192.168.1.20", "", "", True, "casa")
+    asked = []
+    monkeypatch.setattr(M.names, "resolve", lambda ip, srv: asked.append((ip, srv)) or ("iPhone-de-Mama", "mDNS"))
+    mon.resolve_names()
+    d = db.device("aa:00:00:00:00:20")
+    assert d["hostname"] == "iPhone-de-Mama" and d["hostname_src"] == "mDNS" and d["type"] == "Teléfono"
+    assert asked == [("192.168.1.20", ["192.168.1.254"])]
+    mon.resolve_names()                                    # ya tiene nombre: no vuelve a preguntar
+    assert len(asked) == 1
+    monkeypatch.setattr(M.scanner, "ping", lambda h, timeout=1.5: 0.004)
+    monkeypatch.setattr(M.scanner, "discover", lambda cidr, iface: [scanner.Host("192.168.1.77", "aa:00:00:00:00:77", "Lenovo")])
+    monkeypatch.setattr(M.scanner, "port_scan", lambda ip: ["445/tcp microsoft-ds"])
+    monkeypatch.setattr(M.names, "resolve", lambda ip, srv: ("DESKTOP-OFICINA", "NetBIOS"))
+    r = mon.probe("192.168.1.77")
+    assert r["reachable"] and r["mac"] == "aa:00:00:00:00:77" and r["type"] == "Computadora"
+    assert db.device("aa:00:00:00:00:77")["hostname"] == "DESKTOP-OFICINA"

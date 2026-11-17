@@ -136,6 +136,12 @@ def port_scan(ip: str) -> list[str]:
     return res[0].ports if res else []
 
 
+def neigh_mac(ip: str) -> str:
+    """MAC de la tabla ARP del sistema (si hubo tráfico reciente con esa IP)."""
+    m = re.search(r"lladdr ([0-9a-f:]{17})", _run(["ip", "neigh", "show", ip], 5))
+    return m.group(1) if m else ""
+
+
 def ping(host: str, timeout: float = 1.5) -> float | None:
     """Latencia en segundos o None si no responde."""
     out = _run(["ping", "-c", "1", "-W", str(int(max(1, timeout))), host], int(timeout) + 3)

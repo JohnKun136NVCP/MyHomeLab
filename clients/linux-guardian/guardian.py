@@ -226,25 +226,11 @@ class Guardian(tk.Tk):
     def _tab_backup(self):
         f = ttk.Frame(self.nb, padding=10)
         self.nb.add(f, text="🗄  Respaldo")
-        left = ttk.Frame(f)
+        left = ttk.Frame(f, width=480)
         left.pack(side="left", fill="y", padx=(0, 10))
-        ttk.Label(left, text="¿Qué quieres respaldar?", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(left, text="Marca sí o no en cada sección.", style="Hint.TLabel").pack(anchor="w", pady=(0, 6))
 
-        self.cat_vars: dict[str, tk.BooleanVar] = {}
-        for cat in core.CATEGORIES:
-            v = tk.BooleanVar(value=cat.default)
-            self.cat_vars[cat.key] = v
-            row = ttk.Frame(left)
-            row.pack(anchor="w", fill="x", pady=1)
-            ttk.Checkbutton(row, text=("🔒 " if cat.sensitive else "") + cat.label,
-                            variable=v).pack(anchor="w")
-            if cat.note:
-                ttk.Label(row, text="     " + cat.note, style="Hint.TLabel",
-                          wraplength=420).pack(anchor="w")
-
-        ttk.Separator(left).pack(fill="x", pady=8)
-        g = ttk.Frame(left)
+        # --- Arriba y siempre visible: destino, contraseña, opciones y botón
+        g = ttk.LabelFrame(left, text="Respaldo", padding=8)
         g.pack(fill="x")
         ttk.Label(g, text="Guardar en:").grid(row=0, column=0, sticky="w")
         self.dest_var = tk.StringVar(value=self.cfg["dest_dir"])
@@ -256,12 +242,16 @@ class Guardian(tk.Tk):
         ttk.Label(g, text="Repetir:").grid(row=2, column=0, sticky="w")
         self.pw2 = ttk.Entry(g, show="•", width=34)
         self.pw2.grid(row=2, column=1, sticky="ew")
+        self.show_pw = tk.BooleanVar(value=False)
+        ttk.Checkbutton(g, text="👁", variable=self.show_pw, command=lambda: [
+            e.config(show="" if self.show_pw.get() else "•") for e in (self.pw1, self.pw2)]
+                        ).grid(row=1, column=2, rowspan=2)
         ttk.Label(g, text="Sin esta contraseña no se puede abrir el respaldo. ¡No la olvides!",
                   style="Hint.TLabel").grid(row=3, column=0, columnspan=3, sticky="w")
         self.send_tg = tk.BooleanVar(value=bool(self.cfg.get("bot_token") or
                                                  self.cfg.get("telegram_mode") == "user"))
         ttk.Checkbutton(g, text="Enviar a mi Telegram al terminar",
-                        variable=self.send_tg).grid(row=4, column=0, columnspan=3, sticky="w", pady=4)
+                        variable=self.send_tg).grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
         self.send_hl = tk.BooleanVar(value=bool(self.cfg.get("homelab_url")))
         ttk.Checkbutton(g, text="Enviar a mi homelab (la Pi lo guarda y lo reenvía al bot)",
                         variable=self.send_hl).grid(row=5, column=0, columnspan=3, sticky="w")
@@ -271,10 +261,44 @@ class Guardian(tk.Tk):
                         state="normal" if core.timeshift_available() else "disabled"
                         ).grid(row=6, column=0, columnspan=3, sticky="w")
         g.columnconfigure(1, weight=1)
-
         self.btn_backup = ttk.Button(left, text="▶  Crear respaldo", style="Big.TButton",
                                      command=self._do_backup)
-        self.btn_backup.pack(fill="x", pady=10)
+        self.btn_backup.pack(fill="x", pady=8)
+
+        # --- Abajo: qué respaldar, con barra de desplazamiento
+        ttk.Label(left, text="¿Qué quieres respaldar?", style="Title.TLabel").pack(anchor="w")
+        box = ttk.Frame(left)
+        box.pack(fill="both", expand=True)
+        canvas = tk.Canvas(box, highlightthickness=0, width=460)
+        sb = ttk.Scrollbar(box, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        sb.pack(side="left", fill="y")
+
+        def wheel(e):  # rueda del ratón (X11 usa Button-4/5)
+            canvas.yview_scroll(-1 if (getattr(e, "num", 0) == 4 or e.delta > 0) else 1, "units")
+        for w in (canvas, inner):
+            w.bind("<Enter>", lambda _e: (canvas.bind_all("<MouseWheel>", wheel),
+                                          canvas.bind_all("<Button-4>", wheel),
+                                          canvas.bind_all("<Button-5>", wheel)))
+            w.bind("<Leave>", lambda _e: (canvas.unbind_all("<MouseWheel>"),
+                                          canvas.unbind_all("<Button-4>"),
+                                          canvas.unbind_all("<Button-5>")))
+
+        self.cat_vars: dict[str, tk.BooleanVar] = {}
+        for cat in core.CATEGORIES:
+            v = tk.BooleanVar(value=cat.default)
+            self.cat_vars[cat.key] = v
+            row = ttk.Frame(inner)
+            row.pack(anchor="w", fill="x", pady=1)
+            ttk.Checkbutton(row, text=("🔒 " if cat.sensitive else "") + cat.label,
+                            variable=v).pack(anchor="w")
+            if cat.note:
+                ttk.Label(row, text="     " + cat.note, style="Hint.TLabel",
+                          wraplength=420).pack(anchor="w")
 
         right = ttk.Frame(f)
         right.pack(side="left", fill="both", expand=True)

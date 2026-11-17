@@ -45,6 +45,16 @@ CREATE TABLE IF NOT EXISTS acl (
     note    TEXT,
     created REAL
 );
+CREATE TABLE IF NOT EXISTS inbound (
+    ip     TEXT, port INTEGER, proto TEXT, action TEXT,   -- permitida | bloqueada | honeypot
+    iface  TEXT DEFAULT '',
+    count  INTEGER DEFAULT 0, first REAL, last REAL,
+    PRIMARY KEY (ip, port, proto, action)
+);
+CREATE TABLE IF NOT EXISTS inbound_hourly (
+    hour INTEGER, action TEXT, ip TEXT, count INTEGER DEFAULT 0,
+    PRIMARY KEY (hour, action, ip)
+);
 CREATE TABLE IF NOT EXISTS ip_history (
     ip   TEXT,
     mac  TEXT,
@@ -63,10 +73,12 @@ class DB:
         with self.lock:
             self.conn.executescript(SCHEMA)
             self.conn.execute("PRAGMA journal_mode=WAL")
-            try:  # bases creadas antes de soportar varias redes
-                self.conn.execute("ALTER TABLE devices ADD COLUMN network TEXT DEFAULT ''")
-            except sqlite3.OperationalError:
-                pass
+            for col in ("network TEXT DEFAULT ''", "hostname_src TEXT DEFAULT ''",
+                        "name_tried REAL DEFAULT 0"):
+                try:  # bases creadas con versiones anteriores
+                    self.conn.execute(f"ALTER TABLE devices ADD COLUMN {col}")
+                except sqlite3.OperationalError:
+                    pass
 
     def q(self, sql: str, args=()) -> list[dict]:
         with self.lock:
@@ -135,7 +147,8 @@ class DB:
             self.conn.commit()
 
     def update_device(self, mac: str, **fields) -> None:
-        allowed = {"name", "type_manual", "ap", "known", "type", "ports", "last_port_scan"}
+        allowed = {"name", "type_manual", "ap", "known", "type", "ports", "last_port_scan",
+                   "hostname", "hostname_src", "name_tried"}
         sets = {k: v for k, v in fields.items() if k in allowed}
         if "ports" in sets:
             sets["ports"] = json.dumps(sets["ports"])
@@ -172,6 +185,49 @@ class DB:
 
     def event_counts(self) -> dict[str, int]:
         return {r["kind"]: r["n"] for r in self.q("SELECT kind, COUNT(*) n FROM events GROUP BY kind")}
+
+    # ------------------------------------------------------- entrantes
+    def add_inbound(self, ip: str, port: int, proto: str, iface: str, action: str) -> None:
+        now = time.time()
+        hour = int(now // 3600 * 3600)
+        with self.lock:
+            self.conn.execute(
+                "INSERT INTO inbound (ip, port, proto, action, iface, count, first, last) "
+                "VALUES (?,?,?,?,?,1,?,?) ON CONFLICT(ip, port, proto, action) DO UPDATE SET "
+                "count=count+1, last=excluded.last, iface=COALESCE(NULLIF(excluded.iface,''), iface)",
+                (ip, port, proto, action, iface, now, now))
+            self.conn.execute(
+                "INSERT INTO inbound_hourly (hour, action, ip, count) VALUES (?,?,?,1) "
+                "ON CONFLICT(hour, action, ip) DO UPDATE SET count=count+1", (hour, action, ip))
+            self.conn.commit()
+
+    def inbound_summary(self, since: float) -> list[dict]:
+        """Una fila por IP con sus puertos y acciones desde `since`."""
+        rows = self.q("SELECT ip, port, proto, action, iface, count, first, last FROM inbound "
+                      "WHERE last>=? ORDER BY last DESC", (since,))
+        hourly = {(r["ip"], r["action"]): r["n"] for r in self.q(
+            "SELECT ip, action, SUM(count) n FROM inbound_hourly WHERE hour>=? GROUP BY ip, action",
+            (int(since // 3600 * 3600),))}
+        by_ip: dict[str, dict] = {}
+        for r in rows:
+            d = by_ip.setdefault(r["ip"], {"ip": r["ip"], "ports": {}, "actions": {}, "first": r["first"],
+                                           "last": r["last"], "iface": r["iface"]})
+            d["ports"].setdefault(str(r["port"]), {})[r["action"]] = r["count"]
+            d["actions"][r["action"]] = hourly.get((r["ip"], r["action"]), 0)
+            d["first"] = min(d["first"], r["first"])
+            d["last"] = max(d["last"], r["last"])
+        for d in by_ip.values():
+            d["total"] = sum(d["actions"].values())
+        return sorted(by_ip.values(), key=lambda x: -x["total"])
+
+    def inbound_hourly(self, since: float) -> list[dict]:
+        return self.q("SELECT hour, action, SUM(count) n FROM inbound_hourly WHERE hour>=? "
+                      "GROUP BY hour, action ORDER BY hour", (int(since // 3600 * 3600),))
+
+    def prune_inbound(self, days: int = 14) -> None:
+        cut = time.time() - days * 86400
+        self.x("DELETE FROM inbound WHERE last<?", (cut,))
+        self.x("DELETE FROM inbound_hourly WHERE hour<?", (cut,))
 
     # ------------------------------------------------------------------- ACL
     def acl(self) -> list[dict]:

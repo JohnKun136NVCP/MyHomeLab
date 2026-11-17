@@ -15,7 +15,10 @@ from starlette.staticfiles import StaticFiles
 
 from homelab_common import http_json, prom_query, prom_range
 
+import ipaddress
+
 from . import acl, metrics, scanner
+from .inbound import service_name
 from .classify import ICONS, TYPES
 from .monitor import Monitor
 
@@ -242,6 +245,100 @@ def build_app(mon: Monitor) -> Starlette:
                                            "online": mon.infra_status.get(modem.get("name", ""), {}).get("up", True),
                                            "children": children}]})
 
+    # ------------------------------------------------- conexiones entrantes
+    def origin_of(ip: str) -> str:
+        """casa / laboratorio / VPN / Internet según la IP de origen."""
+        for i in mon.infra:   # primero: tráfico que llega por el NAT de un Tenda
+            if i.get("wan_ip") == ip:
+                return f"{i.get('network') or 'otra red'} (vía {i['name']})"
+        for n in mon.networks:
+            if scanner.in_network(ip, n["cidr"]):
+                return n["name"]
+        try:
+            a = ipaddress.ip_address(ip)
+        except ValueError:
+            return "?"
+        if a in ipaddress.ip_network("10.0.0.0/8"):
+            return "VPN"
+        return "red privada" if a.is_private else "Internet"
+
+    async def inbound(request: Request):
+        hours = max(1, min(int(request.query_params.get("hours", 24)), 24 * 14))
+        since = time.time() - hours * 3600
+        by_ip = {d["ip"]: d for d in db.devices()}
+        rows = db.inbound_summary(since)
+        for r in rows:
+            d = by_ip.get(r["ip"])
+            r["name"] = d["display_name"] if d else ""
+            r["mac"] = d["mac"] if d else ""
+            r["origin"] = origin_of(r["ip"])
+            r["services"] = {p: service_name(int(p)) for p in r["ports"]}
+        hourly = db.inbound_hourly(since)
+        return JSONResponse({"ips": rows, "hourly": hourly, "hours": hours,
+                             "error": mon.inbound.error,
+                             "sources": {"conntrack": mon.inbound.conntrack.exists(),
+                                         "ufw": mon.inbound.ufw.path.exists(),
+                                         "honeypot": mon.inbound.canary.path.exists()}})
+
+    async def inbound_ip(request: Request):
+        ip = request.path_params["ip"]
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            return JSONResponse({"error": "IP inválida"}, 400)
+        evs = [e for e in db.events(1000) if ip in (e.get("detail") or "") or ip in (e.get("title") or "")
+               or (e.get("mac") or "").startswith(ip)]
+        hourly = db.q("SELECT hour, action, count n FROM inbound_hourly WHERE ip=? ORDER BY hour", (ip,))
+        return JSONResponse({"ip": ip, "origin": origin_of(ip), "events": evs[:50], "hourly": hourly,
+                             "ufw": f"sudo ufw insert 1 deny from {ip} comment 'bloqueada desde MyHomeLab'"})
+
+    # ------------------------------------------------- buscar un equipo
+    async def lookup(request: Request):
+        """Busca por IP, MAC o nombre. Si es IP y no la conocemos, la sondea en la red."""
+        q = str((await request.json()).get("q", "")).strip().lower()
+        if not q:
+            return JSONResponse({"error": "Escribe una IP, MAC o nombre"}, 400)
+        devs = db.devices()
+        hits = [d for d in devs if q in " ".join(str(d.get(k) or "") for k in
+                                                     ("ip", "mac", "name", "hostname", "vendor")).lower()]
+        res = {"q": q, "matches": hits[:20], "probe": None}
+        ip = q
+        if not _is_ip(q) and not hits:      # nombre: pregúntale al DNS de cada red
+            from . import names
+            for n in mon.networks:
+                for srv in mon.dns_servers(n["name"]):
+                    a = names.query_a(q, srv)
+                    if a:
+                        ip = a
+                        break
+        if _is_ip(ip) and not any(d["ip"] == ip for d in hits):
+            import asyncio
+            res["probe"] = await asyncio.to_thread(mon.probe, ip)
+        return JSONResponse(res)
+
+    def _is_ip(x: str) -> bool:
+        try:
+            ipaddress.ip_address(x)
+            return True
+        except ValueError:
+            return False
+
+    async def dns(_):
+        ag = mon.adguard
+        if not ag.enabled:
+            return JSONResponse({"enabled": False})
+        names_by_ip = {d["ip"]: d["display_name"] for d in db.devices()}
+        st = ag.stats
+        return JSONResponse({
+            "enabled": True, "error": ag.error,
+            "queries": st.get("num_dns_queries", 0), "blocked": st.get("num_blocked_filtering", 0),
+            "malware": st.get("num_replaced_safebrowsing", 0),
+            "top_clients": [{"ip": ip, "name": names_by_ip.get(ip) or ag.names.get(ip, ""), "n": n}
+                            for ip, n in ag.top_clients()[:15]],
+            "top_blocked": [{"domain": k, "n": v} for item in st.get("top_blocked_domains") or []
+                            for k, v in item.items()][:15],
+            "url": ag.url})
+
     # --------------------------------------------------- accesos y cámaras
     async def links(_):
         inf = cfg.get("infrastructure", {})
@@ -298,6 +395,8 @@ def build_app(mon: Monitor) -> Starlette:
         Route("/api/traffic", traffic), Route("/api/totals", totals),
         Route("/api/by-ap", by_ap), Route("/api/topology", topology),
         Route("/api/links", links), Route("/api/cameras", cameras),
+        Route("/api/inbound", inbound), Route("/api/inbound/{ip}", inbound_ip),
+        Route("/api/lookup", lookup, methods=["POST"]), Route("/api/dns", dns),
         Route("/api/cameras/{name}/snapshot", camera_snapshot),
         Mount("/static", StaticFiles(directory=STATIC), name="static"),
     ]
