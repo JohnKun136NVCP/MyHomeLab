@@ -637,7 +637,7 @@ def build_app(mon: Monitor) -> Starlette:
         form = {k: v[0] for k, v in parse_qs((await request.body()).decode(errors="replace")).items()}
         user, hashed = auth.credentials()
         if not hashed:
-            return await login_page(request, "No hay contraseña configurada: corre ./scripts/gen-secrets.sh en la Pi.", 503)
+            return await login_page(request, "No hay contraseña configurada: en la Pi corre ./scripts/gen-secrets.sh y luego: sudo docker compose -f hosts/pi/docker-compose.yml restart netwatch", 503)
         if form.get("user") == user and auth.verify_password(form.get("password", ""), hashed):
             auth.clear_fails(ip)
             r = RedirectResponse(auth.safe_next(form.get("next", "/")), 303)

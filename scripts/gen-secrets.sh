@@ -7,12 +7,23 @@ cd "$(dirname "$0")/.."
 [[ -f config/homelab.yml ]] || cp config/homelab.example.yml config/homelab.yml
 chmod 600 .env
 
+# Cambia o agrega KEY=valor escribiendo en el MISMO archivo (mismo inodo):
+# el contenedor del panel monta .env y no vería un archivo nuevo creado por «sed -i».
+putv() {
+  local k="$1" v="$2" tmp
+  tmp="$(mktemp)"
+  K="$k" V="$v" awk 'BEGIN{k=ENVIRON["K"]; v=ENVIRON["V"]; done=0}
+    $0 ~ "^"k"=" { if (!done) print k"="v; done=1; next } { print }
+    END{ if (!done) print k"="v }' .env > "$tmp"
+  cat "$tmp" > .env && rm -f "$tmp"
+}
+
 rand() { openssl rand -base64 33 | tr -d '/+=\n' | cut -c1-40; }
 setv() {  # setv CLAVE valor  (solo si está vacía o con el valor de ejemplo)
   local k="$1" v="$2" cur
   cur="$(grep -E "^$k=" .env | cut -d= -f2- || true)"
   if [[ -z "$cur" || "$cur" == "cambia-esto" ]]; then
-    if grep -qE "^$k=" .env; then sed -i "s|^$k=.*|$k=$v|" .env; else echo "$k=$v" >> .env; fi
+    putv "$k" "$v"
     echo "  $k generado"
   fi
 }
@@ -45,14 +56,19 @@ if ! grep -qE '^WEB_PASSWORD_HASH=.+' .env; then
       echo "  No coinciden o está vacía; otra vez."
     done
     if h="$("${DOCKER[@]}" run --rm caddy:2-alpine caddy hash-password --plaintext "$pw")" && [[ "$h" == \$2* ]]; then
-      sed -i "s|^WEB_PASSWORD_HASH=.*|WEB_PASSWORD_HASH=${h//\$/\$\$}|" .env
-      echo "  WEB_PASSWORD_HASH generado"
+      putv WEB_PASSWORD_HASH "${h//\$/\$\$}"
+      if grep -qE '^WEB_PASSWORD_HASH=\$\$2' .env; then
+        echo "  WEB_PASSWORD_HASH guardado (usuario: $(grep -E '^WEB_USER=' .env | cut -d= -f2- || true))"
+      else
+        echo "  ✘ No se guardó WEB_PASSWORD_HASH en .env"; exit 1
+      fi
     else
       echo "  ✘ No pude generar el hash con Docker. Revisa 'sudo docker info' y vuelve a correr este script."
       exit 1
     fi
   fi
 fi
+grep -qE '^WEB_USER=.+' .env || putv WEB_USER admin
 echo
 echo "Listo. Revisa .env (token del bot, TELEGRAM_ALLOWED_IDS, HOMELAB_HOST) y config/homelab.yml"
 echo "Tokens de respaldo para tus dispositivos:"
