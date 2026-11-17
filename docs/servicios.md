@@ -5,6 +5,15 @@ sudo docker compose -f hosts/pi/docker-compose.yml --env-file .env --profile ser
 ```
 
 ## Uptime Kuma — `http://IP-de-la-Pi:3001`
+Usa la versión 2 (`louislam/uptime-kuma:2-slim`). Si ya tenías la 1.23, actualiza así
+(respalda primero: la migración convierte la base de datos):
+```bash
+sudo docker compose -f hosts/pi/docker-compose.yml --env-file .env stop uptime-kuma
+sudo docker run --rm -v homelab-pi_uptime_kuma:/d -v "$PWD":/b alpine tar czf /b/uptime-kuma-v1.tgz -C /d .
+git pull && sudo docker compose -f hosts/pi/docker-compose.yml --env-file .env up -d uptime-kuma
+sudo docker compose -f hosts/pi/docker-compose.yml --env-file .env logs -f uptime-kuma   # ver la migración
+```
+
 Monitorea páginas y servicios con historial: tu página de empresa, el VPS, el nginx del 8090,
 la Bot API, etc. En «Configuración → Notificaciones» elige **Telegram** con el token de tu bot
 y tu chat ID para recibir las caídas.

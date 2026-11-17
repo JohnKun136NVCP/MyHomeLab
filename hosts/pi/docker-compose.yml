@@ -167,7 +167,8 @@ services:
   uptime-kuma:
     <<: *common
     profiles: ["servicios"]
-    image: louislam/uptime-kuma:1
+    # v2 (la v1 ya no recibe parches). «2-slim» = sin Chromium ni MariaDB integrados: ideal en la Pi
+    image: louislam/uptime-kuma:2-slim
     ports: ["3001:3001"]            # http://IP-de-la-Pi:3001
     volumes:
       - uptime_kuma:/app/data
