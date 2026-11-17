@@ -88,3 +88,62 @@ def test_db(tmp_path):
     assert [e["id"] for e in db.pending_notifications()] == [eid]
     db.mark_notified([eid])
     assert db.pending_notifications() == []
+
+
+def test_roaming_two_networks(tmp_path, monkeypatch):
+    """La Pi vive en casa, brinca al laboratorio, lo escanea y regresa."""
+    from netwatch import monitor as M
+    cfg = {"network": {"interface": "wlan0",
+                       "networks": [{"name": "casa", "ssid": "MODEM", "cidr": "192.168.20.0/24"},
+                                    {"name": "laboratorio", "ssid": "LAB", "cidr": "192.168.200.0/24",
+                                     "notify_new_devices": False}],
+                       "roaming": {"enabled": True, "home": "casa", "hop_every": 0, "dwell": 0}},
+           "infrastructure": {"modem": {"name": "Módem", "ip": "192.168.20.1"},
+                              "access_points": [{"name": "Tenda Lab", "network": "laboratorio",
+                                                 "ip": "192.168.200.1", "wan_ip": "192.168.20.2"}]}}
+    H = scanner.Host
+    scans = {"192.168.20.0/24": [H("192.168.20.1", "aa:00:00:00:00:01", "ZTE"),
+                                 H("192.168.20.2", "c8:3a:35:00:00:99", "Tenda"),
+                                 H("192.168.20.50", "aa:00:00:00:00:50", "Apple", "iphone-mama")],
+             "192.168.200.0/24": [H("192.168.200.1", "c8:3a:35:00:00:01", "Tenda"),
+                                  H("192.168.200.30", "aa:00:00:00:02:30", "Cisco", "sw-lab")]}
+    hops, pings = [], []
+    monkeypatch.setattr(M.scanner, "discover", lambda cidr, iface: scans[cidr])
+    monkeypatch.setattr(M.scanner, "port_scan", lambda ip: [])
+    monkeypatch.setattr(M.scanner, "ping", lambda h, timeout=1.5: pings.append(h) or 0.01)
+    monkeypatch.setattr(M.roam, "available", lambda: True)
+    monkeypatch.setattr(M.roam, "connect", lambda prof, iface, cidr, timeout=45: hops.append(prof) or (True, "ok"))
+    db = DB(tmp_path / "n.db")
+    mon = M.Monitor(cfg, db, tmp_path)
+    mon.scan()
+    mon.ping_all()
+    assert "192.168.20.2" in pings and "192.168.200.1" not in pings   # Tenda por su WAN desde casa
+    mon.maybe_roam()
+    assert hops == ["LAB", "MODEM"] and mon.current == "casa"
+    devs = {d["mac"]: d for d in db.devices()}
+    assert devs["aa:00:00:00:02:30"]["network"] == "laboratorio"
+    assert devs["aa:00:00:00:00:50"]["online"] == 1          # los de casa no se apagan al visitar el lab
+    assert devs["c8:3a:35:00:00:99"]["name"] == "Tenda Lab (WAN)"
+    titles = [e["title"] for e in db.events()]
+    assert any("iphone-mama" in t for t in titles) and not any("sw-lab" in t for t in titles)
+    scans["192.168.20.0/24"] = scans["192.168.20.0/24"][:2]
+    mon.scan()                                                # el iPhone se fue; el lab no se toca
+    devs = {d["mac"]: d for d in db.devices()}
+    assert devs["aa:00:00:00:00:50"]["online"] == 0 and devs["aa:00:00:00:02:30"]["online"] == 1
+    assert mon.net_status["laboratorio"]["devices"] == 2
+
+
+def test_roaming_returns_home_on_failure(tmp_path, monkeypatch):
+    from netwatch import monitor as M
+    cfg = {"network": {"networks": [{"name": "casa", "cidr": "10.0.0.0/24"},
+                                    {"name": "lab", "cidr": "10.1.0.0/24"}],
+                       "roaming": {"enabled": True, "hop_every": 0}}}
+    hops = []
+    monkeypatch.setattr(M.roam, "available", lambda: True)
+    monkeypatch.setattr(M.roam, "connect",
+                        lambda p, i, c, timeout=45: hops.append(p) or ((False, "sin señal") if p == "lab" else (True, "")))
+    db = DB(tmp_path / "n.db")
+    mon = M.Monitor(cfg, db, tmp_path)
+    mon.maybe_roam()
+    assert hops == ["lab", "casa"] and mon.current == "casa"
+    assert any(e["kind"] == "roam_failed" for e in db.events())

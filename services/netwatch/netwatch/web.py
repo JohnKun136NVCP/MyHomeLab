@@ -57,6 +57,10 @@ def build_app(mon: Monitor) -> Starlette:
             "last_scan": mon.last_scan, "scan_error": mon.scan_error,
             "bridge_mode": mon.bridge_mode, "interface": mon.iface,
             "acl_rules": len(db.acl()), "icons": ICONS,
+            "roaming": mon.roaming, "current_network": mon.current, "home_network": mon.home,
+            "hop_every": mon.hop_every, "last_hop": mon.last_hop,
+            "networks": [{"name": n["name"], "cidr": n["cidr"], "ssid": n.get("ssid", ""),
+                          **mon.net_status.get(n["name"], {})} for n in mon.networks],
         })
 
     # -------------------------------------------------------- dispositivos
@@ -184,12 +188,28 @@ def build_app(mon: Monitor) -> Starlette:
             "vps": [{"direction": r["direction"], "bytes": float(r["value"][1])} for r in vps]})
 
     # ----------------------------------------------------- AP y topología
+    def ap_of(d: dict, aps: list[dict]) -> str | None:
+        """AP de un dispositivo: el que le asignaste, o el router de su red si no es la de casa."""
+        names = {a["name"] for a in aps}
+        if d.get("ap") in names:
+            return d["ap"]
+        net = d.get("network") or mon.home
+        if net != mon.home:
+            return next((a["name"] for a in aps if a.get("network") == net), None)
+        return None
+
+    def net_label(name: str) -> str:
+        n = mon.net(name)
+        return f"Wi-Fi {n.get('ssid') or name}"
+
     async def by_ap(_):
+        aps = [a for a in mon.infra if a["role"] == "ap"]
         res: dict[str, dict[str, int]] = {}
+        infra_ips = mon.infra_ips()
         for d in db.devices():
-            if not d["online"]:
+            if not d["online"] or d["ip"] in infra_ips:
                 continue
-            ap = d["ap"] or "Sin asignar"
+            ap = ap_of(d, aps) or net_label(d.get("network") or mon.home)
             res.setdefault(ap, {})
             res[ap][d["display_type"]] = res[ap].get(d["display_type"], 0) + 1
         return JSONResponse({"aps": res, "icons": ICONS})
@@ -206,12 +226,15 @@ def build_app(mon: Monitor) -> Starlette:
         children = []
         for ap in aps:
             st = mon.infra_status.get(ap["name"], {})
-            children.append({"name": ap["name"], "ip": ap.get("ip"), "icon": "📡",
+            net = ap.get("network")
+            children.append({"name": ap["name"], "ip": ap.get("ip"), "icon": "🧪" if net else "📡",
                              "online": st.get("up", True), "admin_url": ap.get("admin_url"),
-                             "children": [node(d) for d in devs if d["ap"] == ap["name"]]})
-        unassigned = [node(d) for d in devs if not d["ap"] or d["ap"] not in {a["name"] for a in aps}]
+                             "type": f"red {net}" if net else None,
+                             "children": [node(d) for d in devs if ap_of(d, aps) == ap["name"]]})
+        unassigned = [node(d) for d in devs if ap_of(d, aps) is None]
         if unassigned:
-            children.append({"name": "Sin asignar", "icon": "❓", "online": True, "children": unassigned})
+            children.append({"name": net_label(mon.home), "icon": "📶", "online": True,
+                             "children": unassigned})
         return JSONResponse({"name": "Internet", "icon": "🌐",
                              "online": mon.target_status.get("internet", {}).get("up", True),
                              "children": [{"name": modem.get("name", "Módem"), "ip": modem.get("ip"),

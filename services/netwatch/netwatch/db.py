@@ -63,6 +63,10 @@ class DB:
         with self.lock:
             self.conn.executescript(SCHEMA)
             self.conn.execute("PRAGMA journal_mode=WAL")
+            try:  # bases creadas antes de soportar varias redes
+                self.conn.execute("ALTER TABLE devices ADD COLUMN network TEXT DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
 
     def q(self, sql: str, args=()) -> list[dict]:
         with self.lock:
@@ -89,7 +93,8 @@ class DB:
         r["display_name"] = r.get("name") or r.get("hostname") or r.get("vendor") or r["mac"]
         return r
 
-    def upsert_seen(self, mac: str, ip: str, vendor: str, hostname: str, random_mac: bool) -> bool:
+    def upsert_seen(self, mac: str, ip: str, vendor: str, hostname: str, random_mac: bool,
+                    network: str = "") -> bool:
         """Marca un dispositivo como visto. Regresa True si es nuevo."""
         now = time.time()
         with self.lock:
@@ -98,24 +103,32 @@ class DB:
             if row is None:
                 self.conn.execute(
                     "INSERT INTO devices (mac, ip, vendor, hostname, random_mac, online, "
-                    "first_seen, last_seen) VALUES (?,?,?,?,?,1,?,?)",
-                    (mac, ip, vendor, hostname, int(random_mac), now, now))
+                    "first_seen, last_seen, network) VALUES (?,?,?,?,?,1,?,?,?)",
+                    (mac, ip, vendor, hostname, int(random_mac), now, now, network))
                 new = True
             else:
                 self.conn.execute(
-                    "UPDATE devices SET ip=?, online=1, last_seen=?, "
+                    "UPDATE devices SET ip=?, online=1, last_seen=?, network=?, "
                     "hostname=COALESCE(NULLIF(?, ''), hostname), "
                     "vendor=COALESCE(NULLIF(?, ''), vendor) WHERE mac=?",
-                    (ip, now, hostname, vendor, mac))
+                    (ip, now, network, hostname, vendor, mac))
                 new = False
             self.conn.execute("INSERT OR REPLACE INTO ip_history (ip, mac, ts) VALUES (?,?,?)",
                               (ip, mac, now))
             self.conn.commit()
         return new
 
-    def mark_offline(self, seen: set[str]) -> None:
+    def mark_offline(self, seen: set[str], network: str | None = None,
+                     include_unlabeled: bool = False) -> None:
+        """Marca fuera de línea lo que no se vio. Con `network` solo toca esa red
+        (los dispositivos de otra red no se apagan solo porque ahora no la vemos)."""
         with self.lock:
-            rows = self.conn.execute("SELECT mac FROM devices WHERE online=1").fetchall()
+            if network is None:
+                rows = self.conn.execute("SELECT mac FROM devices WHERE online=1").fetchall()
+            else:
+                rows = self.conn.execute(
+                    "SELECT mac FROM devices WHERE online=1 AND (network=? OR (? AND network=''))",
+                    (network, int(include_unlabeled))).fetchall()
             for (mac,) in rows:
                 if mac not in seen:
                     self.conn.execute("UPDATE devices SET online=0 WHERE mac=?", (mac,))

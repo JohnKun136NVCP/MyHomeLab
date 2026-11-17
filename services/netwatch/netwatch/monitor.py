@@ -12,7 +12,7 @@ from pathlib import Path
 
 from homelab_common import http_json
 
-from . import acl, scanner
+from . import acl, roam, scanner
 from .classify import classify
 from .db import DB
 
@@ -25,10 +25,21 @@ class Monitor:
         self.db = db
         self.data = data
         net = cfg.get("network", {})
-        self.cidr = net.get("cidr", "192.168.0.0/24")
         self.bridge_mode = bool(net.get("bridge_mode"))
         self.iface = net.get("bridge_interface", "br0") if self.bridge_mode else net.get("interface", "eth0")
         self.interval = int(net.get("scan_interval", 120))
+        # Varias redes (SSIDs). Sin lista = una sola red con cidr/interface de siempre.
+        nets = net.get("networks") or [{"name": "casa", "cidr": net.get("cidr", "192.168.0.0/24")}]
+        self.networks = [{"interface": self.iface, **n} for n in nets]
+        r = net.get("roaming", {}) or {}
+        self.home = r.get("home") or self.networks[0]["name"]
+        self.roaming = bool(r.get("enabled")) and len(self.networks) > 1 and not self.bridge_mode
+        self.hop_every = int(r.get("hop_every", 1800))
+        self.dwell = int(r.get("dwell", 20))
+        self.current = self.home
+        self.last_hop = 0.0
+        self.net_status: dict[str, dict] = {n["name"]: {"last_scan": 0, "error": "", "devices": 0}
+                                            for n in self.networks}
         self.infra = self._infra_list()
         self.infra_status: dict[str, dict] = {}      # nombre -> {up, latency, ip, role}
         self.target_status: dict[str, dict] = {}
@@ -54,8 +65,25 @@ class Monitor:
             out.append({**ap, "role": "ap"})
         return out
 
-    def infra_ips(self) -> dict[str, dict]:
-        return {i["ip"]: i for i in self.infra if i.get("ip")}
+    def net(self, name: str | None = None) -> dict:
+        name = name or self.current
+        return next((n for n in self.networks if n["name"] == name), self.networks[0])
+
+    @property
+    def cidr(self) -> str:
+        return self.net()["cidr"]
+
+    def infra_ips(self, network: str | None = None) -> dict[str, dict]:
+        """IP → equipo de infraestructura. Con `network` solo los alcanzables desde esa red
+        (su IP en esa red, o su IP WAN si el equipo es router de otra red)."""
+        out = {}
+        for i in self.infra:
+            inet = i.get("network") or self.home
+            if i.get("ip") and (network is None or inet == network):
+                out[i["ip"]] = i
+            if i.get("wan_ip") and (network is None or network == self.home):
+                out[i["wan_ip"]] = {**i, "name": f"{i['name']} (WAN)"}
+        return out
 
     def write_prom_targets(self) -> None:
         """Lista de nodos para Prometheus (file_sd) a partir de homelab.yml."""
@@ -69,11 +97,12 @@ class Monitor:
 
     # ------------------------------------------------------------- ciclo
     def run_forever(self) -> None:
-        log.info("netwatch: red %s por %s (modo puente: %s)", self.cidr, self.iface, self.bridge_mode)
+        log.info("netwatch: redes %s por %s (modo puente: %s, roaming: %s)",
+                 [n["name"] for n in self.networks], self.iface, self.bridge_mode, self.roaming)
         while not self.stop.is_set():
             t0 = time.time()
             for step in (self.scan, self.ping_all, self.sync_acl, self.read_ids, self.daily_port_scan,
-                         self.notify):
+                         self.notify, self.maybe_roam):
                 try:
                     step()
                 except Exception:  # noqa: BLE001 - que un paso no tumbe a los demás
@@ -81,22 +110,25 @@ class Monitor:
             self.stop.wait(max(5, self.interval - (time.time() - t0)))
 
     # ---------------------------------------------------------- escaneo
-    def scan(self) -> None:
-        hosts = scanner.discover(self.cidr, self.iface)
+    def scan(self, network: str | None = None) -> None:
+        net = self.net(network)
+        hosts = scanner.discover(net["cidr"], net.get("interface", self.iface))
         if not hosts:
-            self.scan_error = "El escaneo no encontró nada (¿arp-scan/nmap instalados? ¿interfaz correcta?)"
+            self.scan_error = f"El escaneo de «{net['name']}» no encontró nada (¿arp-scan/nmap? ¿interfaz?)"
+            self.net_status[net["name"]]["error"] = self.scan_error
             log.warning(self.scan_error)
             return
         self.scan_error = ""
-        infra = self.infra_ips()
+        infra = self.infra_ips(net["name"])
         seen = set()
-        anomalies = self.cfg.get("anomalies", {})
+        anomalies = {**self.cfg.get("anomalies", {}), **{k: net[k] for k in
+                                                         ("notify_new_devices",) if k in net}}
         blocked = {r["mac"] for r in self.db.acl()}
         for h in hosts:
-            if not scanner.in_network(h.ip, self.cidr):
+            if not scanner.in_network(h.ip, net["cidr"]):
                 continue
             seen.add(h.mac)
-            is_new = self.db.upsert_seen(h.mac, h.ip, h.vendor, h.hostname, h.random_mac)
+            is_new = self.db.upsert_seen(h.mac, h.ip, h.vendor, h.hostname, h.random_mac, net["name"])
             dev = self.db.device(h.mac)
             is_infra = h.ip in infra
             if is_infra and not dev.get("name") and \
@@ -110,7 +142,8 @@ class Monitor:
                 self.db.update_device(h.mac, type=t, ports=ports, last_port_scan=time.time())
                 if not is_infra and anomalies.get("notify_new_devices", True):
                     self.db.add_event(
-                        "warning", "new_device", f"Dispositivo nuevo: {h.hostname or h.vendor or h.mac}",
+                        "warning", "new_device",
+                        f"Dispositivo nuevo en {net['name']}: {h.hostname or h.vendor or h.mac}",
                         f"IP {h.ip} · MAC {h.mac} · {h.vendor or 'fabricante desconocido'} · tipo: {t}"
                         + (" · MAC privada" if h.random_mac else "")
                         + (f" · puertos: {', '.join(ports)}" if ports else ""), h.mac)
@@ -127,14 +160,15 @@ class Monitor:
                                   f"IP {h.ip}" + ("" if self.bridge_mode else
                                                   " (sin modo puente no se puede cortar su tráfico)"),
                                   h.mac)
-        self.detect_arp_spoof(hosts)
-        self.db.mark_offline(seen)
+        self.detect_arp_spoof(hosts, infra)
+        self.db.mark_offline(seen, net["name"], include_unlabeled=net["name"] == self.home)
         self.last_scan = time.time()
+        self.net_status[net["name"]] = {"last_scan": self.last_scan, "error": "", "devices": len(seen)}
 
-    def detect_arp_spoof(self, hosts: list[scanner.Host]) -> None:
+    def detect_arp_spoof(self, hosts: list[scanner.Host], infra: dict | None = None) -> None:
         """Alerta si la IP del módem (u otro equipo de infraestructura) cambia de MAC
         o si una sola MAC responde por varias IPs de infraestructura."""
-        infra = self.infra_ips()
+        infra = self.infra_ips(self.current) if infra is None else infra
         by_ip: dict[str, list[str]] = {}
         for h in hosts:
             by_ip.setdefault(h.ip, []).append(h.mac)
@@ -175,7 +209,8 @@ class Monitor:
             return
         self._last_daily_scan = today
         for d in self.db.devices():
-            if not d["online"] or d["ip"] in self.infra_ips():
+            if not d["online"] or d["ip"] in self.infra_ips() or \
+                    (d.get("network") or self.home) != self.current:
                 continue
             ports = scanner.port_scan(d["ip"])
             old, new = set(d["ports"]), set(ports)
@@ -189,15 +224,56 @@ class Monitor:
     # ------------------------------------------------------------ pings
     def ping_all(self) -> None:
         for i in self.infra:
-            lat = scanner.ping(i["ip"])
+            # Desde otra red solo se le puede hacer ping por su IP WAN (si la tiene)
+            ip = i["ip"] if (i.get("network") or self.home) == self.current else i.get("wan_ip")
+            if not ip:
+                continue
+            lat = scanner.ping(ip)
             prev = self.infra_status.get(i["name"], {}).get("up", True)
             self.infra_status[i["name"]] = {"up": lat is not None, "latency": lat, "ip": i["ip"],
-                                            "role": i["role"]}
+                                            "role": i["role"], "via": ip}
             if prev and lat is None:
                 log.info("%s no responde", i["name"])
         for t in self.cfg.get("infrastructure", {}).get("ping_targets", []) or []:
             lat = scanner.ping(t["host"])
             self.target_status[t["name"]] = {"up": lat is not None, "latency": lat, "host": t["host"]}
+
+    # ---------------------------------------------------------- roaming
+    def maybe_roam(self) -> None:
+        """Visita las otras redes (otros SSID), las escanea y regresa a casa."""
+        if not self.roaming or time.time() - self.last_hop < self.hop_every:
+            return
+        self.last_hop = time.time()
+        if not roam.available():
+            self.scan_error = "Roaming activado pero falta nmcli/NetworkManager en el contenedor"
+            return
+        home = self.net(self.home)
+        try:
+            for n in self.networks:
+                if n["name"] == self.home:
+                    continue
+                ok, msg = roam.connect(n.get("connection") or n.get("ssid") or n["name"],
+                                       n.get("interface", self.iface), n["cidr"])
+                if not ok:
+                    self.net_status[n["name"]]["error"] = f"No pude conectarme: {msg}"
+                    if not self.db.recent_event("roam_failed", n["name"], 6 * 3600):
+                        self.db.add_event("warning", "roam_failed", f"No pude entrar a la red {n['name']}",
+                                          msg, n["name"])
+                    continue
+                self.current = n["name"]
+                self.stop.wait(min(self.dwell, 5))     # que el ARP de la red se llene un poco
+                self.scan(n["name"])
+                self.ping_all()
+                self.daily_port_scan()
+                log.info("Red %s escaneada (%d dispositivos)", n["name"], self.net_status[n["name"]]["devices"])
+        finally:
+            ok, msg = roam.connect(home.get("connection") or home.get("ssid") or home["name"],
+                                   home.get("interface", self.iface), home["cidr"], 60)
+            self.current = self.home
+            if not ok:
+                log.error("¡No pude regresar a %s!: %s", self.home, msg)
+                self.db.add_event("critical", "roam_failed", f"No pude regresar a la red {self.home}",
+                                  msg, self.home)
 
     # -------------------------------------------------------------- ACL
     def sync_acl(self) -> None:

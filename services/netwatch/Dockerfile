@@ -1,7 +1,7 @@
 # Contexto de construcción: services/
 FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        arp-scan nmap iputils-ping iproute2 nftables ieee-data \
+        arp-scan nmap iputils-ping iproute2 nftables ieee-data network-manager \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY netwatch/requirements.txt .

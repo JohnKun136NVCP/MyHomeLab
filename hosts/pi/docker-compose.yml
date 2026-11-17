@@ -48,6 +48,8 @@ services:
       - netwatch_data:/data
       - prom_targets:/data/prom-targets
       - suricata_logs:/suricata:ro
+      # nmcli del contenedor habla con el NetworkManager de la Pi (cambiar de SSID)
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
 
   # --- Bot de Telegram + receptor de respaldos + alertas -----------------
   bot:

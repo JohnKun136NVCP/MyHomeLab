@@ -24,7 +24,7 @@ flowchart LR
 
 | Pediste | Cómo quedó | Dónde |
 |---|---|---|
-| Ver dispositivos y tráfico de toda la casa | Escaneo ARP/nmap cada 2 min (sirve con cualquier AP), tipo de dispositivo por fabricante/puertos, latencias; tráfico **por dispositivo** en modo puente | `services/netwatch`, [modo puente](docs/modo-puente.md) |
+| Ver dispositivos y tráfico de toda la casa | Escaneo ARP/nmap cada 2 min (sirve con cualquier AP); **varias redes/SSID con una sola Wi-Fi** ([roaming](docs/redes-multiples.md)), tipo de dispositivo por fabricante/puertos, latencias; tráfico **por dispositivo** en modo puente | `services/netwatch`, [modo puente](docs/modo-puente.md) |
 | Gráficas en Grafana | Tableros «Red de casa» y «Nodos: Raspberry, PC y VPS» ya cargados | `config/grafana` |
 | Detección de anomalías | Dispositivo nuevo, ARP spoofing en el módem/AP, puertos nuevos, tráfico 4–5× arriba de lo normal (casa, VPS y cada dispositivo), IDS Suricata, AP o internet caídos | `monitor.py`, `config/prometheus/rules` |
 | ACL | Bloquear por MAC siempre o en un horario (ej. 23:00–07:00), cuarentena automática de desconocidos | web → ACL, `/bloquear` |

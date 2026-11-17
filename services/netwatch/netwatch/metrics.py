@@ -28,7 +28,12 @@ def render(mon: Monitor) -> str:
            [({}, sum(1 for d in devs if d["online"]))])
     metric("homelab_device_up", "gauge", "1 si el dispositivo está en línea", [
         (dict(mac=d["mac"], ip=d["ip"] or "", name=d["display_name"], type=d["display_type"],
-              ap=d["ap"] or "sin asignar"), int(d["online"])) for d in devs])
+              ap=d["ap"] or "sin asignar", network=d.get("network") or mon.home), int(d["online"]))
+        for d in devs])
+    metric("homelab_network_last_scan_timestamp_seconds", "gauge", "Último escaneo de cada red", [
+        (dict(network=n), st.get("last_scan", 0)) for n, st in mon.net_status.items()])
+    metric("homelab_network_devices", "gauge", "Dispositivos vistos en el último escaneo de cada red", [
+        (dict(network=n), st.get("devices", 0)) for n, st in mon.net_status.items()])
     metric("homelab_device_bytes_total", "counter", "Bytes por dispositivo (modo puente)", [
         (dict(mac=mac, name=next((d["display_name"] for d in devs if d["mac"] == mac), mac),
               direction=direction), c[direction])

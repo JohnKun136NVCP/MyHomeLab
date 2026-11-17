@@ -114,6 +114,12 @@ const views = {
       <div class="grid2">
         <div class="card" id="c-home"></div>
         <div class="card"><h3>Infraestructura</h3><table>${inf}${tg}</table></div>
+        <div class="card"><h3>Redes ${s.roaming ? `<span class="pill ok">roaming cada ${Math.round(s.hop_every / 60)} min</span>` : ""}</h3><table>
+          <tr><th>Red</th><th>SSID</th><th>Segmento</th><th>Dispositivos</th><th>Escaneo</th></tr>
+          ${s.networks.map((n) => `<tr><td>${n.name === s.current_network ? "📍 " : ""}${esc(n.name)}</td><td>${esc(n.ssid || "—")}</td>
+            <td class="mono">${esc(n.cidr)}</td><td>${n.devices ?? "—"}</td>
+            <td>${n.error ? `<span class="pill bad" title="${esc(n.error)}">error</span>` : ago(n.last_scan)}</td></tr>`).join("")}</table>
+          ${s.roaming ? `<p class="muted small">📍 = red donde está la Pi ahora. Último cambio de red: ${ago(s.last_hop)}.</p>` : ""}</div>
         <div class="card"><h3>Tipos de dispositivo en línea</h3><div class="bars">${types.map(([t, n]) =>
           `<div class="row"><span>${s.icons[t] || "❔"} ${esc(t)}</span><div class="bar" style="width:${(n / maxT) * 100}%"></div><b>${n}</b></div>`).join("") || '<p class="muted">Aún no hay escaneos.</p>'}</div></div>
         <div class="card"><h3>Últimos eventos <a href="#eventos" class="small">ver todos</a></h3>${evList(ev.events)}</div>
@@ -138,7 +144,7 @@ const views = {
           <td><input class="nm" value="${esc(d.name || "")}" placeholder="${esc(d.display_name)}" style="width:170px">
               ${d.known ? "" : '<span class="new">NUEVO</span>'}<div class="muted small">${esc(d.hostname || "")}</div></td>
           <td><select class="tp">${j.types.map((t) => `<option ${t === d.display_type ? "selected" : ""}>${t}</option>`).join("")}</select></td>
-          <td class="mono">${esc(d.ip)}</td>
+          <td class="mono">${esc(d.ip)}<div class="muted small">${esc(d.network || "")}</div></td>
           <td class="mono">${esc(d.mac)}${d.random_mac ? ' <span class="pill" title="MAC privada/aleatoria">privada</span>' : ""}<div class="muted small">${esc(d.vendor || "")}</div></td>
           <td><select class="ap"><option value="">—</option>${j.aps.map((a) => `<option ${a === d.ap ? "selected" : ""}>${esc(a)}</option>`).join("")}</select></td>
           <td class="small mono">${d.ports.map(esc).join("<br>") || '<span class="muted">—</span>'}</td>
@@ -156,7 +162,7 @@ const views = {
         <input id="flt" placeholder="Buscar nombre, IP, MAC, fabricante…" style="width:280px">
         <button id="allknown">✔ Marcar todos como revisados</button></div>
       <div class="card" style="overflow:auto"><table><thead><tr>
-        <th data-k="online"></th><th data-k="display_name">Nombre</th><th data-k="display_type">Tipo</th><th data-k="ip">IP</th>
+        <th data-k="online"></th><th data-k="display_name">Nombre</th><th data-k="display_type">Tipo</th><th data-k="ip">IP / red</th>
         <th data-k="mac">MAC / fabricante</th><th data-k="ap">AP</th><th>Puertos</th><th data-k="bytes_down">Tráfico</th><th data-k="last_seen">Visto</th><th></th>
       </tr></thead><tbody id="tb"></tbody></table></div>
       <p class="muted small">El AP no se puede saber por ARP: asígnalo aquí y aparecerá en el mapa y en «Por AP». El tráfico por dispositivo solo existe en modo puente.</p>`;
