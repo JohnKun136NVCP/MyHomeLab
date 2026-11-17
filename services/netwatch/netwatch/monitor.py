@@ -65,6 +65,15 @@ class Monitor:
             out.append({**ap, "role": "ap"})
         return out
 
+    def reachable(self) -> set[str]:
+        """Redes que la Pi ve ahora: todas si cada una tiene su interfaz (sin roaming),
+        o solo la red donde está la Wi-Fi si va brincando entre SSIDs."""
+        return {self.current} if self.roaming else {n["name"] for n in self.networks}
+
+    def scan_all(self) -> None:
+        for name in sorted(self.reachable(), key=lambda n: n != self.home):
+            self.scan(name)
+
     def net(self, name: str | None = None) -> dict:
         name = name or self.current
         return next((n for n in self.networks if n["name"] == name), self.networks[0])
@@ -101,7 +110,7 @@ class Monitor:
                  [n["name"] for n in self.networks], self.iface, self.bridge_mode, self.roaming)
         while not self.stop.is_set():
             t0 = time.time()
-            for step in (self.scan, self.ping_all, self.sync_acl, self.read_ids, self.daily_port_scan,
+            for step in (self.scan_all, self.ping_all, self.sync_acl, self.read_ids, self.daily_port_scan,
                          self.notify, self.maybe_roam):
                 try:
                     step()
@@ -210,7 +219,7 @@ class Monitor:
         self._last_daily_scan = today
         for d in self.db.devices():
             if not d["online"] or d["ip"] in self.infra_ips() or \
-                    (d.get("network") or self.home) != self.current:
+                    (d.get("network") or self.home) not in self.reachable():
                 continue
             ports = scanner.port_scan(d["ip"])
             old, new = set(d["ports"]), set(ports)
@@ -225,7 +234,7 @@ class Monitor:
     def ping_all(self) -> None:
         for i in self.infra:
             # Desde otra red solo se le puede hacer ping por su IP WAN (si la tiene)
-            ip = i["ip"] if (i.get("network") or self.home) == self.current else i.get("wan_ip")
+            ip = i["ip"] if (i.get("network") or self.home) in self.reachable() else i.get("wan_ip")
             if not ip:
                 continue
             lat = scanner.ping(ip)

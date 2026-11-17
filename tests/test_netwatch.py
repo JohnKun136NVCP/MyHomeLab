@@ -147,3 +147,24 @@ def test_roaming_returns_home_on_failure(tmp_path, monkeypatch):
     mon.maybe_roam()
     assert hops == ["lab", "casa"] and mon.current == "casa"
     assert any(e["kind"] == "roam_failed" for e in db.events())
+
+
+def test_two_interfaces_no_roaming(tmp_path, monkeypatch):
+    """wlan0 al módem y eth0 al Tenda: las dos redes en cada ciclo, sin brincar."""
+    from netwatch import monitor as M
+    cfg = {"network": {"networks": [{"name": "casa", "interface": "wlan0", "cidr": "192.168.20.0/24"},
+                                    {"name": "laboratorio", "interface": "eth0", "cidr": "192.168.200.0/24"}],
+                       "roaming": {"enabled": False}},
+           "infrastructure": {"access_points": [{"name": "Tenda Lab", "network": "laboratorio",
+                                                 "ip": "192.168.200.1", "wan_ip": "192.168.20.2"}]}}
+    calls, pings = [], []
+    H = scanner.Host
+    monkeypatch.setattr(M.scanner, "discover", lambda cidr, iface: calls.append((cidr, iface)) or
+                        [H(cidr.replace("0/24", "9"), f"aa:00:00:00:00:{len(calls):02d}")])
+    monkeypatch.setattr(M.scanner, "port_scan", lambda ip: [])
+    monkeypatch.setattr(M.scanner, "ping", lambda h, timeout=1.5: pings.append(h) or 0.01)
+    mon = M.Monitor(cfg, DB(tmp_path / "n.db"), tmp_path)
+    mon.scan_all()
+    mon.ping_all()
+    assert calls == [("192.168.20.0/24", "wlan0"), ("192.168.200.0/24", "eth0")]
+    assert pings[0] == "192.168.200.1"                     # el Tenda por su IP del lab, directo

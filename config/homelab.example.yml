@@ -4,31 +4,29 @@
 # ======================================================================
 
 network:
-  interface: wlan0              # la Wi-Fi de la Pi (eth0 si va por cable)
-  scan_interval: 120            # segundos entre escaneos de la red donde está la Pi
+  scan_interval: 120            # segundos entre escaneos
   port_scan_new_devices: true   # nmap -F a cada dispositivo nuevo (para saber qué es)
   daily_port_scan: "03:30"      # re-escaneo de puertos (detecta servicios nuevos)
 
-  # Tus segmentos. Cada uno es un SSID con un perfil guardado en NetworkManager:
-  #   sudo nmcli dev wifi connect "SSID" password "clave"   (una vez por red)
+  # Redes que la Pi ve DIRECTO, cada una por su interfaz (se escanean todas cada ciclo).
+  # La de oficinas (Tenda 2) no va aquí: la Pi no tiene interfaz dentro de ella;
+  # se ve como el router «Tenda Oficinas» por su IP WAN (ver access_points).
   networks:
     - name: casa
-      ssid: "INFINITUM_XXXX"    # Wi-Fi del módem (red de la familia)
-      cidr: 192.168.20.0/24
+      interface: eth0           # cable al módem
+      cidr: 192.168.1.0/24
     - name: laboratorio
-      ssid: "Tenda_LAB"         # Wi-Fi del Tenda (tu laboratorio)
-      cidr: 192.168.200.0/24
+      interface: wlan0          # Wi-Fi del Tenda 1
+      cidr: 192.168.100.0/24
       notify_new_devices: false # en el lab conectas y desconectas cosas seguido
 
-  # La Pi vive en «casa» y cada hop_every segundos visita las demás redes,
-  # las escanea y regresa (~30-60 s fuera). Ver docs/redes-multiples.md
+  # Con UNA sola Wi-Fi para varias redes: enabled: true y cada red con su ssid
+  # (ver docs/redes-multiples.md). Con una interfaz por red, déjalo en false.
   roaming:
-    enabled: true
+    enabled: false
     home: casa
-    hop_every: 1800
 
-  # Modo puente (solo con cable y una sola red): la Pi entre el módem y los AP.
-  # Ver docs/modo-puente.md. Incompatible con roaming.
+  # Modo puente (cable, una sola red): la Pi entre el módem y los AP. docs/modo-puente.md
   bridge_mode: false
   bridge_interface: br0
 
@@ -36,29 +34,31 @@ network:
 infrastructure:
   modem:
     name: Módem
-    ip: 192.168.20.1
-    admin_url: http://192.168.20.1
+    ip: 192.168.1.1
+    admin_url: http://192.168.1.1
   access_points:
-    # Router de otra red: «network» dice de qué red es, «ip» su IP en esa red y
-    # «wan_ip» la IP que le dio el módem (desde casa se le hace ping por ahí).
+    # Router de otra red: «network» = su red, «ip» = su IP en esa red,
+    # «wan_ip» = la IP que le dio el módem (si la Pi no está en su red, se le hace ping por ahí)
     - name: Tenda Lab
       network: laboratorio
-      ip: 192.168.200.1
-      wan_ip: 192.168.20.2
-      admin_url: http://192.168.200.1
+      ip: 192.168.100.1
+      wan_ip: 192.168.1.2
+      admin_url: http://192.168.100.1
       model: Tenda
       location: Laboratorio
-    # Un AP en modo AP dentro de la red de casa no lleva «network»:
-    # - name: AP Sala
-    #   ip: 192.168.20.3
-    #   admin_url: http://192.168.20.3
-    #   model: Tenda
+    - name: Tenda Oficinas
+      network: oficinas
+      ip: 192.168.2.1
+      wan_ip: 192.168.1.3
+      admin_url: http://192.168.2.1   # solo abre desde la red de oficinas
+      model: Tenda
+      location: Oficinas y cuartos
   # Nodos con node-exporter (los scrapea Prometheus)
   nodes:
     - name: raspberry
       target: host.docker.internal:9100
     # - name: servidor
-    #   target: 192.168.20.10:9100
+    #   target: 192.168.1.10:9100
     # - name: vps
     #   target: 10.8.0.1:9100        # IP del VPS dentro de la VPN WireGuard
   ping_targets:
@@ -73,10 +73,10 @@ links:
     url: /grafana/
     icon: 📊
   - name: Frigate (cámaras)
-    url: http://192.168.20.10:5000
+    url: http://192.168.1.10:5000
     icon: 🎥
   - name: Jellyfin (streaming)
-    url: http://192.168.20.10:8096
+    url: http://192.168.1.10:8096
     icon: 🎬
   - name: VPN (wg-easy)
     url: http://10.8.0.1:51821
@@ -86,8 +86,8 @@ links:
     icon: 🔥
 
 cameras:
-  frigate_url: http://192.168.20.10:5000     # Frigate en la PC Linux
-  go2rtc_url: http://192.168.20.10:1984      # vista en vivo (WebRTC/MSE)
+  frigate_url: http://192.168.1.10:5000     # Frigate en la PC Linux
+  go2rtc_url: http://192.168.1.10:1984      # vista en vivo (WebRTC/MSE)
   notify_labels: [person, car]              # el bot avisa con foto cuando detecta esto
   notify_cooldown: 300                      # segundos entre avisos de la misma cámara
 

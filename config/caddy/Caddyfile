@@ -5,7 +5,7 @@
 	admin off
 }
 
-https://{$HOMELAB_HOST} {
+https://{$HOMELAB_HOST}:443 {
 	tls internal
 	encode zstd gzip
 
@@ -39,5 +39,5 @@ https://{$HOMELAB_HOST} {
 
 # Acceso por http: redirige a https
 http://{$HOMELAB_HOST} {
-	redir https://{host}{uri} permanent
+	redir https://{host}:{$HTTPS_PORT}{uri} permanent
 }

@@ -1,11 +1,21 @@
-# Varias redes con una sola Wi-Fi (roaming)
+# Varias redes: una interfaz por red, o una sola Wi-Fi (roaming)
+
+**Recomendado:** una interfaz por red, sin roaming. Ejemplo: `eth0` (cable) al módem y
+`wlan0` al Wi-Fi del Tenda del lab; ambas redes se escanean en cada ciclo. Es lo que trae
+`config/homelab.example.yml`. Nunca pongas dos interfaces en la MISMA red (dos rutas por
+defecto, ARP flux y conexiones que se cortan): la del lab lleva `ipv4.never-default yes`.
+
+El roaming de abajo es para cuando solo tienes una Wi-Fi para varias redes.
+
+## Roaming con una sola Wi-Fi
 
 Mi casa tiene dos segmentos:
 
 | Red | SSID | Segmento | Uso |
 |---|---|---|---|
-| casa | Wi-Fi del módem | 192.168.20.0/24 | red principal y de la familia |
-| laboratorio | Wi-Fi del Tenda | 192.168.200.0/24 | laboratorio de redes (el Tenda en modo router, conectado a un puerto del módem) |
+| casa | Wi-Fi del módem | 192.168.1.0/24 | red principal y de la familia |
+| laboratorio | Wi-Fi del Tenda 1 | 192.168.100.0/24 | laboratorio de redes (Tenda en modo router) |
+| oficinas | Wi-Fi del Tenda 2 | 192.168.2.0/24 | oficinas y cuartos (Tenda en modo router) |
 
 El escaneo ARP solo ve la red donde está conectada la Pi, y el NAT del Tenda no deja ver
 su red desde la del módem. Con una sola tarjeta Wi-Fi, la Pi **vive en «casa»** y cada
