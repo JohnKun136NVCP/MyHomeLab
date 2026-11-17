@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS inbound_hourly (
     hour INTEGER, action TEXT, ip TEXT, count INTEGER DEFAULT 0,
     PRIMARY KEY (hour, action, ip)
 );
+CREATE TABLE IF NOT EXISTS vpn_clients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT, iface TEXT, ip TEXT, public_key TEXT, created REAL
+);
 CREATE TABLE IF NOT EXISTS ip_history (
     ip   TEXT,
     mac  TEXT,

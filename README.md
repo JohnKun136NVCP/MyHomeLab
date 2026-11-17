@@ -41,6 +41,8 @@ flowchart LR
 | DNS con filtro | AdGuard Home (perfil `dns`), aviso de dominios de malware | [dns](docs/dns.md) |
 | Uptime Kuma y Vaultwarden | perfil `servicios` | [servicios](docs/servicios.md) |
 | CrowdSec del VPS | métricas y alerta de ataques | [VPN](docs/vpn.md) |
+| VPN en el panel | Web → **VPN**: lee tu WireGuard, detecta el VPS, crea equipos con QR y comandos para el VPS, alerta si se cae | [VPN](docs/vpn.md) |
+| IDS en casa y laboratorio | Suricata en `eth0` y `wlan0` a la vez | [ids](docs/ids.md) |
 | Laboratorio CCNA | Containerlab con OSPF y ejercicios | [lab/](lab/README.md) |
 | Streaming propio | Jellyfin en la PC | `hosts/server` |
 | VPN | Reutiliza tu túnel WireGuard Pi ↔ VPS; wg-easy opcional para teléfono/laptop | [VPN](docs/vpn.md) |

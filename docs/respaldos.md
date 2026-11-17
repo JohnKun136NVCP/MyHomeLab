@@ -5,7 +5,8 @@ la Pi con `PUT https://IP-de-la-Pi/api/backup/<dispositivo>/<archivo>`. La Pi:
 
 1. revisa el token de **ese** dispositivo (`BACKUP_TOKEN_<NOMBRE>` en `.env`);
 2. lo guarda en `BACKUPS_DIR/<dispositivo>/<fecha>/` (las partes del mismo respaldo juntas);
-3. borra los respaldos viejos y deja `keep_per_device`;
+3. borra los respaldos viejos: deja `keep_per_device` y borra los de más de `max_age_days`
+   (14 días por defecto; siempre queda el más reciente). Se revisa a diario;
 4. te lo reenvía por Telegram con tu Bot API local (cada parte ≤ 1.9 GB) y te avisa.
 
 | Dispositivo | Cliente | Qué guarda |

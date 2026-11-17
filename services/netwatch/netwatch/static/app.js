@@ -12,6 +12,10 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
 
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (r.status === 401 && path.startsWith("/api/") && !opts.noRedirect) {     // sesión caducada
+    location.href = "/login?next=" + encodeURIComponent(location.pathname + location.hash);
+    throw new Error("Sesión caducada");
+  }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;
@@ -334,6 +338,71 @@ const views = {
     if (ap.pending) poll();
   },
 
+  async vpn() {
+    const j = await api("/api/vpn");
+    const hsAgo = (t) => (t ? ago(t) : "nunca");
+    if (!j.interfaces.length) {
+      view.innerHTML = `<h2>VPN</h2><div class="card"><p>No encontré túneles WireGuard activos en la Pi.</p>
+        <p class="muted">${esc(j.error || "")}</p><p class="muted small">Ver docs/vpn.md.</p></div>`;
+      return;
+    }
+    view.innerHTML = `<h2>VPN (WireGuard)</h2>${j.interfaces.map((i) => {
+      const h = i.hub;
+      return `<div class="card" style="margin-bottom:14px"><h3>🔐 ${esc(i.name)} · ${esc(i.addresses.join(", ") || "sin IP")}
+          ${i.listen_port ? `<span class="pill">puerto ${i.listen_port}</span>` : ""}</h3>
+        ${h.warnings.map((w) => `<div class="banner">${esc(w)}</div>`).join("")}
+        <table><tr><td class="muted">Red del túnel</td><td class="mono">${esc(h.network || "—")}</td></tr>
+          <tr><td class="muted">Esta Pi</td><td class="mono">${esc(h.my_ip || "—")}</td></tr>
+          <tr><td class="muted">VPS (detectado)</td><td class="mono">${esc(h.hub_ip || "—")} ← ${esc(h.hub_endpoint || "")}</td></tr>
+          <tr><td class="muted">Monitoreo del VPS</td><td>${h.monitored ? '<span class="pill ok">en Grafana y alertas</span>'
+            : h.hub_ip ? `<button data-mon="${esc(i.name)}">📈 Monitorear el VPS (${esc(h.hub_ip)})</button>` : "—"}</td></tr></table>
+        <h3 style="margin-top:14px">Peers</h3><table><tr><th>Nombre</th><th>Llave</th><th>Endpoint</th><th>IPs permitidas</th><th>Último contacto</th><th>↓ / ↑</th></tr>
+          ${i.peers.map((p) => `<tr><td>${esc(p.name || "—")}</td><td class="mono small">${esc(p.public_key.slice(0, 10))}…</td>
+            <td class="mono small">${esc(p.endpoint || "—")}</td><td class="mono small">${esc(p.allowed_ips.join(", "))}</td>
+            <td><span class="dot ${p.handshake && j.now - p.handshake < 300 ? "on" : "off"}"></span> ${hsAgo(p.handshake)}</td>
+            <td class="small">${bytes(p.rx)} / ${bytes(p.tx)}</td></tr>`).join("")}</table></div>`;
+    }).join("")}
+    <div class="grid2">
+      <div class="card"><h3>➕ Agregar un equipo (teléfono, laptop…)</h3>
+        <div class="frow"><label>Nombre</label><div><input id="vname" placeholder="telefono"></div></div>
+        <div class="frow"><label>Túnel</label><div><select id="viface">${j.interfaces.map((i) => `<option>${esc(i.name)}</option>`).join("")}</select></div></div>
+        <div class="frow"><label>Interfaz en el VPS</label><div><input id="vvps" placeholder="igual que en la Pi">
+          <div class="muted small">Cómo se llama el túnel en el VPS (sudo wg show allá).</div></div></div>
+        <div class="frow"><label>DNS</label><div><label class="chk"><input type="checkbox" id="vdns" checked> usar el AdGuard de casa (filtro también fuera de casa)</label></div></div>
+        <button class="primary" id="vnew">Crear</button>
+        <div id="vout"></div></div>
+      <div class="card"><h3>Equipos creados aquí</h3>
+        <table><tr><th>Nombre</th><th>IP</th><th>Creado</th><th></th></tr>
+        ${j.clients.map((c) => `<tr><td>${esc(c.name)}</td><td class="mono">${esc(c.ip)}</td><td class="small">${ago(c.created)}</td>
+          <td><button class="danger" data-cdel="${c.id}">Quitar</button></td></tr>`).join("") || '<tr><td colspan="4" class="muted">Ninguno todavía.</td></tr>'}</table>
+        <div id="vdel"></div></div></div>`;
+    view.querySelectorAll("[data-mon]").forEach((b) => b.onclick = async () => {
+      const r = await api("/api/vpn/monitor", { method: "POST", body: JSON.stringify({ iface: b.dataset.mon }) });
+      b.outerHTML = `<span class="pill ok">agregado</span><div class="small">${r.applied ? "Aplicando (netwatch se reinicia)…" : "Aplica desde Ajustes."}<br>${esc(r.vps_steps)}</div>`;
+    });
+    $("#vnew").onclick = async () => {
+      try {
+        const r = await api("/api/vpn/client", { method: "POST", body: JSON.stringify({
+          name: $("#vname").value, iface: $("#viface").value, vps_iface: $("#vvps").value, dns: $("#vdns").checked }) });
+        const blob = URL.createObjectURL(new Blob([r.config], { type: "text/plain" }));
+        $("#vout").innerHTML = `<div class="banner" style="margin-top:10px">⚠ Esta configuración tiene la llave privada: se muestra <b>una sola vez</b>. Escanéala o descárgala ahora.</div>
+          <p><b>1. En el equipo:</b> app WireGuard → «+» → escanear QR, o importa el archivo.</p>
+          ${r.qr ? `<div style="background:#fff;display:inline-block;padding:8px;border-radius:8px;width:240px">${r.qr}</div>` : ""}
+          <p><a href="${blob}" download="${esc(r.filename)}"><button>⬇ Descargar ${esc(r.filename)}</button></a></p>
+          <details><summary class="small">Ver configuración</summary><pre class="mono small" style="white-space:pre-wrap">${esc(r.config)}</pre></details>
+          <p><b>2. En el VPS</b> (para que acepte a «${esc(r.name)}», IP ${esc(r.ip)}):</p>
+          <pre class="mono small" style="white-space:pre-wrap;user-select:all">${esc(r.vps_commands)}</pre>
+          <p class="muted small">Pruébalo con datos móviles: activa el túnel y abre https://${esc(j.interfaces.find((i) => i.name === $("#viface").value)?.hub.my_ip || "IP-de-la-Pi")}:8443</p>`;
+      } catch (e) { toast(e.message); }
+    };
+    view.querySelectorAll("[data-cdel]").forEach((b) => b.onclick = async () => {
+      if (!confirm("¿Quitarlo de la lista? Después corre en el VPS el comando que te muestro.")) return;
+      const r = await api(`/api/vpn/client/${b.dataset.cdel}`, { method: "DELETE" });
+      b.closest("tr").remove();
+      $("#vdel").innerHTML = `<pre class="mono small" style="white-space:pre-wrap;user-select:all">${esc(r.vps_commands)}</pre>`;
+    });
+  },
+
   async resumen() {
     const [s, ev] = await Promise.all([api("/api/summary"), api("/api/events?limit=8")]);
     $("#mode").textContent = s.bridge_mode ? `modo puente · ${s.interface}` : `modo pasivo · ${s.interface}`;
@@ -650,7 +719,7 @@ const views = {
 };
 
 const EV_ICON = { new_device: "🆕", arp_spoof: "🕵", ports_changed: "🚪", ids: "🚨", blocked_seen: "⛔",
-  quarantine: "🧪", acl: "🔒", honeypot: "🍯", dns_danger: "☣", roam_failed: "📶" };
+  quarantine: "🧪", acl: "🔒", honeypot: "🍯", dns_danger: "☣", roam_failed: "📶", login_failed: "🔑" };
 function evList(evs) {
   if (!evs.length) return '<p class="muted">Sin eventos. Todo tranquilo.</p>';
   return evs.map((e) => `<div class="ev"><span>${EV_ICON[e.kind] || "•"}</span>
@@ -707,6 +776,7 @@ async function route() {
   if (["resumen", "eventos"].includes(name)) timer = setInterval(() => (views[name])(), 60000);
 }
 window.addEventListener("hashchange", route);
+api("/api/me", { noRedirect: true }).then((m) => { if (m.user) $("#me").textContent = "👤 " + m.user; }).catch(() => {});
 route();
 api("/api/summary").then((s) => {
   $("#mode").textContent = s.bridge_mode ? `modo puente · ${s.interface}` : `modo pasivo · ${s.interface}`;

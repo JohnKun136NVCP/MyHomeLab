@@ -9,7 +9,7 @@ from pathlib import Path
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -17,7 +17,7 @@ from homelab_common import http_json, prom_query, prom_range
 
 import ipaddress
 
-from . import acl, metrics, scanner, settings as st
+from . import acl, auth, metrics, scanner, settings as st, vpn
 from .inbound import service_name
 from .classify import ICONS, TYPES
 from .monitor import Monitor
@@ -603,6 +603,143 @@ def build_app(mon: Monitor) -> Starlette:
     async def apply_get(_):
         return JSONResponse(st.apply_status())
 
+    # --------------------------------------------------------------- sesión
+    def client_ip(request: Request) -> str:
+        fwd = request.headers.get("x-forwarded-for", "")
+        return fwd.split(",")[0].strip() or (request.client.host if request.client else "?")
+
+    async def auth_check(request: Request):
+        """Caddy (forward_auth) pregunta aquí antes de cada página del panel."""
+        user = auth.check_token(request.cookies.get(auth.COOKIE, ""))
+        if user:
+            return PlainTextResponse("ok", headers={"X-Homelab-User": user})
+        uri = request.headers.get("x-forwarded-uri", "/")
+        if uri.startswith(("/api/", "/prometheus/api/", "/metrics")):
+            return JSONResponse({"error": "Sesión cerrada o caducada: vuelve a entrar"}, 401)
+        from urllib.parse import quote
+        return RedirectResponse(f"/login?next={quote(auth.safe_next(uri))}", 302)
+
+    async def login_page(request: Request, msg: str = "", status: int = 200):
+        import html
+        nxt = auth.safe_next(request.query_params.get("next", "/"))
+        body = auth.LOGIN_HTML.replace("{msg}", f'<p class="err">{html.escape(msg)}</p>' if msg else "") \
+            .replace("{next}", html.escape(nxt))
+        return HTMLResponse(body, status, headers={"Cache-Control": "no-store"})
+
+    async def login_get(request: Request):
+        return await login_page(request)
+
+    async def login_post(request: Request):
+        from urllib.parse import parse_qs
+        ip = client_ip(request)
+        if auth.too_many(ip):
+            return await login_page(request, "Demasiados intentos. Espera 10 minutos.", 429)
+        form = {k: v[0] for k, v in parse_qs((await request.body()).decode(errors="replace")).items()}
+        user, hashed = auth.credentials()
+        if not hashed:
+            return await login_page(request, "No hay contraseña configurada: corre ./scripts/gen-secrets.sh en la Pi.", 503)
+        if form.get("user") == user and auth.verify_password(form.get("password", ""), hashed):
+            auth.clear_fails(ip)
+            r = RedirectResponse(auth.safe_next(form.get("next", "/")), 303)
+            r.set_cookie(auth.COOKIE, auth.make_token(user), max_age=auth.TTL, httponly=True,
+                         secure=True, samesite="lax", path="/")
+            return r
+        n = auth.record_fail(ip)
+        if n == auth.MAX_FAILS and not db.recent_event("login_failed", ip, 3600):
+            db.add_event("warning", "login_failed", f"{n} intentos fallidos de entrar al panel",
+                         f"Desde {ip}. Si no fuiste tú, revisa quién es en Conexiones.", ip)
+        return await login_page(request, "Usuario o contraseña incorrectos.", 401)
+
+    async def logout(_request: Request):
+        r = RedirectResponse("/login", 303)
+        r.delete_cookie(auth.COOKIE, path="/")
+        return r
+
+    async def me(request: Request):
+        return JSONResponse({"user": auth.check_token(request.cookies.get(auth.COOKIE, ""))})
+
+    # ------------------------------------------------------------------ VPN
+    def vps_monitored(data: dict, hub_ip: str) -> bool:
+        nodes = st.yaml_get(data, "infrastructure.nodes") or []
+        return any(str(n.get("target", "")).startswith(hub_ip + ":") for n in nodes)
+
+    async def vpn_get(_):
+        import asyncio
+        s = await asyncio.to_thread(vpn.status)
+        clients = db.q("SELECT * FROM vpn_clients ORDER BY created")
+        names = {c["public_key"]: c["name"] for c in clients}
+        data, _ = st.read_yaml(cfg_path())
+        for itf in s["interfaces"]:
+            for p in itf["peers"]:
+                p["name"] = "VPS" if p["public_key"] == itf["hub"]["hub_key"] else names.get(p["public_key"], "")
+            itf["hub"]["monitored"] = bool(itf["hub"]["hub_ip"]) and vps_monitored(data, itf["hub"]["hub_ip"])
+        return JSONResponse({**s, "clients": clients, "now": time.time()})
+
+    def find_iface(name: str) -> dict | None:
+        return next((i for i in vpn.status()["interfaces"] if i["name"] == name), None)
+
+    async def vpn_client(request: Request):
+        import asyncio
+        b = await request.json()
+        name = re.sub(r"[^\w .-]", "", str(b.get("name", "")).strip())[:40]
+        if not name:
+            return JSONResponse({"error": "Ponle un nombre (ej. telefono, laptop)"}, 400)
+        itf = await asyncio.to_thread(find_iface, str(b.get("iface", "")))
+        if not itf:
+            return JSONResponse({"error": "No encuentro esa interfaz de WireGuard"}, 404)
+        hub = itf["hub"]
+        if not (hub["network"] and hub["hub_key"] and hub["hub_endpoint"]):
+            return JSONResponse({"error": "No pude deducir la red o el VPS de ese túnel"}, 400)
+        used = {hub["my_ip"], hub["hub_ip"]} | {c["ip"] for c in db.q("SELECT ip FROM vpn_clients")}
+        for p in itf["peers"]:
+            used |= {a.split("/")[0] for a in p["allowed_ips"] if a.endswith("/32")}
+        try:
+            ip = vpn.next_free_ip(hub["network"], used)
+            priv, pub = await asyncio.to_thread(vpn.genkeys)
+        except RuntimeError as e:
+            return JSONResponse({"error": str(e)}, 400)
+        dns = hub["my_ip"] if b.get("dns") else ""      # AdGuard de la Pi por el túnel
+        conf = vpn.client_config(priv, ip, hub, dns)
+        vps_iface = re.sub(r"[^\w.-]", "", str(b.get("vps_iface") or itf["name"]))
+        db.x("INSERT INTO vpn_clients (name, iface, ip, public_key, created) VALUES (?,?,?,?,?)",
+             (name, itf["name"], ip, pub, time.time()))
+        return JSONResponse({"name": name, "ip": ip, "public_key": pub, "config": conf,
+                             "qr": vpn.qr_svg(conf), "vps_commands": vpn.vps_commands(vps_iface, name, pub, ip),
+                             "filename": f"{re.sub(r'[^A-Za-z0-9_-]', '_', name)}.conf"})
+
+    async def vpn_client_delete(request: Request):
+        c = db.q("SELECT * FROM vpn_clients WHERE id=?", (int(request.path_params["cid"]),))
+        if not c:
+            return JSONResponse({"error": "no existe"}, 404)
+        db.x("DELETE FROM vpn_clients WHERE id=?", (c[0]["id"],))
+        return JSONResponse({"ok": True, "vps_commands": vpn.remove_commands(c[0]["iface"], c[0]["name"],
+                                                                             c[0]["public_key"])})
+
+    async def vpn_monitor(request: Request):
+        """Agrega el VPS (detectado en el túnel) a Prometheus/Grafana y al ping."""
+        import asyncio
+        itf = await asyncio.to_thread(find_iface, str((await request.json()).get("iface", "")))
+        if not itf or not itf["hub"]["hub_ip"]:
+            return JSONResponse({"error": "No detecté la IP del VPS en ese túnel"}, 400)
+        ip = itf["hub"]["hub_ip"]
+        data, _ = st.read_yaml(cfg_path())
+        nodes = [n for n in (st.yaml_get(data, "infrastructure.nodes") or []) if n.get("name") != "vps"]
+        nodes.append({"name": "vps", "target": f"{ip}:9100"})
+        st.yaml_set(data, "infrastructure.nodes", nodes)
+        pings = [t for t in (st.yaml_get(data, "infrastructure.ping_targets") or []) if t.get("name") != "vps"]
+        pings.append({"name": "vps", "host": ip})
+        st.yaml_set(data, "infrastructure.ping_targets", pings)
+        st.write_yaml(cfg_path(), data)
+        try:
+            st.request_apply(["netwatch", "bot"], ["netwatch", "bot"])
+            applied = True
+        except RuntimeError:
+            applied = False
+        return JSONResponse({"ok": True, "ip": ip, "applied": applied,
+                             "vps_steps": f"En el VPS: VPN_VPS_IP={ip} en hosts/vps/.env y docker compose … up -d "
+                                          f"(docs/vpn.md). Firewall: sudo ufw allow in on {itf['name']} from "
+                                          f"{itf['hub']['my_ip']} to any port 9100 proto tcp"})
+
     routes = [
         Route("/", index), Route("/health", health), Route("/metrics", prom_metrics),
         Route("/api/summary", summary), Route("/api/devices", devices),
@@ -623,6 +760,12 @@ def build_app(mon: Monitor) -> Starlette:
         Route("/api/settings/yaml", settings_yaml, methods=["POST"]),
         Route("/api/settings/token", settings_token, methods=["POST"]),
         Route("/api/apply", apply_post, methods=["POST"]), Route("/api/apply", apply_get),
+        Route("/auth/check", auth_check), Route("/login", login_get),
+        Route("/auth/login", login_post, methods=["POST"]),
+        Route("/auth/logout", logout, methods=["GET", "POST"]), Route("/api/me", me),
+        Route("/api/vpn", vpn_get), Route("/api/vpn/client", vpn_client, methods=["POST"]),
+        Route("/api/vpn/client/{cid:int}", vpn_client_delete, methods=["DELETE"]),
+        Route("/api/vpn/monitor", vpn_monitor, methods=["POST"]),
         Route("/api/cameras/{name}/snapshot", camera_snapshot),
         Mount("/static", StaticFiles(directory=STATIC), name="static"),
     ]

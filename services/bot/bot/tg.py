@@ -83,8 +83,10 @@ class Telegram:
         if size > self.limit:
             raise TelegramError(f"{path.name} pesa {size / MiB:.0f} MB; el límite es "
                                 f"{self.limit / MiB:.0f} MB")
-        conf = [f'url = "{self._url(method)}"', f'form = "chat_id={chat_id}"',
-                f'form = "{field}=@\\"{_q(str(path))}\\""', 'form = "parse_mode=HTML"']
+        # form-string = texto literal: con «form», un chat_id como «@mi_canal» se tomaría
+        # como «sube el archivo mi_canal» (curl trata la @ como archivo).
+        conf = [f'url = "{self._url(method)}"', f'form-string = "chat_id={_q(str(chat_id))}"',
+                f'form = "{field}=@\\"{_q(str(path))}\\""', 'form-string = "parse_mode=HTML"']
         if caption:
             conf.append(f'form-string = "caption={_q(caption[:1024])}"')
         for k, v in (extra or {}).items():
@@ -113,6 +115,12 @@ class Telegram:
         dest.parent.mkdir(parents=True, exist_ok=True)
         if fp.startswith("/") and Path(fp).exists():
             shutil.copy2(fp, dest)
+            # En modo --local el servidor deja cada archivo en su carpeta para siempre:
+            # ya lo copiamos, así que lo borramos para no llenar el disco.
+            try:
+                Path(fp).unlink()
+            except OSError as e:
+                log.info("No pude borrar %s del Bot API (¿montado de solo lectura?): %s", fp, e)
             return dest
         url = f"{self.api}/file/bot{self.token}/{urllib.parse.quote(fp)}"
         try:

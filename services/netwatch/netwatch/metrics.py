@@ -54,6 +54,23 @@ def render(mon: Monitor) -> str:
     metric("homelab_ids_alerts_total", "counter", "Alertas de Suricata por severidad", [
         (dict(severity=s), n) for s, n in mon.ids_alerts.items()])
     metric("homelab_last_scan_timestamp_seconds", "gauge", "Último escaneo", [({}, mon.last_scan)])
+    from . import vpn
+    s = vpn.status()
+    rows_up, rows_hs, rows_rx, rows_tx = [], [], [], []
+    names = {c["public_key"]: c["name"] for c in db.q("SELECT name, public_key FROM vpn_clients")}
+    for itf in s["interfaces"]:
+        rows_up.append((dict(iface=itf["name"]), 1))
+        for p in itf["peers"]:
+            peer = "VPS" if p["public_key"] == itf["hub"]["hub_key"] else names.get(p["public_key"], p["public_key"][:8])
+            lab = dict(iface=itf["name"], peer=peer, endpoint=p["endpoint"])
+            if p["handshake"]:
+                rows_hs.append((lab, p["handshake"]))
+            rows_rx.append((lab, p["rx"]))
+            rows_tx.append((lab, p["tx"]))
+    metric("homelab_wg_interface_up", "gauge", "Interfaces WireGuard activas", rows_up)
+    metric("homelab_wg_peer_last_handshake_seconds", "gauge", "Último contacto con cada peer (epoch)", rows_hs)
+    metric("homelab_wg_peer_receive_bytes_total", "counter", "Bytes recibidos por peer", rows_rx)
+    metric("homelab_wg_peer_transmit_bytes_total", "counter", "Bytes enviados por peer", rows_tx)
     day = db.inbound_hourly(__import__("time").time() - 86400)
     tot: dict[str, int] = {}
     for r in day:

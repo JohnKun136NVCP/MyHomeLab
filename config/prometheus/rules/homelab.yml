@@ -51,6 +51,14 @@ groups:
           summary: "Sin internet en casa"
           description: "No hay respuesta de 1.1.1.1 desde hace 2 minutos."
 
+      - alert: TunelVPNSinContacto
+        expr: time() - homelab_wg_peer_last_handshake_seconds{peer="VPS"} > 300
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "El túnel {{ $labels.iface }} no habla con el VPS desde hace {{ $value | humanizeDuration }}"
+          description: "WireGuard no ha tenido contacto con {{ $labels.endpoint }}. Revisa el VPS o la red."
+
       - alert: AccessPointCaido
         expr: homelab_infra_up{role="ap"} == 0
         for: 3m

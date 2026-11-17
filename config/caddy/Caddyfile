@@ -35,9 +35,17 @@ https://{$HOMELAB_HOST}:443 {
 		reverse_proxy grafana:3000
 	}
 
+	# Inicio de sesión del panel (página propia, con «Cerrar sesión»)
+	@public path /login /auth/login /auth/logout /static/*
+	handle @public {
+		reverse_proxy host.docker.internal:8000
+	}
+
 	handle {
-		basic_auth {
-			{$WEB_USER} {$WEB_PASSWORD_HASH}
+		# Antes de cada página Caddy pregunta a netwatch si la cookie de sesión es válida
+		forward_auth host.docker.internal:8000 {
+			uri /auth/check
+			copy_headers X-Homelab-User
 		}
 		handle /prometheus* {
 			reverse_proxy prometheus:9090

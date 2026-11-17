@@ -86,8 +86,9 @@ services:
       - ../../config/homelab.yml:/config/homelab.yml:ro
       - bot_data:/data
       - ${BACKUPS_DIR:-./backups}:/data/backups
-      # archivos que el servidor Bot API local guarda (misma ruta que en el host)
-      - ${TELEGRAM_API_DATA:-/var/lib/telegram-bot-api}:${TELEGRAM_API_DATA:-/var/lib/telegram-bot-api}:ro
+      # archivos que el servidor Bot API local guarda (misma ruta que en el host);
+      # escritura para borrarlos una vez copiados y no llenar el disco
+      - ${TELEGRAM_API_DATA:-/var/lib/telegram-bot-api}:${TELEGRAM_API_DATA:-/var/lib/telegram-bot-api}
     extra_hosts: ["host.docker.internal:host-gateway"]
 
   # --- Métricas ----------------------------------------------------------
@@ -145,7 +146,19 @@ services:
     image: jasonish/suricata:latest
     network_mode: host
     cap_add: [NET_ADMIN, NET_RAW, SYS_NICE]
-    command: ["-i", "${CAPTURE_INTERFACE:-eth0}"]
+    environment:
+      # Varias interfaces separadas por espacio: «eth0 wlan0» (casa y laboratorio)
+      CAPTURE_INTERFACES: ${CAPTURE_INTERFACES:-${CAPTURE_INTERFACE:-eth0}}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        args="";
+        for i in $$CAPTURE_INTERFACES; do
+          if [ -e "/sys/class/net/$$i" ]; then args="$$args -i $$i"; else echo "⚠ no existe la interfaz $$i"; fi;
+        done;
+        [ -n "$$args" ] || args="-i eth0";
+        echo "Suricata escuchando en:$$args";
+        exec /docker-entrypoint.sh $$args
     volumes:
       - suricata_logs:/var/log/suricata
       - suricata_rules:/var/lib/suricata

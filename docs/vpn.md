@@ -1,5 +1,18 @@
 # VPN con WireGuard (VPS como centro)
 
+## Desde el panel (web → VPN)
+La Pi lee tu WireGuard tal como ya está (por ejemplo `wg-hoshimy`) y muestra: la red del
+túnel, su IP, el VPS detectado, cada peer con su último contacto y su tráfico. Desde ahí:
+
+- **📈 Monitorear el VPS**: agrega el VPS (su IP dentro del túnel) a Prometheus, Grafana, el
+  ping y `/vps`. Falta solo levantar node-exporter en el VPS (abajo).
+- **➕ Agregar un equipo**: genera llaves, una IP libre, el archivo `.conf` y un **QR** para la
+  app WireGuard del teléfono, y los **comandos exactos para el VPS** (sin reiniciar el túnel).
+  La llave privada se muestra una sola vez y no se guarda. Opción: usar el AdGuard de casa
+  como DNS para tener el filtro (y Control D) también fuera de casa.
+- Alerta **TunelVPNSinContacto** si el túnel no habla con el VPS en más de 5 minutos.
+
+
 ## Si ya tienes un túnel Pi ↔ VPS (recomendado: reutilízalo)
 No hace falta wg-easy. Con tu túnel (por ejemplo `wg-hoshimy`):
 1. En el VPS (con tus llaves SSH de siempre; el homelab nunca entra por SSH):

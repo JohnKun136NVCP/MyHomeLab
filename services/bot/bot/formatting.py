@@ -8,7 +8,7 @@ from .tg import esc
 LEVEL = {"critical": "🔴", "warning": "🟠", "info": "🔵"}
 KIND = {"new_device": "🆕", "arp_spoof": "🕵", "ports_changed": "🚪", "ids": "🚨",
         "blocked_seen": "⛔", "quarantine": "🧪", "acl": "🔒", "honeypot": "🍯", "dns_danger": "☣",
-        "roam_failed": "📶"}
+        "roam_failed": "📶", "login_failed": "🔑"}
 
 
 def alertmanager(payload: dict) -> str:

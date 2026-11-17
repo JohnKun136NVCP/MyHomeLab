@@ -33,6 +33,7 @@ class Backups:
         self.root = Path(b.get("dir", "/data/backups"))
         self.root.mkdir(parents=True, exist_ok=True)
         self.keep = int(b.get("keep_per_device", 5))
+        self.max_age_days = int(b.get("max_age_days", 14) or 0)   # 0 = sin límite de edad
         self.forward = bool(b.get("forward_to_telegram", True))
         self.devices = {d["name"]: d for d in (b.get("devices") or [])}
         self.store = store
@@ -68,20 +69,38 @@ class Backups:
         return d / safe_name(filename)
 
     def prune(self, device: str) -> list[str]:
-        """Borra los respaldos más viejos de ese dispositivo (deja `keep_per_device`)."""
+        """Borra los respaldos de ese dispositivo que pasen de `keep_per_device` o tengan
+        más de `max_age_days` días. Siempre deja el más reciente."""
+        import time
         dev_dir = self.root / safe_name(device)
         if not dev_dir.exists():
             return []
         dirs = sorted((p for p in dev_dir.iterdir() if p.is_dir()), reverse=True)
+        cutoff = time.time() - self.max_age_days * 86400 if self.max_age_days else 0
         removed = []
-        for old in dirs[self.keep:]:
-            shutil.rmtree(old, ignore_errors=True)
-            removed.append(old.name)
+        for i, old in enumerate(dirs):
+            too_many = i >= self.keep
+            too_old = i > 0 and cutoff and old.stat().st_mtime < cutoff
+            if too_many or too_old:
+                shutil.rmtree(old, ignore_errors=True)
+                removed.append(old.name)
         if removed:
             for row in self.store.q("SELECT id, path FROM backups WHERE device=?", (device,)):
                 if not Path(row["path"]).exists():
                     self.store.delete_backup_row(row["id"])
         return removed
+
+    def prune_all(self) -> dict[str, list[str]]:
+        """Limpieza diaria de todos los dispositivos (incluye lo que llegó por Telegram)."""
+        if not self.root.exists():
+            return {}
+        out = {}
+        for d in self.root.iterdir():
+            if d.is_dir():
+                r = self.prune(d.name)
+                if r:
+                    out[d.name] = r
+        return out
 
     def summary(self) -> list[dict]:
         out = []

@@ -251,3 +251,60 @@ def test_linux_guardian_upload(bot, tmp_path):
     assert lg.homelab_upload(cfg, parts, logs.append), logs
     dirs = {d for d in (bot.backups.root / "laptop-win").iterdir() if (d / "respaldo_pc.7z.001").exists()}
     assert len(dirs) == 1 and (next(iter(dirs)) / "respaldo_pc.7z.002").stat().st_size == 300_000
+
+
+def test_prune_by_age(tmp_path):
+    from bot.backups import Backups
+    from bot.store import Store
+    st = Store(tmp_path / "b.db")
+    b = Backups({"backups": {"dir": str(tmp_path / "bk"), "keep_per_device": 5, "max_age_days": 14,
+                             "devices": [{"name": "pc", "os": "linux"}]}}, st)
+    old_dirs = []
+    for days in (30, 20, 15, 3):
+        d = tmp_path / "bk" / "pc" / f"2026-01-{40 - days:02d}_000000"
+        d.mkdir(parents=True)
+        (d / "x.7z").write_text("x")
+        t = time.time() - days * 86400
+        os.utime(d, (t, t))
+        old_dirs.append(d)
+    removed = b.prune("pc")
+    assert len(removed) == 3 and old_dirs[-1].exists()          # queda el de hace 3 días
+    # si todos son viejos, igual queda el más reciente
+    for d in old_dirs[-1:]:
+        t = time.time() - 60 * 86400
+        os.utime(d, (t, t))
+    assert b.prune("pc") == [] and old_dirs[-1].exists()
+    assert b.prune_all() == {}
+
+
+def test_social_media_deleted_after_publish(bot, tmp_path):
+    img = bot.data / "social" / "promo.jpg"
+    img.parent.mkdir(parents=True, exist_ok=True)
+    img.write_bytes(b"\xff\xd8foto")
+    pid = bot.store.add_post(time.time() - 1, ["tg"], "con foto", str(img), "photo")
+    assert wait(lambda: bot.store.post(pid)["status"] != "pending", 45)
+    assert bot.store.post(pid)["status"] == "done", bot.store.post(pid)["result"]
+    assert not img.exists() and bot.store.post(pid)["media"] == ""
+    # cancelada y huérfana vieja: se borran en la limpieza diaria
+    img2 = bot.data / "social" / "otra.jpg"
+    img2.write_bytes(b"x")
+    pid2 = bot.store.add_post(time.time() + 9999, ["tg"], "luego", str(img2), "photo")
+    bot.store.finish_post(pid2, "cancelled", "")
+    orphan = bot.data / "social" / "huerfana.jpg"
+    orphan.write_bytes(b"x")
+    t = time.time() - 10 * 86400
+    os.utime(orphan, (t, t))
+    assert bot.prune_social_media() == 2 and not img2.exists() and not orphan.exists()
+
+
+def test_local_api_file_removed_after_copy(bot, tmp_path):
+    src = tmp_path / "botapi" / "documents" / "file_9.bin"
+    src.parent.mkdir(parents=True)
+    src.write_bytes(b"y" * 100)
+    old = Fake.local_file
+    Fake.local_file = src
+    try:
+        dest = bot.tg.download("F9", tmp_path / "copia.bin")
+    finally:
+        Fake.local_file = old
+    assert dest.read_bytes() == b"y" * 100 and not src.exists()

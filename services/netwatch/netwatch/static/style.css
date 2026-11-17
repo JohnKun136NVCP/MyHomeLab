@@ -102,3 +102,5 @@ label.chk { display: block; padding: 3px 0; }
 textarea { font: 12.5px ui-monospace, Menlo, monospace; color: var(--text); background: var(--panel2);
   border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
 @media (max-width: 700px) { .frow { grid-template-columns: 1fr; } }
+
+header .logout { margin-left: auto; display: flex; gap: 8px; align-items: center; }

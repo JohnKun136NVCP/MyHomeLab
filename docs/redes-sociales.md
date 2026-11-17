@@ -5,7 +5,9 @@
 /programar mañana 09:30 todas Buenos días 🌞
 /programar 25/12 08:00 tg Feliz Navidad
 ```
-Para foto o video mándalo **con ese texto en el pie**. Luego `/programadas`, `/cancelar ID`,
+Para foto o video mándalo **con ese texto en el pie**. Cuando se publica (o la cancelas)
+la foto/video se **borra de la Pi** para no llenar el disco; también se borran los archivos que
+el servidor Bot API local guarda al recibirlos. Luego `/programadas`, `/cancelar ID`,
 `/publicar_ya ID`. Al publicar te llega el resultado de cada red.
 
 ## Canal de Telegram

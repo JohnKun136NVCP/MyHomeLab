@@ -93,10 +93,22 @@ class BotApp:
                                                   p["media"], p["media_kind"])
                     ok = all(v.startswith("ok") for v in res.values())
                     self.store.finish_post(p["id"], "done" if ok else "error", str(res))
+                    if ok and p["media"]:          # ya está en las redes: no ocupar disco
+                        Path(p["media"]).unlink(missing_ok=True)
+                        self.store.x("UPDATE posts SET media='' WHERE id=?", (p["id"],))
                     self.notify(f"{'✅' if ok else '⚠'} Publicación #{p['id']}:\n" + "\n".join(
                         f"  {NETWORKS.get(k, k)}: {esc(v)}" for k, v in res.items()))
                 now = dt.datetime.now(tz)
                 today = now.date().isoformat()
+                if self.store.get("last_prune") != today:          # limpieza diaria
+                    self.store.set("last_prune", today)
+                    removed = await asyncio.to_thread(self.backups.prune_all)
+                    removed_media = await asyncio.to_thread(self.prune_social_media)
+                    if removed:
+                        self.notify("🧹 Respaldos viejos borrados: " + ", ".join(
+                            f"{esc(d)} ({len(r)})" for d, r in removed.items()))
+                    if removed_media:
+                        log.info("Multimedia de publicaciones borrada: %d archivos", removed_media)
                 if now.strftime("%H:%M") >= report_at and self.store.get("last_report") != today:
                     self.store.set("last_report", today)
                     text = await asyncio.to_thread(reports.daily_report, self.cfg, self.backups)
@@ -144,6 +156,25 @@ class BotApp:
                 since = max(since, max(e.get("start_time", 0) for e in evs))
             if len(self._frigate_seen) > 2000:
                 self._frigate_seen = set(list(self._frigate_seen)[-500:])
+
+    def prune_social_media(self) -> int:
+        """Borra multimedia de publicaciones que ya no se van a usar: publicadas, canceladas
+        o con error de hace más de 7 días."""
+        n = 0
+        cutoff = time.time() - 7 * 86400
+        for p in self.store.q("SELECT id, media, status, run_at FROM posts WHERE media != ''"):
+            if p["status"] in ("done", "cancelled") or (p["status"] == "error" and p["run_at"] < cutoff):
+                Path(p["media"]).unlink(missing_ok=True)
+                self.store.x("UPDATE posts SET media='' WHERE id=?", (p["id"],))
+                n += 1
+        d = self.data / "social"
+        if d.exists():                        # huérfanos (de publicaciones borradas)
+            used = {r["media"] for r in self.store.q("SELECT media FROM posts WHERE media != ''")}
+            for f in d.iterdir():
+                if str(f) not in used and f.stat().st_mtime < cutoff:
+                    f.unlink(missing_ok=True)
+                    n += 1
+        return n
 
     # -------------------------------------------------------------- HTTP
     def _internal_ok(self, request: Request) -> bool:

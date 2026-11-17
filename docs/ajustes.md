@@ -1,5 +1,13 @@
 # Inicio y Ajustes (sin editar archivos a mano)
 
+## Inicio de sesión
+La web tiene su propia página para entrar (usuario y contraseña de Ajustes → Web) y un botón
+**⎋ Salir** arriba a la derecha. La sesión dura 7 días en ese navegador. Tras 5 intentos
+fallidos desde una IP se bloquea 10 minutos y te llega aviso al bot. Cambiar la contraseña
+o el usuario en Ajustes no requiere reiniciar nada (cambiar el usuario cierra las sesiones).
+
+Grafana y Vaultwarden siguen con su propio inicio de sesión.
+
 ## Inicio
 La primera página de la web: todas las herramientas en un solo lugar (Grafana, Prometheus,
 AdGuard, Uptime Kuma, Vaultwarden, módem, Tendas y tus enlaces) con un punto verde/rojo

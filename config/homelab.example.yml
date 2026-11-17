@@ -127,6 +127,7 @@ reports:
 backups:
   dir: /data/backups
   keep_per_device: 5            # cuántos respaldos guardar por dispositivo
+  max_age_days: 14              # y borrar los de más de 14 días (siempre queda el último)
   forward_to_telegram: true     # reenviarte cada respaldo al chat (máx. ~1.9 GB por archivo)
   # Dispositivos que pueden subir respaldos. El token de cada uno va en .env
   # como BACKUP_TOKEN_<NOMBRE en mayúsculas>, ej. BACKUP_TOKEN_LAPTOP_WIN

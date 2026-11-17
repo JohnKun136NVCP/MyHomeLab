@@ -316,6 +316,9 @@ class Handlers:
         if not p or p["status"] != "pending":
             return self.reply(chat, "No encontré esa publicación pendiente.")
         self.a.store.finish_post(p["id"], "cancelled", "")
+        if p["media"]:
+            Path(p["media"]).unlink(missing_ok=True)
+            self.a.store.x("UPDATE posts SET media='' WHERE id=?", (p["id"],))
         self.reply(chat, f"🗑 Publicación #{p['id']} cancelada.")
 
     def cmd_publicar_ya(self, chat, arg):

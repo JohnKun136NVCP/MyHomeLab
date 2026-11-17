@@ -38,13 +38,16 @@ FIELDS: list[dict] = [
      "help": "8443 si nginx ya usa el 443.", "restart": ["caddy", "grafana", "vaultwarden"]},
     {"group": "Web", "key": "HTTP_PORT", "label": "Puerto HTTP", "kind": "number",
      "help": "8088 si nginx ya usa el 80.", "restart": ["caddy"]},
-    {"group": "Web", "key": "WEB_USER", "label": "Usuario de la web", "restart": ["caddy"]},
+    {"group": "Web", "key": "WEB_USER", "label": "Usuario de la web", "restart": [],
+     "help": "Al cambiarlo se cierran las sesiones abiertas."},
     {"group": "Web", "key": "WEB_PASSWORD_HASH", "label": "Contraseña de la web", "kind": "password",
-     "help": "Escribe una nueva para cambiarla (se guarda cifrada).", "restart": ["caddy"]},
+     "help": "Escribe una nueva para cambiarla (se guarda cifrada). Vale desde el siguiente inicio de sesión.",
+     "restart": []},
     {"group": "Servicios", "key": "COMPOSE_PROFILES", "label": "Servicios opcionales", "kind": "profiles",
      "help": "Marca lo que quieres encendido y presiona «Guardar y aplicar».", "restart": ["*"]},
-    {"group": "Servicios", "key": "CAPTURE_INTERFACE", "label": "Interfaz de Suricata",
-     "help": "eth0, o br0 en modo puente.", "restart": ["suricata"]},
+    {"group": "Servicios", "key": "CAPTURE_INTERFACES", "label": "Interfaces de Suricata",
+     "help": "Separadas por espacio: «eth0 wlan0» = casa + laboratorio. br0 en modo puente.",
+     "restart": ["suricata"]},
     {"group": "AdGuard", "key": "ADGUARD_USER", "label": "Usuario de AdGuard", "restart": ["netwatch"]},
     {"group": "AdGuard", "key": "ADGUARD_PASSWORD", "label": "Contraseña de AdGuard", "kind": "secret",
      "restart": ["netwatch"]},
@@ -78,6 +81,8 @@ YAML_FIELDS: list[dict] = [
     {"group": "Reportes", "path": "reports.daily_time", "label": "Hora del reporte diario (HH:MM)"},
     {"group": "Respaldos", "path": "backups.keep_per_device", "label": "Respaldos a guardar por equipo",
      "kind": "number"},
+    {"group": "Respaldos", "path": "backups.max_age_days", "label": "Borrar respaldos con más de (días)",
+     "kind": "number", "help": "0 = sin límite. Siempre se conserva el más reciente de cada equipo."},
     {"group": "Respaldos", "path": "backups.forward_to_telegram", "label": "Reenviarlos por Telegram", "kind": "bool"},
     {"group": "Redes sociales", "path": "social.telegram_channel", "label": "Canal de Telegram",
      "help": "@tu_canal o -100…; el bot debe ser admin."},
@@ -99,7 +104,8 @@ def _escape(v: str) -> str:
     return v.replace("$", "$$")
 
 
-def read_env(path: Path = ENV_PATH) -> dict[str, str]:
+def read_env(path: Path | None = None) -> dict[str, str]:
+    path = path or ENV_PATH
     out: dict[str, str] = {}
     if not path.exists():
         return out
@@ -110,9 +116,10 @@ def read_env(path: Path = ENV_PATH) -> dict[str, str]:
     return out
 
 
-def write_env(updates: dict[str, str | None], path: Path = ENV_PATH) -> list[str]:
+def write_env(updates: dict[str, str | None], path: Path | None = None) -> list[str]:
     """Cambia solo las líneas indicadas (None = borrar); conserva comentarios y orden.
     Escribe en el mismo archivo (mismo inodo) para que los montajes de Docker lo vean."""
+    path = path or ENV_PATH
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     changed, done = [], set()
     out = []

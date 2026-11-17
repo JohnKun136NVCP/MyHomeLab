@@ -399,3 +399,188 @@ def test_controld_upstream(tmp_path):
     mon.poll_dns()
     assert state["upstream"] == ["https://freedns.controld.com/p2"]
     srv.shutdown()
+
+
+# ------------------------------------------------------------------- VPN
+WG_DUMP = (
+    "wg-hoshimy\tPRIVADA_NO_DEBE_SALIR=\tPUBPI=\t0\toff\n"
+    "wg-hoshimy\tPUBVPS=\t(none)\t203.0.113.7:51820\t10.66.0.0/24\t%d\t1048576\t2097152\t25\n"
+    "wg-hoshimy\tPUBTEL=\tPSKSECRETA=\t(none)\t10.66.0.10/32\t0\t0\t0\toff\n")
+
+
+def test_vpn_parse_and_guess():
+    import time as _t
+
+    from netwatch import vpn
+    d = vpn.parse_dump(WG_DUMP % int(_t.time()))
+    itf = d["wg-hoshimy"]
+    assert itf["public_key"] == "PUBPI=" and len(itf["peers"]) == 2
+    assert "PRIVADA" not in json.dumps(d) and "PSKSECRETA" not in json.dumps(d)
+    h = vpn.guess_hub(itf, ["10.66.0.2/24"])
+    assert h == {"network": "10.66.0.0/24", "my_ip": "10.66.0.2", "hub_ip": "10.66.0.1",
+                 "hub_endpoint": "203.0.113.7:51820", "hub_key": "PUBVPS=", "warnings": []}
+    # Peer del VPS solo con /32 → advierte que los demás equipos no llegarán a la Pi
+    itf2 = vpn.parse_dump(WG_DUMP.replace("10.66.0.0/24", "10.66.0.1/32") % int(_t.time()))["wg-hoshimy"]
+    h2 = vpn.guess_hub(itf2, ["10.66.0.2/24"])
+    assert h2["hub_ip"] == "10.66.0.1" and any("AllowedIPs" in w for w in h2["warnings"])
+    old = vpn.guess_hub(vpn.parse_dump(WG_DUMP % (int(_t.time()) - 900))["wg-hoshimy"], ["10.66.0.2/24"])
+    assert any("5 minutos" in w for w in old["warnings"])
+    used = {"10.66.0.1", "10.66.0.2", "10.66.0.10"}
+    assert vpn.next_free_ip("10.66.0.0/24", used) == "10.66.0.11"
+    conf = vpn.client_config("PRIV=", "10.66.0.11", h, dns="10.66.0.2")
+    assert "Address = 10.66.0.11/32" in conf and "Endpoint = 203.0.113.7:51820" in conf
+    assert "AllowedIPs = 10.66.0.0/24" in conf and "DNS = 10.66.0.2" in conf and "PublicKey = PUBVPS=" in conf
+    cmds = vpn.vps_commands("wg0", "telefono", "PUBNUEVA=", "10.66.0.11")
+    assert "sudo wg set wg0 peer PUBNUEVA= allowed-ips 10.66.0.11/32" in cmds and "PRIV" not in cmds
+
+
+def test_vpn_web(tmp_path, monkeypatch):
+    """API de la VPN con WireGuard simulado (sin wg real)."""
+    import time as _t
+
+    from netwatch import vpn
+    from netwatch import settings as st
+    monkeypatch.setattr(vpn, "available", lambda: True)
+    monkeypatch.setattr(vpn, "_run", lambda cmd, inp=None, timeout=10: (0, WG_DUMP % int(_t.time()))
+                        if cmd[:2] == ["wg", "show"] else (0, ""))
+    monkeypatch.setattr(vpn, "addresses", lambda iface: ["10.66.0.2/24"])
+    monkeypatch.setattr(vpn, "genkeys", lambda: ("PRIVNUEVA=", "PUBNUEVA="))
+    monkeypatch.setattr(st, "RUN_DIR", tmp_path)
+    cfgp = tmp_path / "homelab.yml"
+    cfgp.write_text("infrastructure:\n  nodes:\n  - {name: raspberry, target: host.docker.internal:9100}\n")
+    monkeypatch.setenv("HOMELAB_CONFIG", str(cfgp))
+    import threading
+    import urllib.request
+
+    import uvicorn
+
+    from netwatch import monitor as M
+    from netwatch.web import build_app
+    mon = M.Monitor({"network": {"networks": [{"name": "casa", "cidr": "192.168.1.0/24"}]}},
+                    DB(tmp_path / "n.db"), tmp_path)
+    server = uvicorn.Server(uvicorn.Config(build_app(mon), host="127.0.0.1", port=0, log_level="error"))
+    threading.Thread(target=server.run, daemon=True).start()
+    while not server.started:
+        _t.sleep(0.05)
+    base = f"http://127.0.0.1:{server.servers[0].sockets[0].getsockname()[1]}"
+
+    def call(path, body=None, method=None):
+        req = urllib.request.Request(base + path, data=json.dumps(body).encode() if body is not None else None,
+                                     method=method or ("POST" if body is not None else "GET"))
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    code, j = call("/api/vpn")
+    itf = j["interfaces"][0]
+    assert code == 200 and itf["hub"]["hub_ip"] == "10.66.0.1" and not itf["hub"]["monitored"]
+    assert {p["name"] for p in itf["peers"]} == {"VPS", ""}
+    code, c = call("/api/vpn/client", {"name": "telefono", "iface": "wg-hoshimy", "dns": True})
+    assert code == 200 and c["ip"] == "10.66.0.11" and "PrivateKey = PRIVNUEVA=" in c["config"]
+    assert "DNS = 10.66.0.2" in c["config"] and "allowed-ips 10.66.0.11/32" in c["vps_commands"]
+    code, c2 = call("/api/vpn/client", {"name": "laptop", "iface": "wg-hoshimy"})
+    assert c2["ip"] == "10.66.0.12" and "DNS" not in c2["config"]
+    code, _ = call("/api/vpn/client", {"name": "", "iface": "wg-hoshimy"})
+    assert code == 400
+    code, m = call("/api/vpn/monitor", {"iface": "wg-hoshimy"})
+    assert code == 200 and m["ip"] == "10.66.0.1" and m["applied"]
+    y, _ = st.read_yaml(cfgp)
+    assert {"name": "vps", "target": "10.66.0.1:9100"} in y["infrastructure"]["nodes"]
+    assert {"name": "vps", "host": "10.66.0.1"} in y["infrastructure"]["ping_targets"]
+    code, j = call("/api/vpn")
+    assert j["interfaces"][0]["hub"]["monitored"] and len(j["clients"]) == 2
+    code, d = call(f"/api/vpn/client/{j['clients'][0]['id']}", method="DELETE")
+    assert code == 200 and "peer PUBNUEVA= remove" in d["vps_commands"]
+    from netwatch.metrics import render
+    txt = render(mon)
+    assert 'homelab_wg_peer_last_handshake_seconds{iface="wg-hoshimy",peer="VPS",endpoint="203.0.113.7:51820"}' in txt
+    server.should_exit = True
+
+
+# ----------------------------------------------------------------- sesión
+def test_auth_tokens(tmp_path, monkeypatch):
+    from netwatch import auth
+    from netwatch import settings as st
+    env = tmp_path / ".env"
+    env.write_text("WEB_USER=admin\nWEB_PASSWORD_HASH=$$2a$$14$$abc\n")
+    monkeypatch.setattr(st, "ENV_PATH", env)
+    monkeypatch.setattr(auth, "_secret", b"k" * 32)
+    t = auth.make_token("admin", now=1000)
+    assert auth.check_token(t, now=2000) == "admin"
+    assert auth.check_token(t, now=1000 + auth.TTL + 1) is None           # caducó
+    assert auth.check_token(t[:-2] + "xx", now=2000) is None             # firma alterada
+    assert auth.check_token("basura", now=2000) is None
+    env.write_text("WEB_USER=otro\nWEB_PASSWORD_HASH=x\n")              # cambiaste el usuario
+    assert auth.check_token(t, now=2000) is None
+    assert auth.credentials() == ("otro", "x")
+    assert auth.safe_next("/#ajustes") == "/#ajustes" and auth.safe_next("//malo.com") == "/"
+    assert auth.safe_next("https://malo.com") == "/" and auth.safe_next("/\\\\malo") == "/"
+    for _ in range(auth.MAX_FAILS):
+        assert not auth.too_many("1.2.3.4", now=50)
+        auth.record_fail("1.2.3.4", now=50)
+    assert auth.too_many("1.2.3.4", now=60) and not auth.too_many("1.2.3.4", now=50 + auth.WINDOW + 1)
+
+
+def test_login_flow(tmp_path, monkeypatch):
+    import http.client
+    import threading
+    import time as _t
+    from urllib.parse import urlencode
+
+    import uvicorn
+
+    from netwatch import auth
+    from netwatch import monitor as M
+    from netwatch import settings as st
+    from netwatch.web import build_app
+    env = tmp_path / ".env"
+    env.write_text("WEB_USER=admin\nWEB_PASSWORD_HASH=$$2a$$14$$hash\n")
+    monkeypatch.setattr(st, "ENV_PATH", env)
+    monkeypatch.setattr(auth, "_secret", b"s" * 32)
+    monkeypatch.setattr(auth, "_fails", __import__("collections").defaultdict(__import__("collections").deque))
+    monkeypatch.setattr(auth, "verify_password", lambda pw, h: pw == "correcta" and h == "$2a$14$hash")
+    db = DB(tmp_path / "n.db")
+    mon = M.Monitor({"network": {"networks": [{"name": "casa", "cidr": "192.168.1.0/24"}]}}, db, tmp_path)
+    server = uvicorn.Server(uvicorn.Config(build_app(mon), host="127.0.0.1", port=0, log_level="error"))
+    threading.Thread(target=server.run, daemon=True).start()
+    while not server.started:
+        _t.sleep(0.05)
+    port = server.servers[0].sockets[0].getsockname()[1]
+
+    def req(method, path, body=None, headers=None):
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        c.request(method, path, body=body, headers=headers or {})
+        r = c.getresponse()
+        return r.status, dict(r.getheaders()), r.read().decode()
+
+    # Sin cookie: páginas → /login ; API → 401
+    code, h, _ = req("GET", "/auth/check", headers={"X-Forwarded-Uri": "/#vpn"})
+    assert code == 302 and h["location"].startswith("/login?next=")
+    code, _, b = req("GET", "/auth/check", headers={"X-Forwarded-Uri": "/api/devices"})
+    assert code == 401 and "Sesión" in b
+    code, _, b = req("GET", "/login?next=/%23vpn")
+    assert code == 200 and 'name="password"' in b and 'value="/#vpn"' in b
+    form = {"Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "192.168.1.66"}
+    code, _, b = req("POST", "/auth/login", urlencode({"user": "admin", "password": "mal", "next": "/"}), form)
+    assert code == 401 and "incorrectos" in b
+    code, h, _ = req("POST", "/auth/login", urlencode({"user": "admin", "password": "correcta",
+                                                       "next": "//malo.com"}), form)
+    assert code == 303 and h["location"] == "/"
+    cookie = h["set-cookie"].split(";")[0]
+    assert "HttpOnly" in h["set-cookie"] and "Secure" in h["set-cookie"]
+    code, h, _ = req("GET", "/auth/check", headers={"Cookie": cookie, "X-Forwarded-Uri": "/"})
+    assert code == 200 and h["x-homelab-user"] == "admin"
+    code, _, b = req("GET", "/api/me", headers={"Cookie": cookie})
+    assert json.loads(b)["user"] == "admin"
+    code, h, _ = req("POST", "/auth/logout", headers={"Cookie": cookie})
+    assert code == 303 and h["location"] == "/login" and 'hl_session=""' in h["set-cookie"]
+    # 5 fallos desde la misma IP → bloqueo y aviso al bot
+    for _ in range(auth.MAX_FAILS):
+        req("POST", "/auth/login", urlencode({"user": "x", "password": "y"}), {**form, "X-Forwarded-For": "10.0.0.9"})
+    code, _, b = req("POST", "/auth/login", urlencode({"user": "admin", "password": "correcta"}),
+                     {**form, "X-Forwarded-For": "10.0.0.9"})
+    assert code == 429 and "Demasiados" in b
+    assert any(e["kind"] == "login_failed" and "10.0.0.9" in e["detail"] for e in db.events())
+    server.should_exit = True
