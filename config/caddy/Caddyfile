@@ -8,6 +8,10 @@
 	default_sni {$HOMELAB_HOST}
 }
 
+# Inicio de sesión único (Authelia, opcional): ./scripts/instalar-sso.sh crea sso/sso.caddy
+# con panel.casa.lan, auth.casa.lan… Sin ese archivo no se importa nada.
+import /etc/caddy/sso/*.caddy
+
 https://{$HOMELAB_HOST}:443 {
 	tls internal
 	encode zstd gzip
@@ -42,6 +46,8 @@ https://{$HOMELAB_HOST}:443 {
 	}
 
 	handle /grafana* {
+		# Esta cabecera solo la pone el inicio de sesión único; por IP nadie puede mandarla
+		request_header -X-Webauth-User
 		reverse_proxy grafana:3000
 	}
 

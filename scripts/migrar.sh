@@ -220,6 +220,8 @@ if [[ "$MODE" == pi ]]; then
   echo "  • Uptime Kuma: revisa los monitores que apuntaban a $PI_IP."
   echo "  • Los equipos que respaldan siguen funcionando si cambias su dirección a https://$MY_IP:$(envget HTTPS_PORT)"
   echo "    (Mis respaldos → Nuevo enlace de instalación lo hace por ti)."
+  [[ -n "$(envget SSO_DOMAIN)" ]] && echo "  • Inicio de sesión único: en AdGuard cambia *.$(envget SSO_DOMAIN) a $MY_IP (o corre ./hl sso de nuevo)."
+  [[ -n "$(envget NUT_HOST)" ]] && echo "  • No-break: conecta su USB a esta PC y corre  sudo ./hl nobreak"
   if ((CLEAN_PI)) || yes_no "¿Dejo la Raspberry limpia ahora? (borra el homelab de la Pi)"; then
     ssh -t "$PI" "cd $PIREPO && sudo ./scripts/limpiar-pi.sh --sin-respaldo"
   else

@@ -166,7 +166,19 @@ echo "  (Docker publica sus puertos por fuera de UFW; las reglas de arriba cubre
 # ---------------------------------------------------------------- 6. registrar en la Pi
 step "6/7 Registrar esta PC en la Pi"
 [[ -n "$PI_SSH" || -n "${HL_TODO_EN_UNO:-}" ]] || ask PI_SSH "Usuario SSH de la Pi (usuario@$PI, vacío = te doy los pasos)" "$(id -un)@$PI"
-REG="./scripts/agregar-servidor.sh '$MY_IP' '$(hostname)'"
+# MAC de la tarjeta por la que sale a la red: para encenderla desde el panel/bot (Wake-on-LAN)
+MY_MAC=""
+if [[ -z "${HL_TODO_EN_UNO:-}" ]]; then
+  ifc="$(ip route show default 2>/dev/null | awk '{print $5; exit}')"
+  [[ -n $ifc && -r /sys/class/net/$ifc/address ]] && MY_MAC="$(cat "/sys/class/net/$ifc/address")"
+  [[ -n $ifc && -d /sys/class/net/$ifc/wireless ]] && MY_MAC=""     # por Wi-Fi casi nunca funciona
+  if [[ -n $MY_MAC ]]; then          # que la tarjeta escuche el «paquete mágico» también tras reiniciar
+    con="$(nmcli -g GENERAL.CONNECTION dev show "$ifc" 2>/dev/null || true)"
+    [[ -n $con ]] && sudo nmcli con modify "$con" 802-3-ethernet.wake-on-lan magic 2>/dev/null || true
+    command -v ethtool >/dev/null && sudo ethtool -s "$ifc" wol g 2>/dev/null || true
+  fi
+fi
+REG="./scripts/agregar-servidor.sh '$MY_IP' '$(hostname)' '$MY_MAC'"
 if [[ -n "${HL_TODO_EN_UNO:-}" ]]; then          # la «Pi» es esta misma máquina
   out="$(eval "$REG")"; echo "$out" | sed 's/^/  /' | head -3
   tok="$(echo "$out" | tail -1 | tr -d '[:space:]')"

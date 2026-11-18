@@ -37,6 +37,15 @@ grep -q '^HOMELAB_BACKUP_PASSWORD=' .env || NEW_BK_PASS=1
 setv HOMELAB_BACKUP_PASSWORD "$(rand | cut -c1-32)"
 grep -q '^VW_ADMIN_TOKEN=' .env || echo 'VW_ADMIN_TOKEN=' >> .env
 setv VW_ADMIN_TOKEN "$(rand)$(rand)"
+grep -q '^SPEEDTEST_APP_KEY=' .env || echo 'SPEEDTEST_APP_KEY=' >> .env
+setv SPEEDTEST_APP_KEY "base64:$(openssl rand -base64 32)"
+# Inicio de sesión único (Authelia): solo si ya lo instalaste (instalar-sso.sh agrega SSO_DOMAIN)
+if grep -qE '^SSO_DOMAIN=.+' .env; then
+  for k in SSO_SECRET AUTHELIA_JWT_SECRET AUTHELIA_SESSION_SECRET AUTHELIA_STORAGE_KEY; do
+    grep -q "^$k=" .env || echo "$k=" >> .env
+    setv "$k" "$(rand)$(rand)"
+  done
+fi
 # Un token por cada dispositivo de config/homelab.yml
 python3 - <<'EOF' | while read -r key; do setv "$key" "$(rand)"; done
 import re, yaml

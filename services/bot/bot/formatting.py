@@ -28,6 +28,20 @@ def alertmanager(payload: dict) -> str:
     return "\n".join(lines)
 
 
+def diun(body: dict) -> str:
+    """Webhook de Diun: hay una versión nueva de una imagen que usas."""
+    img = str(body.get("image") or "?")
+    status = body.get("status")
+    what = "versión nueva" if status == "update" else "imagen nueva" if status == "new" else str(status or "cambio")
+    meta = body.get("metadata") or {}
+    where = meta.get("ctn_names") or meta.get("ctn_name") or ""
+    link = body.get("hub_link") or ""
+    return (f"🆕 Hay {what} de <code>{esc(img)}</code>"
+            + (f" (lo usa {esc(where)})" if where else "")
+            + ".\nCuando quieras: <code>./hl pull && ./hl up -d</code>"
+            + (f"\n{esc(link)}" if link else ""))
+
+
 def uptime_kuma(body: dict) -> str:
     """Webhook de Uptime Kuma (tipo «Webhook», cuerpo application/json)."""
     hb = body.get("heartbeat") or {}

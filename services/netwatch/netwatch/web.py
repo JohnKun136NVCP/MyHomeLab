@@ -341,6 +341,32 @@ def build_app(mon: Monitor) -> Starlette:
                             for k, v in item.items()][:15],
             "url": ag.url, "upstream": ag.upstream or ag.get_upstream()})
 
+    # ------------------------------------------------------ Wake-on-LAN
+    async def wol_list(_):
+        from . import wol
+        online = {d["mac"]: d for d in db.devices()}
+        return JSONResponse({"targets": [{**t, "online": bool((online.get(t["mac"]) or {}).get("online")),
+                                          "ip": (online.get(t["mac"]) or {}).get("ip")}
+                                         for t in wol.targets(mon.cfg)]})
+
+    async def wol_send(request: Request):
+        from . import wol
+        b = await request.json()
+        mac = str(b.get("mac", "")).strip()
+        name = str(b.get("name", "")).strip().lower()
+        if not mac and name:
+            mac = next((t["mac"] for t in wol.targets(mon.cfg) if t["name"].lower() == name), "")
+            if not mac:
+                return JSONResponse({"error": f"No hay ningún equipo «{name}» en wake_on_lan"}, 404)
+        try:
+            mac = wol.norm_mac(mac)
+            cidrs = [n["cidr"] for n in mon.networks if n.get("cidr")]
+            sent = wol.send(mac, cidrs)
+        except (ValueError, OSError) as e:
+            return JSONResponse({"error": str(e)}, 400)
+        db.add_event("info", "wol", f"Encendido remoto (Wake-on-LAN) a {mac}", "Mandado por " + ", ".join(sent), mac)
+        return JSONResponse({"ok": True, "mac": mac, "sent": sent})
+
     # --------------------------------------------------- accesos y cámaras
     async def links(_):
         inf = cfg.get("infrastructure", {})
@@ -623,7 +649,7 @@ def build_app(mon: Monitor) -> Starlette:
 
     async def auth_check(request: Request):
         """Caddy (forward_auth) pregunta aquí antes de cada página del panel."""
-        ses = auth.session(request.cookies.get(auth.COOKIE, ""))
+        ses = auth.from_request(request)
         uri = request.headers.get("x-forwarded-uri", "/")
         if ses:
             if not auth.allowed(ses["role"], request.headers.get("x-forwarded-method", "GET"), uri):
@@ -670,7 +696,11 @@ def build_app(mon: Monitor) -> Starlette:
                          f"Desde {ip}. Si no fuiste tú, revisa quién es en Conexiones.", ip)
         return await login_page(request, "Usuario o contraseña incorrectos.", 401)
 
-    async def logout(_request: Request):
+    async def logout(request: Request):
+        from . import sso
+        if sso.trusted_user(request.headers):
+            port = os.environ.get("HTTPS_PORT", "443")
+            return RedirectResponse(f"https://auth.{sso.domain()}{'' if port == '443' else ':' + port}/logout", 303)
         r = RedirectResponse("/login", 303)
         r.delete_cookie(auth.COOKIE, path="/")
         return r
@@ -694,7 +724,7 @@ def build_app(mon: Monitor) -> Starlette:
                          + ". Si no fue esa persona, cambia su contraseña en Ajustes → Cuentas.", ip)
 
     async def me(request: Request):
-        ses = auth.session(request.cookies.get(auth.COOKIE, ""))
+        ses = auth.from_request(request)
         if not ses:
             return JSONResponse({"user": None})
         unread = db.q("SELECT COUNT(*) n FROM notices WHERE username=? AND seen=0", (ses["user"],))[0]["n"]
@@ -702,7 +732,7 @@ def build_app(mon: Monitor) -> Starlette:
                              "logs": ses["role"] in auth.CAN_SEE_LOGS, "unread": unread})
 
     async def me_password(request: Request):
-        ses = auth.session(request.cookies.get(auth.COOKIE, ""))
+        ses = auth.from_request(request)
         if not ses:
             return JSONResponse({"error": "Sesión caducada"}, 401)
         b = await request.json()
@@ -716,6 +746,7 @@ def build_app(mon: Monitor) -> Starlette:
             st.write_env({"WEB_PASSWORD_HASH": h})
         else:
             db.x("UPDATE users SET hash=? WHERE username=?", (h, ses["user"]))
+        mon.sso.run(force=True)
         r = JSONResponse({"ok": True})        # nueva cookie: la vieja ya no vale
         r.set_cookie(auth.COOKIE, auth.make_token(ses["user"]), max_age=auth.TTL, httponly=True,
                      secure=True, samesite="lax", path="/")
@@ -758,6 +789,7 @@ def build_app(mon: Monitor) -> Starlette:
         else:
             db.x("INSERT INTO users (username, hash, role, created) VALUES (?,?,?,?)",
                  (name, st.hash_password(pw), role, time.time()))
+        mon.sso.run(force=True)
         return JSONResponse({"ok": True, "created": not exists})
 
     async def users_delete(request: Request):
@@ -766,6 +798,7 @@ def build_app(mon: Monitor) -> Starlette:
         db.x("DELETE FROM login_ips WHERE username=?", (name,))
         for t in ("telegram_links", "notices", "link_codes", "backup_devices"):
             db.x(f"DELETE FROM {t} WHERE {'owner' if t == 'backup_devices' else 'username'}=?", (name,))
+        mon.sso.run(force=True)
         return JSONResponse({"ok": True})
 
     async def logins(_):
@@ -947,6 +980,7 @@ def build_app(mon: Monitor) -> Starlette:
         Route("/api/users/logins", logins),
         Route("/api/users/{name}", users_delete, methods=["DELETE"]),
         Route("/api/services", services_status),
+        Route("/api/wol", wol_list), Route("/api/wol", wol_send, methods=["POST"]),
         Route("/api/cameras/probe", camera_probe, methods=["POST"]),
         Route("/api/system", system_get), Route("/api/system/{action}", system_action, methods=["POST"]),
         Route("/ca.crt", ca_cert),

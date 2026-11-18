@@ -53,6 +53,13 @@ flowchart LR
 | Diagnóstico y actualizar | `./hl revisar` / `./hl actualizar`, o Web → **Sistema** | [hl](#el-comando-hl) |
 | Estado de servicios y resumen diario | Web → **Servicios** (Uptime Kuma), resumen por Telegram a tu hora, horario de silencio | [servicios](docs/servicios.md) |
 | Cámaras genéricas (foco 360°) | Web → Cámaras → «Detectar cámara genérica» (iCSee, V380, Yoosee, CamHi) | [cámaras](docs/camaras.md#cámaras-genéricas-foco-360) |
+| Fotos de la familia | **Immich** en la PC (`:2283`): la app del celular sube las fotos sola; cada quien su cuenta | [fotos](docs/fotos.md) |
+| No-break | `./hl nobreak`: aviso por Telegram si se va la luz, apagado en orden de PC y Pi, tarjeta en Inicio | [no-break](docs/no-break.md) |
+| Inicio de sesión único | `./hl sso`: Authelia en `panel.casa.lan`, 2FA para administradores, mismas cuentas del panel | [sso](docs/sso.md) |
+| Laboratorio de seguridad | Wazuh (SIEM) + DVWA, Juice Shop y Metasploitable en una red aislada, Kali y prácticas | [laboratorio de seguridad](docs/laboratorio-seguridad.md) |
+| Velocidad del internet, imágenes nuevas, encender la PC | Speedtest Tracker, Diun, Wake-on-LAN (`/encender`) | [servicios](docs/servicios.md#speedtest-tracker--httpip-de-la-pi8765) |
+| Prueba de restauración | `./hl probar-respaldo` (cada mes): descifra y revisa el último respaldo | [servicios](docs/servicios.md#prueba-mensual-del-respaldo) |
+| Mudarse a la PC / limpiar la Pi | `./hl migrar` (desde cero o copiando de la Pi por SSH con llave) y `./hl limpiar` | [migrar](docs/migrar.md) |
 
 ## Instalación
 
@@ -118,7 +125,7 @@ Para una VPN nueva con web y QR: `--profile wg-easy`. Detalles en [docs/vpn.md](
 
 ## Comandos del bot
 `/estado` · `/reporte` · `/vps` · `/dispositivos` · `/nuevos` · `/eventos` · `/bloquear MAC [23:00-07:00]` ·
-`/acl` · `/desbloquear ID` · `/conexiones` · `/dns` · `/camaras` · `/foto NOMBRE` · `/respaldos` ·
+`/acl` · `/desbloquear ID` · `/encender [nombre]` · `/conexiones` · `/dns` · `/camaras` · `/foto NOMBRE` · `/respaldos` ·
 `/programar FECHA HORA fb,ig,tg texto` · `/programadas` · `/cancelar ID` · `/publicar_ya ID`.
 Cualquier archivo, foto o video que le mandes se guarda como respaldo del teléfono
 (`#nombre` en el pie para otro dispositivo).

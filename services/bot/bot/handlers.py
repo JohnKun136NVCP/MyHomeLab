@@ -33,6 +33,7 @@ HELP = """🛡 <b>MyHomeLab</b>
 /dns – resumen de AdGuard
 
 <b>Red</b>
+/encender [nombre] – prende la PC por Wake-on-LAN
 /bloquear MAC [23:00-07:00] – ACL (corta el internet en modo puente)
 /acl – reglas actuales · /desbloquear ID
 
@@ -322,6 +323,23 @@ class Handlers:
                                                  "end": m.group(3) or "", "note": "desde Telegram"})
         self.reply(chat, f"⛔ Regla #{r['id']} creada para <code>{m.group(1).lower()}</code>"
                    + (f" de {m.group(2)} a {m.group(3)}" if m.group(2) else " (siempre)"))
+
+    def cmd_encender(self, chat, arg):
+        base = os.environ.get("NETWATCH_URL", "http://host.docker.internal:8000").rstrip("/")
+        targets = http_json(f"{base}/api/wol").get("targets", [])
+        if not targets:
+            return self.reply(chat, "No hay equipos para encender. Agrégalos en homelab.yml → wake_on_lan "
+                                    "(agregar-servidor.sh pone la PC sola).")
+        if not arg and len(targets) > 1:
+            return self.reply(chat, "¿Cuál? " + " · ".join(f"/encender {esc(t['name'])}" for t in targets))
+        t = targets[0] if not arg else next((t for t in targets if t["name"].lower() == arg.lower()), None)
+        if not t:
+            return self.reply(chat, "No conozco ese equipo. Opciones: " + ", ".join(esc(t["name"]) for t in targets))
+        if t.get("online"):
+            return self.reply(chat, f"✅ {esc(t['name'])} ya está prendido ({esc(t.get('ip') or '')}).")
+        http_json(f"{base}/api/wol", "POST", {"mac": t["mac"]})
+        self.reply(chat, f"⏻ Señal de encendido enviada a <b>{esc(t['name'])}</b>. En 1–2 minutos debería aparecer "
+                         "en línea (/dispositivos).")
 
     def cmd_acl(self, chat, _):
         j = reports._netwatch("/api/acl")

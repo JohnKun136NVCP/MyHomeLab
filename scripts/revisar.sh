@@ -130,13 +130,32 @@ fi
 
 # ------------------------------------------------------------ respaldos
 section "Respaldo del homelab"
-last="$(ls -1t "$(envv HOMELAB_BACKUP_DIR || true)"/homelab-*.tar.gz.enc backups/homelab/homelab-*.tar.gz.enc 2>/dev/null | head -1)"
+bkd="$(python3 -c 'import yaml; print(((yaml.safe_load(open("config/homelab.yml")) or {}).get("homelab_backup") or {}).get("dir") or "")' 2>/dev/null || true)"
+last="$(ls -1t ${bkd:+"$bkd"/homelab-*.tar.gz.enc} "$(envv BACKUPS_DIR)"/homelab/homelab-*.tar.gz.enc backups/homelab/homelab-*.tar.gz.enc 2>/dev/null | head -1 || true)"
 if [[ -z "$last" ]]; then add warn "Nunca se ha respaldado el homelab" "./hl respaldo   y   sudo ./scripts/respaldo-homelab.sh --instalar"
 else
   age=$(( ( $(date +%s) - $(stat -c %Y "$last") ) / 86400 ))
   ((age > 8)) && add warn "Último respaldo del homelab hace $age días" "./hl respaldo" || add ok "Último respaldo del homelab hace $age días"
 fi
 systemctl is-enabled homelab-backup.timer >/dev/null 2>&1 && add ok "Respaldo semanal programado" || add warn "El respaldo semanal no está programado" "sudo ./scripts/respaldo-homelab.sh --instalar"
+
+if [[ -f run/homelab-restore-test.json ]]; then
+  if grep -q '"ok":true' run/homelab-restore-test.json; then add ok "La última prueba de restauración salió bien"
+  else add bad "La última prueba de restauración falló" "sudo ./hl probar-respaldo"; fi
+else add warn "Nunca se ha probado restaurar el respaldo" "sudo ./hl probar-respaldo --instalar"; fi
+
+if [[ -n "$(envv NUT_HOST)" ]]; then
+  section "No-break"
+  if st="$(upsc ups@localhost ups.status 2>/dev/null)"; then
+    [[ $st == *OB* ]] && add warn "El no-break está usando batería ($st)" || add ok "No-break conectado ($st, batería $(upsc ups@localhost battery.charge 2>/dev/null || echo ?)%)"
+  else add bad "No puedo leer el no-break" "upsc ups@localhost  ·  docs/no-break.md"; fi
+fi
+if [[ ",$(envv COMPOSE_PROFILES)," == *,sso,* ]]; then
+  section "Inicio de sesión único"
+  [[ -s config/authelia/users.yml ]] && add ok "Authelia tiene $(grep -c 'password:' config/authelia/users.yml) cuenta(s)" \
+    || add bad "config/authelia/users.yml está vacío" "./hl reiniciar netwatch"
+  [[ -f config/caddy/sso/sso.caddy ]] || add bad "Falta config/caddy/sso/sso.caddy" "./hl sso"
+fi
 
 # ------------------------------------------------------------ versión
 section "Versión"

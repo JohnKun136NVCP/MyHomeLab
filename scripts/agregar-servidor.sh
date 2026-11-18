@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # ======================================================================
-#  (En la Pi) Registra la PC Linux del homelab:  ./scripts/agregar-servidor.sh IP [nombre]
+#  (En la Pi) Registra la PC Linux del homelab:  ./scripts/agregar-servidor.sh IP [nombre] [MAC]
 #  Lo llama install-server.sh desde la PC por SSH; también se puede correr a mano.
 #   • Prometheus/Grafana la monitorean (node-exporter :9100) y hay alerta si se cae.
 #   • El dashboard usa su Frigate (cámaras) y muestra Frigate/Jellyfin en Inicio.
 #   • Agrega «pc-server» a los equipos que respaldan (genera su token).
+#   • Con MAC: botón «Encender» en Inicio y /encender en el bot (Wake-on-LAN).
 # ======================================================================
 set -euo pipefail
 cd "$(dirname "$0")/.."
-IP="${1:?Uso: ./scripts/agregar-servidor.sh IP [nombre]}"; NAME="${2:-pc}"
+IP="${1:?Uso: ./scripts/agregar-servidor.sh IP [nombre] [MAC]}"; NAME="${2:-pc}"; MAC="${3:-}"
 [[ -f config/homelab.yml ]] || cp config/homelab.example.yml config/homelab.yml
 mkdir -p run; cp -a config/homelab.yml "run/homelab.yml.$(date +%Y%m%d-%H%M%S).bak"
-python3 - "$IP" "$NAME" <<'PY'
-import sys, yaml
-ip, name = sys.argv[1], sys.argv[2]
+python3 - "$IP" "$NAME" "$MAC" <<'PY'
+import re, sys, yaml
+ip, name, mac = sys.argv[1], sys.argv[2], sys.argv[3].lower()
 p = "config/homelab.yml"
 c = yaml.safe_load(open(p)) or {}
 inf = c.setdefault("infrastructure", {})
@@ -36,6 +37,10 @@ for lk_name, port, icon in (("Cine en casa", 8097, "🍿"), ("Fotos (Immich)", 2
             break
     else:
         links.append({"name": lk_name, "url": f"http://{ip}:{port}", "icon": icon})
+if re.fullmatch(r"([0-9a-f]{2}:){5}[0-9a-f]{2}", mac):
+    wol = [w for w in c.get("wake_on_lan") or [] if w.get("name") != "PC" and w.get("mac", "").lower() != mac]
+    wol.append({"name": "PC", "mac": mac})
+    c["wake_on_lan"] = wol
 devs = c.setdefault("backups", {}).setdefault("devices", [])
 if not any(d.get("name") == "pc-server" for d in devs):
     devs.append({"name": "pc-server", "os": "linux"})

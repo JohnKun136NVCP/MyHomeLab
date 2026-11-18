@@ -27,8 +27,11 @@ services:
       HTTPS_PORT: ${HTTPS_PORT:-443}
       WEB_USER: ${WEB_USER:-admin}
       WEB_PASSWORD_HASH: ${WEB_PASSWORD_HASH}
+      SSO_DOMAIN: ${SSO_DOMAIN:-}
+      SSO_SECRET: ${SSO_SECRET:-}
     volumes:
       - ../../config/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../../config/caddy/sso:/etc/caddy/sso:ro
       - caddy_data:/data
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on: [grafana, bot]
@@ -139,6 +142,12 @@ services:
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
+      # Inicio de sesión único: Caddy pone el usuario que validó Authelia (solo por panel.casa.lan)
+      GF_AUTH_PROXY_ENABLED: ${SSO_GRAFANA:-false}
+      GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: ${SSO_GRAFANA_ROLE:-Viewer}
     volumes:
       - ../../config/grafana/provisioning:/etc/grafana/provisioning:ro
       - ../../config/grafana/dashboards:/var/lib/grafana/dashboards:ro
@@ -221,6 +230,65 @@ services:
     volumes:
       - ${VW_DATA:-./vaultwarden}:/data
 
+  # --- Velocidad del internet (opcional): --profile speedtest ---------------
+  # http://IP-de-la-Pi:8765 · prueba cada 6 h; la Pi va por cable al módem: mide lo real
+  speedtest:
+    <<: *common
+    profiles: ["speedtest"]
+    image: lscr.io/linuxserver/speedtest-tracker:latest
+    ports: ["8765:80"]
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: ${TZ:-America/Mexico_City}
+      DISPLAY_TIMEZONE: ${TZ:-America/Mexico_City}
+      APP_KEY: ${SPEEDTEST_APP_KEY:-}
+      APP_URL: http://${HOMELAB_HOST}:8765
+      DB_CONNECTION: sqlite
+      SPEEDTEST_SCHEDULE: ${SPEEDTEST_SCHEDULE:-17 */6 * * *}
+      PRUNE_RESULTS_OLDER_THAN: "365"
+    volumes:
+      - speedtest:/config
+
+  # --- Avisos de imágenes nuevas (opcional): --profile diun -----------------
+  # Revisa cada día si hay versión nueva de las imágenes que usas y te avisa (sin sonido).
+  # No actualiza nada: tú decides cuándo con ./hl actualizar o ./hl pull.
+  diun:
+    <<: *common
+    profiles: ["diun"]
+    image: crazymax/diun:4
+    command: serve
+    environment:
+      TZ: ${TZ:-America/Mexico_City}
+      DIUN_WATCH_SCHEDULE: ${DIUN_SCHEDULE:-0 10 * * *}
+      DIUN_WATCH_JITTER: 30m
+      DIUN_WATCH_FIRSTCHECKNOTIF: "false"
+      DIUN_PROVIDERS_DOCKER: "true"
+      DIUN_PROVIDERS_DOCKER_WATCHBYDEFAULT: "true"
+      DIUN_NOTIF_WEBHOOK_ENDPOINT: http://bot:8080/notify
+      DIUN_NOTIF_WEBHOOK_METHOD: POST
+      DIUN_NOTIF_WEBHOOK_HEADERS_CONTENT-TYPE: application/json
+      DIUN_NOTIF_WEBHOOK_HEADERS_AUTHORIZATION: Bearer ${INTERNAL_TOKEN}
+      DIUN_NOTIF_WEBHOOK_TIMEOUT: 10s
+    volumes:
+      - diun:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [bot]
+
+  # --- Inicio de sesión único (opcional): ./scripts/instalar-sso.sh -------------
+  authelia:
+    <<: *common
+    profiles: ["sso"]
+    image: authelia/authelia:4.39
+    environment:
+      TZ: ${TZ:-America/Mexico_City}
+      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET: ${AUTHELIA_JWT_SECRET:-}
+      AUTHELIA_SESSION_SECRET: ${AUTHELIA_SESSION_SECRET:-}
+      AUTHELIA_STORAGE_ENCRYPTION_KEY: ${AUTHELIA_STORAGE_KEY:-}
+    volumes:
+      # configuration.yml lo genera instalar-sso.sh; users.yml lo escribe el panel
+      - ../../config/authelia:/config
+
 volumes:
   caddy_data:
   netwatch_data:
@@ -233,3 +301,5 @@ volumes:
   adguard_work:
   adguard_conf:
   uptime_kuma:
+  speedtest:
+  diun:

@@ -752,6 +752,21 @@ const views = {
         <table><tr><th>Equipo</th><th>Consultas</th></tr>${d.top_clients.slice(0, 8).map((c) => `<tr><td>${esc(c.name || c.ip)} <span class="muted small">${c.ip}</span></td><td>${c.n}</td></tr>`).join("")}</table>`}`;
       view.querySelector(".grid2")?.append(card);
     }).catch(() => {});
+    api("/api/wol").then((w) => {
+      if (!w.targets.length) return;
+      const card = document.createElement("div"); card.className = "card";
+      card.innerHTML = `<h3>⏻ Encender equipos</h3><table>${w.targets.map((t) =>
+        `<tr><td><span class="dot ${t.online ? "on" : "off"}"></span></td><td>${esc(t.name)}</td>
+         <td class="mono small">${esc(t.ip || t.mac)}</td>
+         <td>${t.online ? '<span class="muted small">ya está prendido</span>' : `<button class="btn" data-wol="${esc(t.mac)}">Encender</button>`}</td></tr>`).join("")}</table>
+        <p class="muted small">Necesita «Wake on LAN» activado en el BIOS del equipo y cable de red.</p>`;
+      card.querySelectorAll("[data-wol]").forEach((b) => b.onclick = async () => {
+        try { await api("/api/wol", { method: "POST", body: JSON.stringify({ mac: b.dataset.wol }) });
+          b.textContent = "Señal enviada"; b.disabled = true; toast("Listo: en 1–2 min debería aparecer en línea"); }
+        catch (e) { toast(e.message); }
+      });
+      view.querySelector(".grid2")?.prepend(card);
+    }).catch(() => {});
   },
 
   async dispositivos() {

@@ -55,6 +55,7 @@ done
 NFT=0; command -v nft >/dev/null && nft list table bridge homelab >/dev/null 2>&1 && { NFT=1; echo "  • nftables: tabla bridge homelab (ACL)"; }
 BR=0; command -v nmcli >/dev/null && nmcli -t -f NAME con show 2>/dev/null | grep -qx br0 && { BR=1; echo "  • Red: puente br0 (modo puente)"; }
 UFWN=(); UFWSSH=()
+
 if command -v ufw >/dev/null; then
   while read -r n; do UFWN+=("$n"); done < <(ufw status numbered 2>/dev/null \
     | grep -E '# (Dashboard homelab|Dashboard \(redirige a https\)|DNS AdGuard|DNS desde Docker|node-exporter por VPN|homelab|honeypot|NUT)' \
@@ -65,6 +66,7 @@ if command -v ufw >/dev/null; then
 fi
 SSHD=0; [[ -f /etc/ssh/sshd_config.d/10-homelab.conf ]] && { SSHD=1; echo "  • SSH: solo con llave (/etc/ssh/sshd_config.d/10-homelab.conf)"; }
 NUT=0; [[ -f /etc/nut/.homelab ]] && { NUT=1; echo "  • No-break: NUT configurado por el homelab"; }
+WZA=0; [[ -f /var/ossec/.homelab ]] && { WZA=1; echo "  • Agente de Wazuh (lab/seguridad/agente-wazuh.sh)"; }
 WG0=0; [[ -f /etc/wireguard/wg0.conf ]] && grep -q "10.8.0.0/24" /etc/wireguard/wg0.conf 2>/dev/null && { WG0=1; echo "  • VPN wg0 (de scripts/pi-vpn.sh; tu wg-hoshimy no se toca)"; }
 BK="$(envv BACKUPS_DIR)"; VW="$(envv VW_DATA)"; VW="${VW:-./vaultwarden}"; [[ "$VW" != /* ]] && VW="$REPO/hosts/pi/$VW"
 echo "  • Datos: .env, config/homelab.yml, run/${BK:+, respaldos en $BK}${VW:+, Vaultwarden en $VW}"
@@ -101,7 +103,7 @@ if ((!YES)); then
   ((DOCKER)) || { ask "¿Desinstalo Docker por completo?" && DOCKER=1; }
 fi
 echo
-echo "${B}Voy a quitar:${N} contenedores/volúmenes/imágenes del homelab, servicios, nftables, br0, reglas de UFW$( ((NUT)) && echo ", NUT")"
+echo "${B}Voy a quitar:${N} contenedores/volúmenes/imágenes del homelab, servicios, nftables, br0, reglas de UFW$( ((NUT)) && echo ", NUT")$( ((WZA)) && echo ", agente de Wazuh")"
 ((SSH)) && echo "  + SSH solo con llave y solo laboratorio"
 ((DATA)) && echo "  ${R}+ TODOS los datos: .env, homelab.yml, run/, ${BK:-respaldos}, $VW${N}"
 ((DOCKER)) && echo "  + Docker completo"
@@ -140,8 +142,10 @@ if ((NUT)); then
   step "No-break (NUT)"
   systemctl disable --now nut-server nut-monitor nut-client >/dev/null 2>&1
   for f in /etc/nut/*.homelab-orig; do [[ -f "$f" ]] && mv -f "$f" "${f%.homelab-orig}"; done
-  rm -f /etc/nut/.homelab /etc/nut/homelab-notify.sh /etc/nut/homelab-notify.env; echo "  - configuración de NUT devuelta a la original"
+  rm -f /etc/nut/.homelab /etc/nut/.homelab-pass /etc/nut/homelab-notify.sh /etc/nut/homelab-notify.env \
+    /etc/nut/homelab-notify-both.sh /etc/nut/homelab-upssched.sh; echo "  - configuración de NUT devuelta a la original"
 fi
+if ((WZA)); then step "Agente de Wazuh"; ./lab/seguridad/agente-wazuh.sh --quitar; fi
 
 if command -v ufw >/dev/null; then
   step "UFW"
@@ -160,7 +164,7 @@ fi
 
 if ((DATA)); then
   step "Datos"
-  rm -f .env .env.bak* config/homelab.yml; rm -rf run config/authelia/db.sqlite3 config/authelia/users.yml config/authelia/notification.txt
+  rm -f .env .env.bak* config/homelab.yml; rm -rf run config/authelia/db.sqlite3 config/authelia/users.yml config/authelia/notification.txt config/authelia/configuration.yml config/caddy/sso/sso.caddy
   [[ -n "$BK" && -d "$BK" && "$BK" != / ]] && rm -rf "$BK" && echo "  - $BK"
   [[ -d "$VW" && "$VW" != / ]] && rm -rf "$VW" && echo "  - $VW"
   echo "  - .env, homelab.yml, run/"

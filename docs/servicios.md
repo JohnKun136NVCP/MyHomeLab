@@ -61,3 +61,37 @@ maestra. Si la olvidan, no se recupera: que la guarden en papel.
 [respaldo semanal del homelab](respaldos.md#respaldo-del-homelab) y aun así guarda aparte el
 «Exportar bóveda» cifrado de la app de vez en cuando. Si pierdes eso, pierdes las contraseñas.
 Las apps de Bitwarden guardan una copia local, así que si la Pi se apaga sigues viéndolas.
+
+## Speedtest Tracker — `http://IP-de-la-Pi:8765`
+
+Mide la velocidad del internet cada 6 horas (perfil `speedtest`) y guarda el historial: sirve
+para reclamarle al proveedor con datos. La Pi va por cable al módem, así que mide lo real.
+La primera vez crea tu usuario en la web; en **Ajustes → Notificaciones** puedes poner un
+aviso por Telegram si baja de cierta velocidad. Cambia la frecuencia con `SPEEDTEST_SCHEDULE`.
+
+## Diun — avisos de imágenes nuevas
+
+Perfil `diun`. Cada día revisa si hay versión nueva de las imágenes de Docker que usas y te
+manda un mensaje sin sonido. No actualiza nada solo: tú decides con `./hl actualizar`
+(o `./hl pull && ./hl up -d`). Antes de actualizar Immich o Authelia lee sus notas de versión.
+
+## Encender la PC a distancia (Wake-on-LAN)
+
+`install-server.sh` registra la MAC de la PC y deja la tarjeta lista para despertar. Luego:
+panel → **Inicio** → «Encender equipos», o en Telegram `/encender`. Para otros equipos
+agrégalos en `homelab.yml`:
+
+```yaml
+wake_on_lan:
+  - name: PC
+    mac: aa:bb:cc:dd:ee:ff
+```
+
+Activa «Wake on LAN» / «Power on by PCI-E» en el BIOS. Solo funciona por cable.
+
+## Prueba mensual del respaldo
+
+`sudo ./hl probar-respaldo --instalar` programa una prueba el día 1 de cada mes: descifra el
+respaldo más reciente del homelab en una carpeta temporal, revisa que trae `.env`,
+`homelab.yml` y los datos, que las bases SQLite estén íntegras y que no tenga más de 9 días.
+Te llega ✅ (sin sonido) o ⚠/❌ con lo que falló. `sudo ./hl probar-respaldo` la corre ya.

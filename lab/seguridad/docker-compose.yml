@@ -1,0 +1,50 @@
+# Laboratorio de seguridad (en la PC):  ./lab/seguridad/instalar.sh objetivos
+# Máquinas vulnerables A PROPÓSITO. Viven en una red interna de Docker sin salida a
+# internet ni a tu casa; solo las alcanzas desde la PC por 127.0.0.1 (a través de «puerta»)
+# o desde el contenedor «atacante». No publiques estos puertos en la LAN.
+name: homelab-seclab
+
+networks:
+  objetivos:
+    internal: true          # sin salida: ni internet ni red de la casa
+    ipam:
+      config: [{ subnet: 10.66.0.0/24 }]
+  salida:                   # solo para que «puerta» publique en 127.0.0.1
+
+services:
+  dvwa:
+    image: vulnerables/web-dvwa
+    networks: { objetivos: { ipv4_address: 10.66.0.10 } }
+    restart: "no"
+
+  juice-shop:
+    image: bkimminich/juice-shop
+    networks: { objetivos: { ipv4_address: 10.66.0.11 } }
+    restart: "no"
+
+  metasploitable:
+    image: tleemcjr/metasploitable2
+    command: sh -c "/bin/services.sh && tail -f /dev/null"
+    networks: { objetivos: { ipv4_address: 10.66.0.12 } }
+    restart: "no"
+    profiles: ["metasploitable"]     # pesado: ./instalar.sh objetivos --metasploitable
+
+  # Tu máquina de ataque dentro de la misma red aislada:  ./lab/seguridad/instalar.sh atacar
+  atacante:
+    image: kalilinux/kali-rolling
+    command: sleep infinity
+    hostname: atacante
+    networks: { objetivos: { ipv4_address: 10.66.0.100 } }
+    volumes: [./trabajo:/root/trabajo]
+    restart: "no"
+
+  # Las webs vulnerables, solo en la propia PC (http://127.0.0.1:8181 y :8182)
+  puerta:
+    image: nginx:alpine
+    networks: [objetivos, salida]
+    ports:
+      - "127.0.0.1:8181:8181"
+      - "127.0.0.1:8182:8182"
+    volumes: [./puerta.conf:/etc/nginx/conf.d/default.conf:ro]
+    depends_on: [dvwa, juice-shop]
+    restart: "no"

@@ -14,6 +14,11 @@
 #    ./hl restaurar ARCHIVO    restaura un respaldo del homelab
 #    ./hl ca                   copia el certificado de Caddy para instalarlo
 #    ./hl contraseña           cambia la contraseña del usuario admin de la web
+#    ./hl probar-respaldo      descifra el último respaldo y revisa que sirve
+#    ./hl nobreak              no-break por USB: avisos y apagado en orden (NUT)
+#    ./hl sso                  inicio de sesión único con Authelia (panel.casa.lan)
+#    ./hl migrar               pasa todo a la PC (desde cero o copiando de esta Pi)
+#    ./hl limpiar              deja la Pi limpia (quita todo lo del homelab)
 #    ./hl <cualquier cosa>     se pasa tal cual a «docker compose» (ps, exec, pull…)
 # ======================================================================
 set -euo pipefail
@@ -30,7 +35,7 @@ if [[ ! -f .env && ! "$cmd" =~ ^(ayuda|help|-h|--help)$ ]]; then
 fi
 case "$cmd" in
   ayuda|help|-h|--help)
-    sed -n '3,17p' "$0" | sed 's/^# \{0,3\}//' ;;
+    sed -n '3,22p' "$0" | sed 's/^# \{0,3\}//' ;;
   estado|status)
     "${C[@]}" ps --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}' ;;
   actualizar|update)
@@ -60,6 +65,11 @@ case "$cmd" in
   contraseña|contrasena|password)
     ./scripts/gen-secrets.sh --web-password
     "${C[@]}" restart netwatch >/dev/null && echo "✅ Listo, ya puedes entrar con la contraseña nueva." ;;
+  probar-respaldo) exec ./scripts/probar-respaldo.sh "$@" ;;
+  nobreak|no-break|nut|ups) exec ./scripts/instalar-nut.sh "$@" ;;
+  sso|authelia) exec ./scripts/instalar-sso.sh "$@" ;;
+  migrar) exec ./scripts/migrar.sh "$@" ;;
+  limpiar) exec ./scripts/limpiar-pi.sh "$@" ;;
   *)
     "${C[@]}" "$cmd" "$@" ;;
 esac

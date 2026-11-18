@@ -109,6 +109,19 @@ def session(tok: str, now: float | None = None) -> dict | None:
         return None
 
 
+def from_request(request) -> dict | None:
+    """Sesión del panel: su cookie o, si se entra por el inicio de sesión único, lo que validó Authelia."""
+    ses = session(request.cookies.get(COOKIE, ""))
+    if ses:
+        return ses
+    from . import sso
+    user = sso.trusted_user(request.headers)
+    acc = account(user) if user else None
+    if acc:
+        return {"user": acc["user"], "role": acc["role"], "main": acc["main"], "sso": True}
+    return None
+
+
 def check_token(tok: str, now: float | None = None) -> str | None:
     s = session(tok, now)
     return s["user"] if s else None

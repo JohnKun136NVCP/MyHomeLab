@@ -53,6 +53,9 @@ class Monitor:
         self._eve_pos = 0
         from .nut import Ups
         self.ups = Ups()
+        from .sso import Sync
+        cfg_file = Path(os.environ.get("HOMELAB_CONFIG", "/homelab/config/homelab.yml"))
+        self.sso = Sync(db, cfg_file.parent, self.send_text)
         self._last_daily_scan = ""
         self._infra_mac: dict[str, str] = {}
         self.stop = threading.Event()
@@ -125,7 +128,7 @@ class Monitor:
             t0 = time.time()
             for step in (self.scan_all, self.ping_all, self.sync_acl, self.read_ids, self.collect_inbound,
                          self.poll_dns, self.resolve_names, self.daily_port_scan, self.notify,
-                         self.maybe_roam):
+                         self.sync_sso, self.maybe_roam):
                 try:
                     step()
                 except Exception:  # noqa: BLE001 - que un paso no tumbe a los demás
@@ -457,6 +460,20 @@ class Monitor:
         if not q:
             return False
         return acl._in_window(q[0], q[1], dt.datetime.now().time())
+
+    def sync_sso(self) -> None:
+        self.sso.run()
+
+    def send_text(self, text: str, owner: bool = False, silent: bool = False) -> None:
+        bot = os.environ.get("BOT_URL")
+        if not bot:
+            return
+        try:
+            http_json(f"{bot.rstrip('/')}/notify", "POST",
+                      {"text": text, "silent": silent, **({"to": "owner"} if owner else {})},
+                      {"Authorization": f"Bearer {os.environ.get('INTERNAL_TOKEN', '')}"})
+        except RuntimeError as e:
+            log.warning("No pude avisar al bot: %s", e)
 
     def notify(self) -> None:
         """Manda al bot los eventos pendientes. En horas de silencio solo los críticos."""

@@ -85,7 +85,7 @@ def public_base(request: Request) -> str:
 
 def routes(db, mon) -> list[Route]:
     def me(request: Request) -> dict | None:
-        return auth.session(request.cookies.get(auth.COOKIE, ""))
+        return auth.from_request(request)
 
     def notice(user: str, text: str, level: str = "info") -> None:
         db.x("INSERT INTO notices (username, ts, text, level) VALUES (?,?,?,?)", (user, time.time(), text, level))

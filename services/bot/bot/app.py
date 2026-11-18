@@ -273,7 +273,9 @@ class BotApp:
             return JSONResponse({"error": "no autorizado"}, 401)
         body = await request.json()
         urgent = True
-        if "events" in body:
+        if "diun_version" in body:                   # webhook de Diun (imágenes nuevas)
+            text, urgent = formatting.diun(body), False
+        elif "events" in body:
             text = formatting.netwatch_events(body.get("events", []))
             urgent = any(e.get("level") == "critical" for e in body.get("events", []))
         elif "heartbeat" in body or "monitor" in body or "msg" in body:      # webhook de Uptime Kuma
@@ -282,6 +284,10 @@ class BotApp:
         else:
             text = esc(body.get("text", ""))
             urgent = not body.get("silent")
+        if body.get("to") == "owner":           # códigos de acceso (Authelia): solo a ti, nunca a «registros»
+            for chat in self.allowed:
+                await asyncio.to_thread(self.tell, chat, text)
+            return JSONResponse({"ok": True})
         await asyncio.to_thread(self.notify, text, urgent)
         return JSONResponse({"ok": True})
 

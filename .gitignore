@@ -29,3 +29,6 @@ config/authelia/db.sqlite3
 config/authelia/notification.txt
 # Laboratorio de seguridad
 lab/seguridad/wazuh-docker/
+config/caddy/sso/*.caddy
+config/authelia/configuration.yml
+lab/seguridad/trabajo/
