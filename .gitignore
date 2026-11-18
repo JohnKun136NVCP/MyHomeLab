@@ -12,3 +12,12 @@ __pycache__/
 hosts/vps/.env
 run/
 config/*.bak
+# Frigate escribe su base y caché dentro de config/frigate
+config/frigate/*.db*
+config/frigate/model_cache/
+config/frigate/backup.db
+config/frigate/*.bak
+# PC del homelab
+hosts/server/docker-compose.override.yml
+.homelab-ca.crt
+config/frigate/config.yml

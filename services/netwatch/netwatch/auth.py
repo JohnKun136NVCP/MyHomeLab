@@ -43,28 +43,89 @@ def _unb64(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
+# Base de datos de netwatch (cuentas de la familia). La pone build_app().
+_db = None
+ROLES = {"admin": "Administrador", "familia": "Familia (solo ver)"}
+# Lo que la familia NO puede abrir: configuración, VPN, firewall, accesos, sistema
+FAMILY_DENY = ("/api/settings", "/api/apply", "/api/vpn", "/api/acl", "/api/users", "/api/system",
+               "/api/inbound", "/api/lookup", "/api/cameras/probe", "/prometheus", "/metrics",
+               "/vault/admin")
+# Lo único que la familia puede cambiar: su propia contraseña
+FAMILY_WRITE_OK = ("/api/me/password",)
+
+
+def bind(db) -> None:
+    global _db
+    _db = db
+
+
+def _fp(h: str) -> str:
+    """Huella del hash: si cambia la contraseña, las sesiones abiertas dejan de valer."""
+    return hashlib.sha256(("fp:" + (h or "")).encode()).hexdigest()[:10]
+
+
+def account(user: str) -> dict | None:
+    """{'user','role','hash','main'} de la cuenta principal (.env) o de la familia (base)."""
+    if not user:
+        return None
+    main_user, main_hash = credentials()
+    if user == main_user:
+        return {"user": user, "role": "admin", "hash": main_hash, "main": True}
+    if _db is not None:
+        r = _db.q("SELECT username, hash, role FROM users WHERE username=?", (user,))
+        if r:
+            return {"user": r[0]["username"], "role": r[0]["role"], "hash": r[0]["hash"], "main": False}
+    return None
+
+
 def make_token(user: str, now: float | None = None, ttl: int = TTL) -> str:
     exp = int((now or time.time()) + ttl)
-    payload = f"{user}|{exp}".encode()
+    acc = account(user)
+    payload = f"{user}|{exp}|{_fp(acc['hash'] if acc else '')}".encode()
     sig = hmac.new(secret(), payload, hashlib.sha256).digest()
     return f"{_b64(payload)}.{_b64(sig)}"
 
 
-def check_token(tok: str, now: float | None = None) -> str | None:
-    """Regresa el usuario si la cookie es válida y no ha caducado."""
+def session(tok: str, now: float | None = None) -> dict | None:
+    """{'user','role'} si la cookie es válida, no caducó y la cuenta sigue igual."""
     try:
         p64, s64 = (tok or "").split(".", 1)
         payload = _unb64(p64)
         if not hmac.compare_digest(_unb64(s64), hmac.new(secret(), payload, hashlib.sha256).digest()):
             return None
-        user, exp = payload.decode().rsplit("|", 1)
-        if int(exp) < (now or time.time()):
+        parts = payload.decode().split("|")
+        user, exp = parts[0], int(parts[1])
+        if exp < (now or time.time()):
             return None
-        # Si cambiaste el usuario en Ajustes, las sesiones viejas dejan de valer
-        current = credentials()[0]
-        return user if not current or user == current else None
-    except (ValueError, UnicodeDecodeError):
+        acc = account(user)               # borraste la cuenta o cambiaste el usuario principal
+        if not acc or (len(parts) > 2 and parts[2] != _fp(acc["hash"])):
+            return None                   # cambió la contraseña
+        return {"user": acc["user"], "role": acc["role"], "main": acc["main"]}
+    except (ValueError, UnicodeDecodeError, IndexError):
         return None
+
+
+def check_token(tok: str, now: float | None = None) -> str | None:
+    s = session(tok, now)
+    return s["user"] if s else None
+
+
+def allowed(role: str, method: str, uri: str) -> bool:
+    if role == "admin":
+        return True
+    path = (uri or "/").split("?", 1)[0]
+    if path.startswith(FAMILY_DENY):
+        return False
+    if method.upper() not in ("GET", "HEAD", "OPTIONS"):
+        return path.startswith(FAMILY_WRITE_OK)
+    return True
+
+
+def authenticate(user: str, pw: str) -> dict | None:
+    acc = account(user)
+    if acc and verify_password(pw, acc["hash"]):
+        return acc
+    return None
 
 
 def credentials() -> tuple[str, str]:

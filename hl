@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# ======================================================================
+#  hl — atajo para manejar el homelab de la Pi sin recordar comandos largos.
+#  Siempre usa hosts/pi/docker-compose.yml y --env-file .env (sin avisos WARN).
+#
+#    ./hl                      ayuda
+#    ./hl estado               contenedores y si están sanos
+#    ./hl actualizar           git pull + reconstruir + levantar
+#    ./hl reiniciar [svc...]   reinicia todo o los servicios indicados
+#    ./hl logs [svc]           bitácora en vivo (Ctrl+C para salir)
+#    ./hl revisar              diagnóstico completo (scripts/revisar.sh)
+#    ./hl firewall             aplica las reglas de UFW (scripts/firewall.sh)
+#    ./hl respaldo             respaldo cifrado del homelab ahora
+#    ./hl restaurar ARCHIVO    restaura un respaldo del homelab
+#    ./hl ca                   copia el certificado de Caddy para instalarlo
+#    ./hl contraseña           cambia la contraseña del usuario admin de la web
+#    ./hl <cualquier cosa>     se pasa tal cual a «docker compose» (ps, exec, pull…)
+# ======================================================================
+set -euo pipefail
+REPO="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+cd "$REPO"
+if docker info >/dev/null 2>&1; then D=(docker); else D=(sudo docker); fi
+C=("${D[@]}" compose -f hosts/pi/docker-compose.yml --env-file .env)
+
+perfiles() { grep -E '^COMPOSE_PROFILES=' .env | tail -1 | cut -d= -f2- | tr -d "\"' "; }
+
+cmd="${1:-ayuda}"; shift || true
+if [[ ! -f .env && ! "$cmd" =~ ^(ayuda|help|-h|--help)$ ]]; then
+  echo "Falta .env: corre ./scripts/gen-secrets.sh"; exit 1
+fi
+case "$cmd" in
+  ayuda|help|-h|--help)
+    sed -n '3,17p' "$0" | sed 's/^# \{0,3\}//' ;;
+  estado|status)
+    "${C[@]}" ps --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}' ;;
+  actualizar|update)
+    owner="$(stat -c %U .)"
+    if [[ "$(id -un)" == "$owner" ]]; then git pull --ff-only; else sudo -u "$owner" git pull --ff-only; fi
+    "${C[@]}" up -d --build --remove-orphans
+    echo "✅ Actualizado. Recarga el dashboard con Ctrl+Shift+R." ;;
+  reiniciar|restart)
+    "${C[@]}" restart "$@" ;;
+  logs)
+    "${C[@]}" logs -f --tail 100 "$@" ;;
+  revisar|check)
+    exec ./scripts/revisar.sh "$@" ;;
+  firewall)
+    exec ./scripts/firewall.sh "$@" ;;
+  respaldo|backup)
+    exec ./scripts/respaldo-homelab.sh "$@" ;;
+  restaurar|restore)
+    exec ./scripts/restaurar-homelab.sh "$@" ;;
+  ca)
+    mkdir -p run
+    "${C[@]}" cp caddy:/data/caddy/pki/authorities/local/root.crt run/homelab-ca.crt
+    chmod 644 run/homelab-ca.crt
+    echo "✅ Certificado en run/homelab-ca.crt"
+    echo "   También se descarga desde el dashboard: https://IP-de-la-Pi:PUERTO/ca.crt"
+    echo "   Guía para instalarlo: docs/seguridad.md" ;;
+  contraseña|contrasena|password)
+    ./scripts/gen-secrets.sh --web-password
+    "${C[@]}" restart netwatch >/dev/null && echo "✅ Listo, ya puedes entrar con la contraseña nueva." ;;
+  *)
+    "${C[@]}" "$cmd" "$@" ;;
+esac

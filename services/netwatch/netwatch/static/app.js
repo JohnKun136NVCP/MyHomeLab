@@ -141,7 +141,7 @@ function hourlyBars(rows, hours) {
                  : new Date(h * 1000).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}</text>`;
   }
   const axis = [0, 0.5, 1].map((f) => `<text x="${P.l - 6}" y="${H - P.b - f * (H - P.t - P.b) + 4}" text-anchor="end" fill="#8a91a5" font-size="11">${Math.round(max * f)}</text>`).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:200px">${axis}${bars}</svg>
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:200px;display:block">${axis}${bars}</svg>
     <div class="legend">${Object.entries(ACTION_COLOR).map(([k, c]) => `<span><i style="background:${c}"></i>${k}</span>`).join("")}</div>`;
 }
 
@@ -196,33 +196,193 @@ async function chartCard(el, title, q, range) {
 /* ------------------------------------------------------------------ vistas */
 const views = {
   async inicio() {
-    view.innerHTML = `<div class="toolbar"><h2 class="grow">Tu homelab</h2>
-      <a href="#ajustes"><button>⚙ Ajustes</button></a></div>
-      <div class="grid" id="kpis"></div><br><div id="tools"><p class="muted">Revisando servicios…</p></div>`;
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Hola${ME ? ", " + esc(ME.user) : ""} 👋</h2>
+      ${ADMIN ? '<a href="#sistema"><button>🛠 Sistema</button></a>' : ""}</div>
+      <div class="grid" id="kpis"></div>
+      <div class="grid2" id="status" style="margin-top:var(--gap)"></div>
+      <div id="tools"><p class="muted">Revisando servicios…</p></div>`;
     api("/api/summary").then((s) => {
+      const inet = s.targets.internet;
       $("#kpis").innerHTML = `
-        <a class="card kpi" href="#dispositivos"><div class="l">Equipos en línea</div><div class="v">${s.devices_online}</div><div class="muted small">${s.unknown} sin revisar</div></a>
-        <a class="card kpi" href="#eventos"><div class="l">Eventos 24 h</div><div class="v">${s.events_24h}</div><div class="muted small">${s.critical_24h} críticos</div></a>
-        <a class="card kpi" href="#resumen"><div class="l">Internet</div><div class="v">${s.targets.internet ? (s.targets.internet.up ? "✅" : "❌") : "—"}</div><div class="muted small">${s.targets.internet?.latency != null ? (s.targets.internet.latency * 1000).toFixed(0) + " ms" : ""}</div></a>
-        <a class="card kpi" href="#conexiones"><div class="l">Conexiones</div><div class="v" style="font-size:22px;margin-top:8px">Ver →</div></a>`;
+        <a class="card kpi" href="#dispositivos"><span class="l">Equipos en línea</span><span class="v">${s.devices_online}</span><span class="muted small">${s.unknown} sin revisar</span></a>
+        <a class="card kpi" href="#eventos"><span class="l">Eventos 24 h</span><span class="v">${s.events_24h}</span><span class="muted small" style="color:${s.critical_24h ? "var(--bad)" : ""}">${s.critical_24h} críticos</span></a>
+        <a class="card kpi" href="#resumen"><span class="l">Internet</span><span class="v">${inet ? (inet.up ? "✅" : "❌") : "—"}</span><span class="muted small">${inet?.latency != null ? (inet.latency * 1000).toFixed(0) + " ms" : "&nbsp;"}</span></a>
+        <a class="card kpi" href="#servicios" id="k-svc"><span class="l">Servicios</span><span class="v">…</span><span class="muted small">Uptime Kuma</span></a>`;
+      api("/api/services").then((v) => {
+        $("#k-svc").innerHTML = `<span class="l">Servicios</span><span class="v" style="color:${v.down ? "var(--bad)" : ""}">${v.ok ? `${v.up}/${v.monitors.length}` : "—"}</span>
+          <span class="muted small">${v.ok ? (v.down ? `${v.down} caído(s)` : "todo arriba") : "sin página de estado"}</span>`;
+      }).catch(() => {});
+    }).catch(() => {});
+    if (ADMIN) api("/api/system").then((sy) => {
+      const r = sy.revisar || {}, bk = sy.backup || {};
+      $("#status").innerHTML = `<div class="card"><h3>🩺 Estado del homelab ${r.ts ? `<span class="muted small">revisado ${ago(r.ts)}</span>` : ""}</h3>
+          ${r.ts ? `<p><span class="pill ok">✔ ${r.ok}</span> <span class="pill warn">⚠ ${r.warn}</span> <span class="pill bad">✘ ${r.bad}</span></p>
+            ${(r.items || []).filter((i) => i.st !== "ok").slice(0, 4).map((i) => `<div class="small" style="margin:4px 0">${i.st === "bad" ? "✘" : "⚠"} ${esc(i.what)}</div>`).join("")}`
+            : '<p class="muted">Todavía no se revisa.</p>'}
+          <a href="#sistema" class="small">Ver todo →</a></div>
+        <div class="card"><h3>🗄 Respaldo del homelab</h3>
+          ${bk.ts ? `<p>${bk.ok ? "✅" : "⚠"} ${ago(bk.ts)} ${bk.size ? "· " + bytes(bk.size) : ""} ${(bk.sent || []).map((x) => `<span class="pill">${esc(x)}</span>`).join(" ")}</p>`
+            : '<p class="muted">Nunca se ha respaldado.</p>'}
+          <a href="#sistema" class="small">Respaldar ahora →</a></div>`;
     }).catch(() => {});
     const j = await api("/api/tools");
     const sections = [["Homelab", [
       { name: "Resumen", icon: "🏠", url: "#resumen", desc: "Estado de la red", status: true },
       { name: "Dispositivos", icon: "💻", url: "#dispositivos", desc: "Quién está conectado", status: true },
-      { name: "Conexiones", icon: "🔌", url: "#conexiones", desc: "Quién se conecta a la Pi", status: true },
       { name: "Mapa", icon: "🗺", url: "#mapa", desc: "Módem → AP → equipos", status: true },
       ...j.tools.filter((t) => t.group === "Homelab")]]];
     for (const g of ["Servicios", "Red", "Tus enlaces"]) {
       const ts = j.tools.filter((t) => t.group === g);
       if (ts.length) sections.push([g, ts]);
     }
-    $("#tools").innerHTML = sections.map(([g, ts]) => `<h3>${esc(g)}</h3><div class="links">${ts.map((t) =>
+    $("#tools").innerHTML = sections.map(([g, ts]) => `<div class="section-title">${esc(g)}</div><div class="links">${ts.map((t) =>
       `<a class="link" href="${esc(t.url)}" ${t.url.startsWith("#") ? "" : 'target="_blank" rel="noopener"'}>
-        <span class="i">${t.icon || "🔗"}</span><div style="min-width:0"><b>${esc(t.name)}</b>
-        ${t.status === true ? '<span class="dot on" title="responde"></span>' : t.status === false ? '<span class="dot off" title="no responde"></span>' : ""}
-        <div class="muted small" style="overflow:hidden;text-overflow:ellipsis">${esc(t.desc || "")}</div></div></a>`).join("")}</div><br>`).join("")
-      + `<p class="muted small">¿Falta algo? Agrega enlaces en Ajustes → editor avanzado (sección <span class="mono">links</span>).</p>`;
+        <span class="i">${t.icon || "🔗"}</span><div><b>${esc(t.name)}</b>
+        ${t.status === true ? ' <span class="dot on" title="responde"></span>' : t.status === false ? ' <span class="dot off" title="no responde"></span>' : ""}
+        <div class="muted small">${esc(t.desc || "")}</div></div></a>`).join("")}</div>`).join("")
+      + (ADMIN ? `<p class="muted small" style="margin-top:16px">¿Falta algo? Agrega enlaces en Ajustes → editor avanzado (sección <span class="mono">links</span>).</p>` : "");
+  },
+
+  async servicios() {
+    const v = await api("/api/services");
+    if (!v.ok) {
+      view.innerHTML = `<div class="toolbar"><h2 class="grow">Servicios</h2></div>
+        <div class="card"><p>${esc(v.error)}</p>
+        <ol class="muted"><li>Abre Uptime Kuma (puerto 3001) → <b>Páginas de estado</b> → <b>Nueva página de estado</b>.</li>
+        <li>Nombre «Homelab», slug <span class="mono">homelab</span>.</li>
+        <li>Agrega tus monitores y presiona <b>Guardar</b>.</li></ol></div>`;
+      return;
+    }
+    const groups = {};
+    v.monitors.forEach((m) => (groups[m.group || "Servicios"] ??= []).push(m));
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Servicios <span class="muted small">${v.up}/${v.monitors.length} arriba</span></h2>
+        <a href="${esc(v.url.replace("127.0.0.1", location.hostname))}" target="_blank" rel="noopener"><button>Abrir Uptime Kuma ↗</button></a></div>
+      <div class="grid2">${Object.entries(groups).map(([g, ms]) => `<div class="card"><h3>${esc(g)}</h3>${ms.map((m) => `
+        <div class="svc"><span class="dot ${m.status === 1 ? "on" : m.status === 0 ? "off" : "warn"}"></span>
+          <div style="min-width:0"><b>${esc(m.name)}</b><div class="muted small ellipsis">${esc(m.status_name)}${m.ping != null && m.status === 1 ? ` · ${m.ping} ms` : ""}${m.msg && m.status !== 1 ? ` · ${esc(m.msg)}` : ""}</div></div>
+          <div style="text-align:right"><div class="beats">${m.history.map((h) => `<i class="s${h}"></i>`).join("")}</div>
+            <div class="muted small">${m.uptime_24h != null ? (m.uptime_24h * 100).toFixed(1) + "% en 24 h" : ""}</div></div></div>`).join("")}</div>`).join("")}</div>`;
+  },
+
+  async sistema() {
+    const sy = await api("/api/system");
+    const r = sy.revisar || {}, bk = sy.backup || {}, ap = sy.apply || {};
+    const icon = { ok: "✅", warn: "⚠️", bad: "❌" };
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Sistema</h2></div>
+      ${ap.installed ? "" : '<div class="banner">Para que estos botones funcionen, corre una vez en la Pi: <span class="mono">sudo ./scripts/install-apply-service.sh</span></div>'}
+      <div id="sysbox"></div>
+      <div class="grid2">
+        <div class="card"><h3>Acciones</h3>
+          <div class="frow"><label>Actualizar</label><div><button class="primary" data-act="actualizar">⬇ Actualizar desde GitHub</button>
+            <div class="muted small">git pull + reconstruye y reinicia lo que cambió. Igual que <span class="mono">./hl actualizar</span>.</div></div></div>
+          <div class="frow"><label>Revisar</label><div><button data-act="revisar">🩺 Revisar el homelab</button>
+            <div class="muted small">Contenedores, firewall, SSH, disco, temperatura, bot… (<span class="mono">./hl revisar</span>)</div></div></div>
+          <div class="frow"><label>Respaldo</label><div><button data-act="respaldo">🗄 Respaldar ahora</button>
+            <div class="muted small">Cifrado; queda en tu SSD y te llega por Telegram. Cada domingo se hace solo.</div></div></div>
+          <div class="frow"><label>Certificado</label><div>${sy.ca ? '<a href="/ca.crt"><button>⬇ Descargar certificado del homelab</button></a>' : '<span class="muted">Corre <span class="mono">./hl ca</span> en la Pi para poder descargarlo aquí.</span>'}
+            <div class="muted small">Instálalo en tus equipos y el navegador deja de decir «no seguro» (docs/seguridad.md).</div></div></div>
+        </div>
+        <div class="card"><h3>🗄 Último respaldo del homelab</h3>
+          ${bk.ts ? `<table class="kv"><tr><td>Cuándo</td><td>${fmtTime(bk.ts)} (${ago(bk.ts)})</td></tr>
+            <tr><td>Resultado</td><td>${bk.ok ? "✅ bien" : "❌ " + esc(bk.error || "falló")}</td></tr>
+            ${bk.size ? `<tr><td>Tamaño</td><td>${bytes(bk.size)}</td></tr>` : ""}
+            ${bk.file ? `<tr><td>Archivo</td><td class="mono small" style="overflow-wrap:anywhere">${esc(bk.file)}</td></tr>` : ""}
+            <tr><td>Copias</td><td>SSD ${(bk.sent || []).map((x) => "· " + esc(x)).join(" ")}</td></tr></table>`
+            : '<p class="muted">Nunca se ha respaldado. Presiona «Respaldar ahora».</p>'}
+          <p class="muted small">Restaurar en una Pi nueva: <span class="mono">./hl restaurar ARCHIVO</span></p></div>
+      </div>
+      <div class="card"><h3>🩺 Revisión ${r.ts ? `<span class="muted small">${ago(r.ts)}</span> <span class="pill ok">✔ ${r.ok}</span> <span class="pill warn">⚠ ${r.warn}</span> <span class="pill bad">✘ ${r.bad}</span>` : ""}</h3>
+        ${r.ts ? `<div class="checks">${[...(r.items || [])].sort((a, b) => "bwo".indexOf(a.st[0]) - "bwo".indexOf(b.st[0])).map((i) => `<div class="row"><span>${icon[i.st]}</span>
+          <div>${esc(i.what)}${i.fix ? `<div class="muted small mono">→ ${esc(i.fix)}</div>` : ""}</div></div>`).join("")}</div>`
+          : '<p class="muted">Presiona «Revisar el homelab».</p>'}</div>`;
+    const show = (st) => {
+      const box = $("#sysbox"); if (!box) return;
+      if (st.pending) box.innerHTML = '<div class="banner info">⏳ Trabajando… (si es «Actualizar», la página se reconecta sola)</div>';
+      else if (st.log) box.innerHTML = `<div class="card" style="margin-bottom:var(--gap)"><h3>${st.ok ? "✅ Listo" : "⚠ Algo falló"} <span class="muted small">${ago(st.ts)}</span></h3>
+        <details ${st.ok ? "" : "open"}><summary class="small">Ver bitácora</summary><pre class="mono small" style="white-space:pre-wrap;max-height:300px">${esc(st.log.join("\n"))}</pre></details></div>`;
+    };
+    if (ap.pending) show(ap);
+    view.querySelectorAll("[data-act]").forEach((b) => b.onclick = async () => {
+      if (b.dataset.act === "actualizar" && !confirm("¿Actualizar el homelab desde GitHub? Los servicios se reinician unos segundos.")) return;
+      try {
+        await api(`/api/system/${b.dataset.act}`, { method: "POST" });
+        show({ pending: true });
+        for (let i = 0; i < 150; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          try { const st = await api("/api/apply"); if (!st.pending) { show(st); setTimeout(() => views.sistema(), 1500); return; } } catch { /* reiniciando */ }
+        }
+      } catch (e) { toast(e.message); }
+    });
+  },
+
+  async cuentas() {
+    const j = await api("/api/users");
+    const roleSel = (r) => `<select data-role>${Object.entries(j.roles).map(([k, l]) => `<option value="${k}" ${k === r ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Cuentas de la casa</h2></div>
+      <div class="banner info">👨‍👩‍👧 <b>Familia</b> ve Inicio, dispositivos, tráfico, mapa, cámaras, servicios y eventos, pero no puede cambiar nada.
+        <b>Administrador</b> puede todo. Cada quien entra con su usuario; te llega aviso por Telegram si alguien entra desde un equipo nuevo.</div>
+      <div class="grid2">
+        <div class="card flush"><table class="cards"><thead><tr><th>Usuario</th><th>Rol</th><th>Último acceso</th><th></th></tr></thead><tbody>
+          ${j.users.map((u) => `<tr data-user="${esc(u.username)}"><td><b>${esc(u.username)}</b>${u.main ? ' <span class="pill ok">principal</span>' : ""}</td>
+            <td data-l="Rol">${u.main ? "Administrador" : roleSel(u.role)}</td>
+            <td data-l="Último acceso" class="small">${u.last_login ? ago(u.last_login) + (u.last_ip ? ` · <span class="mono">${esc(u.last_ip)}</span>` : "") : "nunca"}</td>
+            <td>${u.main ? '<a href="#cuenta" class="small">cambiar contraseña</a>' : `<div class="acts"><button data-pw title="Nueva contraseña">🔑</button><button class="danger" data-del title="Borrar">🗑</button></div>`}</td></tr>`).join("")}
+        </tbody></table></div>
+        <div class="card"><h3>➕ Nueva cuenta</h3>
+          <div class="frow"><label for="nu">Usuario</label><div><input id="nu" autocomplete="off" placeholder="mama, papa, hermana…"></div></div>
+          <div class="frow"><label for="np">Contraseña</label><div><input id="np" type="password" autocomplete="new-password" placeholder="mínimo 8 caracteres"></div></div>
+          <div class="frow"><label>Rol</label><div id="nr">${roleSel("familia")}</div></div>
+          <button class="primary" id="nadd">Crear cuenta</button></div>
+      </div>
+      <div class="card"><h3>Equipos desde los que han entrado</h3><div id="logins" class="muted">Cargando…</div></div>`;
+    $("#nadd").onclick = async () => {
+      try {
+        await api("/api/users", { method: "POST", body: JSON.stringify({ username: $("#nu").value.trim(), password: $("#np").value, role: $("#nr select").value }) });
+        toast("Cuenta creada"); views.cuentas();
+      } catch (e) { toast(e.message); }
+    };
+    view.querySelectorAll("tr[data-user]").forEach((tr) => {
+      const u = tr.dataset.user;
+      tr.querySelector("[data-role]")?.addEventListener("change", async (e) => {
+        try { await api("/api/users", { method: "POST", body: JSON.stringify({ username: u, role: e.target.value }) }); toast("Rol cambiado"); }
+        catch (er) { toast(er.message); }
+      });
+      tr.querySelector("[data-pw]")?.addEventListener("click", async () => {
+        const pw = prompt(`Nueva contraseña para ${u} (mínimo 8):`);
+        if (!pw) return;
+        try { await api("/api/users", { method: "POST", body: JSON.stringify({ username: u, password: pw, role: tr.querySelector("[data-role]").value }) }); toast("Contraseña cambiada: su sesión se cerró"); }
+        catch (er) { toast(er.message); }
+      });
+      tr.querySelector("[data-del]")?.addEventListener("click", async () => {
+        if (!confirm(`¿Borrar la cuenta ${u}? Se cierra su sesión.`)) return;
+        await api(`/api/users/${encodeURIComponent(u)}`, { method: "DELETE" }); views.cuentas();
+      });
+    });
+    api("/api/users/logins").then((l) => {
+      $("#logins").innerHTML = l.logins.length ? `<table><tr><th>Usuario</th><th>IP</th><th>Primera vez</th><th>Última</th></tr>${l.logins.map((x) =>
+        `<tr><td>${esc(x.username)}</td><td class="mono">${esc(x.ip)}</td><td class="small">${fmtTime(x.first)}</td><td class="small">${ago(x.last)}</td></tr>`).join("")}</table>`
+        : "Nadie ha entrado todavía.";
+      const t = $("#logins table"); if (t) { const w = document.createElement("div"); w.className = "table-wrap"; t.before(w); w.append(t); }
+    });
+  },
+
+  async cuenta() {
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Mi cuenta</h2></div>
+      <div class="grid2"><div class="card"><h3>👤 ${esc(ME?.user || "")} · ${esc(ME?.role_name || "")}</h3>
+        <div class="frow"><label for="pc">Contraseña actual</label><div><input id="pc" type="password" autocomplete="current-password"></div></div>
+        <div class="frow"><label for="pn">Nueva</label><div><input id="pn" type="password" autocomplete="new-password" placeholder="mínimo 8 caracteres"></div></div>
+        <div class="frow"><label for="pn2">Repítela</label><div><input id="pn2" type="password" autocomplete="new-password"></div></div>
+        <button class="primary" id="psave">Cambiar contraseña</button>
+        <p class="muted small" style="margin-top:10px">Al cambiarla se cierran tus sesiones en otros equipos.</p></div>
+        <div class="card"><h3>Sesión</h3><p class="muted">La sesión dura 7 días en este navegador.</p>
+          <form method="post" action="/auth/logout"><button type="submit">⎋ Cerrar sesión</button></form></div></div>`;
+    $("#psave").onclick = async () => {
+      if ($("#pn").value !== $("#pn2").value) return toast("Las contraseñas nuevas no coinciden");
+      try {
+        await api("/api/me/password", { method: "POST", body: JSON.stringify({ current: $("#pc").value, new: $("#pn").value }) });
+        toast("✅ Contraseña cambiada"); ["#pc", "#pn", "#pn2"].forEach((id) => { $(id).value = ""; });
+      } catch (e) { toast(e.message); }
+    };
   },
 
   async ajustes() {
@@ -267,7 +427,7 @@ const views = {
         <textarea id="yraw" spellcheck="false" style="width:100%;height:340px" class="mono">${esc(s.yaml_raw)}</textarea>
         <div class="toolbar" style="margin-top:8px"><button id="ysave">💾 Guardar YAML</button><button class="primary" id="ysaveapply">💾 Guardar YAML y aplicar</button></div></div>`;
     function devRow(d) {
-      return `<tr data-dev><td><input value="${esc(d.name)}" data-dname style="width:150px"></td>
+      return `<tr data-dev><td><input value="${esc(d.name)}" data-dname style="min-width:120px"></td>
         <td><select data-dos>${["linux", "windows", "macos", "android", "ios"].map((o) => `<option ${o === d.os ? "selected" : ""}>${o}</option>`).join("")}</select></td>
         <td>${d.token_set ? '<span class="pill ok">guardado</span>' : '<span class="pill">nuevo</span>'}</td>
         <td style="white-space:nowrap">${d.token_set ? `<button data-regen="${esc(d.name)}" title="Generar otro (el viejo deja de servir)">↻</button>` : ""}<button data-del>🗑</button></td></tr>`;
@@ -405,8 +565,6 @@ const views = {
 
   async resumen() {
     const [s, ev] = await Promise.all([api("/api/summary"), api("/api/events?limit=8")]);
-    $("#mode").textContent = s.bridge_mode ? `modo puente · ${s.interface}` : `modo pasivo · ${s.interface}`;
-    $("#mode").className = "pill " + (s.bridge_mode ? "ok" : "");
     const inf = Object.entries(s.infra).map(([n, v]) =>
       `<tr><td><span class="dot ${v.up ? "on" : "off"}"></span></td><td>${esc(n)}</td>
        <td class="mono">${esc(v.ip)}</td><td>${v.latency != null ? (v.latency * 1000).toFixed(0) + " ms" : "sin respuesta"}</td></tr>`).join("");
@@ -463,46 +621,46 @@ const views = {
       });
       $("#tb").innerHTML = rows.map((d) => `
         <tr data-mac="${d.mac}">
-          <td><span class="dot ${d.online ? "on" : ""}"></span></td>
-          <td><input class="nm" value="${esc(d.name || "")}" placeholder="${esc(d.display_name)}" style="width:170px">
-              ${d.known ? "" : '<span class="new">NUEVO</span>'}</td>
-          <td class="small">${d.hostname ? `<b>${esc(d.hostname)}</b><div class="muted">${esc(d.hostname_src || "")}</div>` : '<span class="muted">—</span>'}</td>
-          <td><select class="tp">${j.types.map((t) => `<option ${t === d.display_type ? "selected" : ""}>${t}</option>`).join("")}</select></td>
-          <td class="mono">${esc(d.ip)}<div class="muted small">${esc(d.network || "")}</div></td>
-          <td class="mono">${esc(d.mac)}${d.random_mac ? ' <span class="pill" title="MAC privada/aleatoria">privada</span>' : ""}<div class="muted small">${esc(d.vendor || "")}</div></td>
-          <td><select class="ap"><option value="">—</option>${j.aps.map((a) => `<option ${a === d.ap ? "selected" : ""}>${esc(a)}</option>`).join("")}</select></td>
-          <td class="small mono">${d.ports.map(esc).join("<br>") || '<span class="muted">—</span>'}</td>
-          <td class="small">${d.bytes_down != null ? "↓ " + bytes(d.bytes_down) + "<br>↑ " + bytes(d.bytes_up) : '<span class="muted">—</span>'}</td>
-          <td class="small">${ago(d.last_seen)}</td>
-          <td style="white-space:nowrap">
-            ${d.known ? "" : '<button class="ok" title="Ya lo revisé">✔</button>'}
-            <button class="scan" title="Escanear puertos">🔍</button>
+          <td class="st"><span class="dot ${d.online ? "on" : ""}" title="${d.online ? "en línea" : "desconectado"}"></span></td>
+          <td class="namecell"><input class="nm" value="${esc(d.name || "")}" placeholder="${esc(d.display_name)}" aria-label="Nombre" ${ADMIN ? "" : "readonly"}>
+            <div class="sub">${d.known ? "" : '<span class="new">NUEVO</span> '}${d.hostname ? esc(d.hostname) : ""}${d.hostname_src ? ` <span class="muted">· ${esc(d.hostname_src)}</span>` : ""}</div></td>
+          <td data-l="Tipo"><select class="tp" ${ADMIN ? "" : "disabled"}>${j.types.map((t) => `<option ${t === d.display_type ? "selected" : ""}>${t}</option>`).join("")}</select>
+            ${d.ports.length ? `<div class="sub mono" title="${esc(d.ports.join("\n"))}">${esc(d.ports.map((p) => p.split("/")[0]).slice(0, 6).join(", "))}${d.ports.length > 6 ? "…" : ""}</div>` : ""}</td>
+          <td data-l="IP / red · visto" class="mono">${esc(d.ip)}<div class="sub">${esc(d.network || "")}${d.network ? " · " : ""}${ago(d.last_seen)}</div></td>
+          <td data-l="MAC / fabricante" class="mono">${esc(d.mac)}${d.random_mac ? ' <span class="pill" title="MAC privada/aleatoria">privada</span>' : ""}
+            <div class="sub ellipsis" style="max-width:200px" title="${esc(d.vendor || "")}">${esc(d.vendor || "")}</div></td>
+          <td data-l="AP"><select class="ap" ${ADMIN ? "" : "disabled"}><option value="">—</option>${j.aps.map((a) => `<option ${a === d.ap ? "selected" : ""}>${esc(a)}</option>`).join("")}</select></td>
+          <td data-l="Tráfico" class="small tr-col">${d.bytes_down != null ? "↓ " + bytes(d.bytes_down) + "<br>↑ " + bytes(d.bytes_up) : ""}</td>
+          <td class="acts-c"><div class="acts">
+            ${d.known || !ADMIN ? "" : '<button class="ok" title="Ya lo revisé">✔</button>'}
+            ${ADMIN ? `<button class="scan" title="Escanear puertos">🔍</button>
             <button class="blk danger" title="Bloquear (ACL)">⛔</button>
-            <button class="del danger" title="Olvidar">🗑</button></td>
-        </tr>`).join("");
+            <button class="del danger" title="Olvidar">🗑</button>` : ""}</div></td>
+        </tr>`).join("") || '<tr><td class="muted">Nada coincide con el filtro.</td></tr>';
     };
     view.innerHTML = `
       <div class="toolbar"><h2 class="grow">Dispositivos <span class="muted small">${j.devices.filter((d) => d.online).length} en línea · ${j.devices.length} conocidos</span></h2>
-        <input id="flt" placeholder="Filtrar nombre, hostname, IP, MAC…" style="width:250px">
-        <button id="seek" title="Busca la IP, MAC o nombre en la red aunque no esté en la lista">🔎 Buscar en la red</button>
-        <button id="allknown">✔ Marcar todos como revisados</button></div>
-      <div class="card" style="overflow:auto"><table><thead><tr>
-        <th data-k="online"></th><th data-k="display_name">Nombre</th><th data-k="hostname">Hostname</th><th data-k="display_type">Tipo</th><th data-k="ip">IP / red</th>
-        <th data-k="mac">MAC / fabricante</th><th data-k="ap">AP</th><th>Puertos</th><th data-k="bytes_down">Tráfico</th><th data-k="last_seen">Visto</th><th></th>
-      </tr></thead><tbody id="tb"></tbody></table></div>
+        <input id="flt" type="search" placeholder="Filtrar nombre, hostname, IP, MAC…">
+        ${ADMIN ? '<button id="seek" title="Busca la IP, MAC o nombre en la red aunque no esté en la lista">🔎 Buscar en la red</button>' : ""}
+        ${ADMIN ? '<button id="allknown">✔ Todos revisados</button>' : ""}</div>
+      <div class="card flush"><div class="table-wrap"><table class="devtable cards"><thead><tr>
+        <th data-k="online"></th><th data-k="display_name">Nombre / hostname</th><th data-k="display_type">Tipo / puertos</th><th data-k="ip">IP / red · visto</th>
+        <th data-k="mac">MAC / fabricante</th><th data-k="ap">AP</th><th data-k="bytes_down" class="tr-col">Tráfico</th><th class="acts-h"></th>
+      </tr></thead><tbody id="tb"></tbody></table></div></div>
       <p class="muted small">El AP no se puede saber por ARP: asígnalo aquí y aparecerá en el mapa y en «Por AP». El tráfico por dispositivo solo existe en modo puente.</p>`;
+    if (!j.devices.some((d) => d.bytes_down != null)) $(".devtable").classList.add("notraffic");
     draw();
     $("#flt").oninput = (e) => { filter = e.target.value.toLowerCase(); draw(); };
     view.querySelectorAll("th[data-k]").forEach((th) => th.onclick = () => {
       asc = sortKey === th.dataset.k ? !asc : true; sortKey = th.dataset.k; draw();
     });
-    $("#seek").onclick = async () => {
+    if ($("#seek")) $("#seek").onclick = async () => {
       const q = $("#flt").value.trim();
       if (!q) return toast("Escribe una IP, MAC o nombre en el filtro");
       const box = document.createElement("div");
       box.className = "card"; box.style.marginBottom = "12px";
       box.innerHTML = `<h3>🔎 Buscando «${esc(q)}» en la red… (ping, ARP, nombre y puertos; hasta 1 min)</h3>`;
-      view.querySelector(".card").before(box);
+      view.querySelector(".card.flush").before(box);
       try {
         const r = await api("/api/lookup", { method: "POST", body: JSON.stringify({ q }) });
         const p = r.probe;
@@ -517,7 +675,7 @@ const views = {
           : (!r.matches.length ? `<p class="muted">No encontré nada con ese nombre. Prueba con la IP (la ves en el equipo o en la lista del módem).</p>` : "")}`;
       } catch (e) { box.innerHTML = `<p class="banner">${esc(e.message)}</p>`; }
     };
-    $("#allknown").onclick = async () => { await api("/api/devices/known", { method: "POST" }); route(); };
+    if ($("#allknown")) $("#allknown").onclick = async () => { await api("/api/devices/known", { method: "POST" }); route(); };
     const patch = (mac, body) => api(`/api/devices/${mac}`, { method: "PATCH", body: JSON.stringify(body) })
       .then((d) => { Object.assign(j.devices.find((x) => x.mac === mac), d); toast("Guardado"); });
     $("#tb").addEventListener("change", (e) => {
@@ -571,7 +729,7 @@ const views = {
 
   async conexiones() {
     view.innerHTML = `<div class="toolbar"><h2 class="grow">Conexiones entrantes a la Pi</h2>
-      <input id="cq" placeholder="Filtrar IP, nombre, origen…" style="width:220px">
+      <input id="cq" type="search" placeholder="Filtrar IP, nombre, origen…">
       <select id="ca"><option value="">Todas</option><option value="permitida">Permitidas</option>
         <option value="bloqueada">Bloqueadas (UFW)</option></select>
       <select id="ch"><option value="1">1 hora</option><option value="6">6 horas</option><option value="24" selected>24 horas</option>
@@ -654,22 +812,56 @@ const views = {
 
   async camaras() {
     const j = await api("/api/cameras");
+    const probeCard = ADMIN ? `<div class="card"><h3>🔎 Detectar cámara genérica (foco 360°, mini cámara WiFi)</h3>
+        <p class="muted small">Pon la IP de la cámara y la contraseña del <b>dispositivo</b> que pusiste en su app (iCSee, V380, Yoosee, CamHi…).
+          Pruebo las rutas RTSP conocidas y te doy el bloque para Frigate.</p>
+        <div class="toolbar" style="margin:0">
+          <input id="pip" placeholder="IP, ej. 192.168.1.40" inputmode="decimal">
+          <input id="pname" placeholder="nombre, ej. foco_sala">
+          <input id="puser" placeholder="usuario" value="admin" autocomplete="off">
+          <input id="ppw" type="password" placeholder="contraseña" autocomplete="new-password">
+          <button class="primary" id="pgo">Detectar</button></div>
+        <div id="pout"></div></div>` : "";
     if (!j.cameras.length) {
-      view.innerHTML = `<h2>Cámaras</h2><div class="card"><p>No pude leer las cámaras de Frigate.</p>
-        <p class="muted">${esc(j.error || "")}</p><p class="muted small">Revisa <span class="mono">cameras.frigate_url</span> en config/homelab.yml y docs/camaras.md.</p></div>`;
-      return;
+      view.innerHTML = `<div class="toolbar"><h2 class="grow">Cámaras</h2></div>
+        <div class="card"><p>Todavía no hay cámaras en Frigate.</p>
+        <p class="muted">${esc(j.error || "")}</p><p class="muted small">Frigate corre en la PC Linux; revisa <span class="mono">cameras.frigate_url</span> y docs/camaras.md.</p></div>${probeCard}`;
+    } else {
+      view.innerHTML = `<div class="toolbar"><h2 class="grow">Cámaras</h2>
+        <a href="${esc(j.frigate_url)}" target="_blank"><button>Abrir Frigate ↗</button></a></div>
+        <div class="cams">${j.cameras.map((c) => `<div class="card cam"><h3>📷 ${esc(c)}</h3>
+          <img data-cam="${esc(c)}" alt="${esc(c)}">
+          <div class="toolbar" style="margin:10px 0 0">
+            ${j.go2rtc_url ? `<a href="${esc(j.go2rtc_url)}/stream.html?src=${encodeURIComponent(c)}" target="_blank"><button>▶ En vivo</button></a>` : ""}
+            <a href="${esc(j.frigate_url)}/review?cameras=${encodeURIComponent(c)}" target="_blank"><button>Grabaciones</button></a>
+          </div></div>`).join("")}</div>${probeCard}`;
+      const refresh = () => view.querySelectorAll("img[data-cam]").forEach((img) =>
+        img.src = `/api/cameras/${img.dataset.cam}/snapshot?t=${Date.now()}`);
+      refresh(); timer = setInterval(refresh, 5000);
     }
-    view.innerHTML = `<div class="toolbar"><h2 class="grow">Cámaras</h2>
-      <a href="${esc(j.frigate_url)}" target="_blank"><button>Abrir Frigate ↗</button></a></div>
-      <div class="cams">${j.cameras.map((c) => `<div class="card cam"><h3>📷 ${esc(c)}</h3>
-        <img data-cam="${esc(c)}" alt="${esc(c)}">
-        <div class="toolbar" style="margin:8px 0 0">
-          ${j.go2rtc_url ? `<a href="${esc(j.go2rtc_url)}/stream.html?src=${encodeURIComponent(c)}" target="_blank"><button>▶ En vivo</button></a>` : ""}
-          <a href="${esc(j.frigate_url)}/review?cameras=${encodeURIComponent(c)}" target="_blank"><button>Grabaciones</button></a>
-        </div></div>`).join("")}</div>`;
-    const refresh = () => view.querySelectorAll("img[data-cam]").forEach((img) =>
-      img.src = `/api/cameras/${img.dataset.cam}/snapshot?t=${Date.now()}`);
-    refresh(); timer = setInterval(refresh, 5000);
+    if (!ADMIN) return;
+    $("#pgo").onclick = async () => {
+      const out = $("#pout"); out.innerHTML = '<p class="muted" style="margin-top:10px">Probando puertos y rutas… (hasta 1 min)</p>';
+      $("#pgo").disabled = true;
+      try {
+        const r = await api("/api/cameras/probe", { method: "POST", body: JSON.stringify({ ip: $("#pip").value.trim(),
+          name: $("#pname").value.trim(), user: $("#puser").value.trim(), password: $("#ppw").value }) });
+        const f = r.found;
+        out.innerHTML = `<div style="margin-top:12px">
+          <p>Puertos abiertos: ${r.ports.map((p) => `<span class="pill">${p.port} ${esc(p.what)}</span>`).join(" ") || '<span class="muted">ninguno de los de cámara</span>'}</p>
+          ${f ? `<div class="banner okb">✅ Es de la familia <b>${esc(f.family)}</b> (app ${esc(f.app)}).</div>
+              <table class="kv"><tr><td>HD (grabar)</td><td class="mono small" style="overflow-wrap:anywhere">${esc(f.main_masked)}</td></tr>
+              ${f.sub_masked ? `<tr><td>SD (detectar)</td><td class="mono small" style="overflow-wrap:anywhere">${esc(f.sub_masked)}</td></tr>` : ""}</table>
+              ${f.note ? `<p class="muted small">${esc(f.note)}</p>` : ""}
+              <p class="small" style="margin-top:10px">Pega esto en <span class="mono">config/frigate/config.yml</span> de la PC:</p>
+              <pre class="mono small" style="user-select:all;white-space:pre">${esc(r.frigate)}</pre>
+              <button id="pcopy">Copiar</button>` : ""}
+          ${r.notes.map((n) => `<div class="banner">${esc(n)}</div>`).join("")}
+          ${!f && r.tried.length ? `<details><summary class="small">Rutas probadas (${r.tried.length})</summary><pre class="mono small">${esc(r.tried.map((t) => `${t.result}  ${t.family}  ${t.path}`).join("\n"))}</pre></details>` : ""}</div>`;
+        $("#pcopy")?.addEventListener("click", () => navigator.clipboard?.writeText(r.frigate).then(() => toast("Copiado")));
+      } catch (e) { out.innerHTML = `<div class="banner" style="margin-top:10px">${esc(e.message)}</div>`; }
+      $("#pgo").disabled = false;
+    };
   },
 
   async accesos() {
@@ -688,11 +880,11 @@ const views = {
       ${j.enforced ? "" : `<div class="banner">Sin modo puente las reglas no cortan el tráfico: solo te avisan cuando el dispositivo se conecta.
         Para bloquear de verdad pon la Pi entre el módem y tus AP (docs/modo-puente.md).</div>`}
       <div class="card"><h3>Nueva regla</h3><div class="toolbar">
-        <select id="am" style="max-width:340px"><option value="">Elige un dispositivo…</option>${d.devices.map((x) =>
+        <select id="am"><option value="">Elige un dispositivo…</option>${d.devices.map((x) =>
           `<option value="${x.mac}">${esc(x.display_name)} · ${x.mac}</option>`).join("")}</select>
-        <span class="muted">o MAC</span><input id="amac" placeholder="aa:bb:cc:dd:ee:ff" class="mono" style="width:170px">
+        <span class="muted">o MAC</span><input id="amac" placeholder="aa:bb:cc:dd:ee:ff" class="mono">
         <span class="muted">horario (opcional)</span><input id="as" type="time"><span>a</span><input id="ae" type="time">
-        <input id="an" placeholder="nota (ej. sin internet de noche)" style="width:220px">
+        <input id="an" placeholder="nota (ej. sin internet de noche)">
         <button class="primary" id="aadd">⛔ Bloquear</button></div></div><br>
       <div class="card"><table><tr><th>Dispositivo</th><th>MAC</th><th>Horario</th><th>Ahora</th><th>Nota</th><th></th></tr>
       ${j.rules.map((r) => `<tr><td>${esc(r.name || "—")}</td><td class="mono">${r.mac}</td>
@@ -719,7 +911,8 @@ const views = {
 };
 
 const EV_ICON = { new_device: "🆕", arp_spoof: "🕵", ports_changed: "🚪", ids: "🚨", blocked_seen: "⛔",
-  quarantine: "🧪", acl: "🔒", honeypot: "🍯", dns_danger: "☣", roam_failed: "📶", login_failed: "🔑" };
+  quarantine: "🧪", acl: "🔒", honeypot: "🍯", dns_danger: "☣", roam_failed: "📶", login_failed: "🔑",
+  login_new_ip: "👤", camera_found: "📷" };
 function evList(evs) {
   if (!evs.length) return '<p class="muted">Sin eventos. Todo tranquilo.</p>';
   return evs.map((e) => `<div class="ev"><span>${EV_ICON[e.kind] || "•"}</span>
@@ -764,21 +957,53 @@ function treeSVG(root, onlyOnline) {
 }
 
 /* ------------------------------------------------------------------ router */
+let ADMIN = true, ME = null;
+const TITLES = { inicio: "Inicio", resumen: "Resumen", dispositivos: "Dispositivos", trafico: "Tráfico",
+  conexiones: "Conexiones", ap: "Por AP", mapa: "Mapa", camaras: "Cámaras", servicios: "Servicios",
+  accesos: "Accesos", eventos: "Eventos", acl: "ACL", vpn: "VPN", sistema: "Sistema", cuentas: "Cuentas",
+  ajustes: "Ajustes", cuenta: "Mi cuenta" };
+const ADMIN_ONLY = ["conexiones", "acl", "vpn", "sistema", "cuentas", "ajustes"];
+const setNav = (open) => {
+  document.body.classList.toggle("nav-open", open);
+  $("#scrim").hidden = !open;
+  $("#menu").setAttribute("aria-expanded", open);
+};
+$("#menu").onclick = () => setNav(!document.body.classList.contains("nav-open"));
+$("#scrim").onclick = () => setNav(false);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") setNav(false); });
+
 async function route() {
   clearInterval(timer);
-  const name = (location.hash || "#inicio").slice(1);
+  setNav(false);
+  let name = (location.hash || "#inicio").slice(1).split("?")[0];
+  if (!views[name]) name = "inicio";
+  if (!ADMIN && ADMIN_ONLY.includes(name)) name = "inicio";
   document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + name));
+  $("#title").textContent = TITLES[name] || "MyHomeLab";
+  document.title = `${TITLES[name] || "Inicio"} · MyHomeLab`;
   try {
-    await (views[name] || views.inicio)();
+    await views[name]();
+    // Toda tabla ancha se puede deslizar de lado en vez de salirse de la tarjeta
+    view.querySelectorAll("table:not(.cards)").forEach((t) => {
+      if (!t.parentElement.classList.contains("table-wrap")) {
+        const w = document.createElement("div"); w.className = "table-wrap"; t.before(w); w.append(t);
+      }
+    });
   } catch (e) {
     view.innerHTML = `<div class="banner">Error: ${esc(e.message)}</div>`;
   }
-  if (["resumen", "eventos"].includes(name)) timer = setInterval(() => (views[name])(), 60000);
+  if (["resumen", "eventos", "servicios"].includes(name)) timer = setInterval(() => (views[name])(), 60000);
 }
 window.addEventListener("hashchange", route);
-api("/api/me", { noRedirect: true }).then((m) => { if (m.user) $("#me").textContent = "👤 " + m.user; }).catch(() => {});
-route();
+api("/api/me", { noRedirect: true }).then((m) => {
+  if (m.user) {
+    ME = m; ADMIN = m.role === "admin";
+    $("#me").textContent = m.user; $("#role").textContent = m.role_name || m.role;
+    $("#avatar").textContent = m.user.slice(0, 1).toUpperCase();
+    document.querySelectorAll("[data-admin]").forEach((el) => { el.hidden = !ADMIN; });
+  }
+}).catch(() => {}).finally(route);
 api("/api/summary").then((s) => {
-  $("#mode").textContent = s.bridge_mode ? `modo puente · ${s.interface}` : `modo pasivo · ${s.interface}`;
-  $("#mode").className = "pill " + (s.bridge_mode ? "ok" : "");
+  const t = s.bridge_mode ? `puente · ${s.interface}` : `pasivo · ${s.interface}`;
+  ["#mode", "#mode-m"].forEach((id) => { $(id).textContent = t; $(id).className = "pill " + (s.bridge_mode ? "ok" : ""); });
 }).catch(() => {});

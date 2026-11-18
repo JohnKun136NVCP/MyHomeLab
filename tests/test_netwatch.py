@@ -584,3 +584,190 @@ def test_login_flow(tmp_path, monkeypatch):
     assert code == 429 and "Demasiados" in b
     assert any(e["kind"] == "login_failed" and "10.0.0.9" in e["detail"] for e in db.events())
     server.should_exit = True
+
+
+# ------------------------------------------------------- cuentas y permisos
+def test_roles_and_family_accounts(tmp_path, monkeypatch):
+    from netwatch import auth
+    from netwatch import settings as st
+    env = tmp_path / ".env"
+    env.write_text("WEB_USER=admin\nWEB_PASSWORD_HASH=$$2a$$14$$main\n")
+    monkeypatch.setattr(st, "ENV_PATH", env)
+    monkeypatch.setattr(auth, "_secret", b"r" * 32)
+    monkeypatch.setattr(auth, "verify_password", lambda pw, h: h == "H:" + pw or (h == "$2a$14$main" and pw == "admin-pw"))
+    db = DB(tmp_path / "n.db")
+    auth.bind(db)
+    db.x("INSERT INTO users (username, hash, role, created) VALUES ('mama', 'H:secreta1', 'familia', 0)")
+    assert auth.authenticate("mama", "secreta1")["role"] == "familia"
+    assert auth.authenticate("mama", "mal") is None
+    assert auth.authenticate("admin", "admin-pw")["main"] is True
+    tok = auth.make_token("mama", now=1000)
+    assert auth.session(tok, now=2000) == {"user": "mama", "role": "familia", "main": False}
+    # Familia: puede ver, no puede cambiar ni abrir lo sensible
+    assert auth.allowed("familia", "GET", "/api/devices")
+    assert auth.allowed("familia", "GET", "/#dispositivos")
+    assert not auth.allowed("familia", "PATCH", "/api/devices/aa:bb")
+    assert not auth.allowed("familia", "GET", "/api/settings")
+    assert not auth.allowed("familia", "GET", "/api/vpn")
+    assert not auth.allowed("familia", "GET", "/vault/admin")
+    assert not auth.allowed("familia", "POST", "/api/cameras/probe")
+    assert auth.allowed("familia", "POST", "/api/me/password")
+    assert auth.allowed("admin", "POST", "/api/settings")
+    # Cambiar su contraseña invalida la cookie vieja; borrarla también
+    db.x("UPDATE users SET hash='H:otra12345' WHERE username='mama'")
+    assert auth.session(tok, now=2000) is None
+    tok2 = auth.make_token("mama", now=1000)
+    assert auth.session(tok2, now=2000)["user"] == "mama"
+    db.x("DELETE FROM users WHERE username='mama'")
+    assert auth.session(tok2, now=2000) is None
+    auth.bind(None)
+
+
+def test_users_api_and_login_alert(tmp_path, monkeypatch):
+    import http.client
+    import threading
+    import time as _t
+    from urllib.parse import urlencode
+
+    import uvicorn
+
+    from netwatch import auth
+    from netwatch import monitor as M
+    from netwatch import settings as st
+    from netwatch.web import build_app
+    env = tmp_path / ".env"
+    env.write_text("WEB_USER=admin\nWEB_PASSWORD_HASH=$$2a$$14$$hash\n")
+    monkeypatch.setattr(st, "ENV_PATH", env)
+    monkeypatch.setattr(auth, "_secret", b"u" * 32)
+    monkeypatch.setattr(auth, "_fails", __import__("collections").defaultdict(__import__("collections").deque))
+    monkeypatch.setattr(st, "hash_password", lambda pw: "H:" + pw)
+    monkeypatch.setattr(auth, "verify_password", lambda pw, h: h == "H:" + pw or (pw == "correcta" and h == "$2a$14$hash"))
+    db = DB(tmp_path / "n.db")
+    mon = M.Monitor({"network": {"networks": [{"name": "casa", "cidr": "192.168.1.0/24"}]}}, db, tmp_path)
+    server = uvicorn.Server(uvicorn.Config(build_app(mon), host="127.0.0.1", port=0, log_level="error"))
+    threading.Thread(target=server.run, daemon=True).start()
+    while not server.started:
+        _t.sleep(0.05)
+    port = server.servers[0].sockets[0].getsockname()[1]
+
+    def req(method, path, body=None, headers=None):
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        c.request(method, path, body=body, headers=headers or {})
+        r = c.getresponse()
+        return r.status, dict(r.getheaders()), r.read().decode()
+
+    js = {"Content-Type": "application/json"}
+    code, _, b = req("POST", "/api/users", json.dumps({"username": "mama", "password": "corta", "role": "familia"}), js)
+    assert code == 400 and "8" in b
+    code, _, b = req("POST", "/api/users", json.dumps({"username": "mama", "password": "secreta123", "role": "familia"}), js)
+    assert code == 200 and json.loads(b)["created"]
+    users = json.loads(req("GET", "/api/users")[2])["users"]
+    assert [u["username"] for u in users] == ["admin", "mama"] and users[0]["main"]
+    form = {"Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": "192.168.1.70"}
+    code, h, _ = req("POST", "/auth/login", urlencode({"user": "mama", "password": "secreta123"}), form)
+    assert code == 303
+    cookie = h["set-cookie"].split(";")[0]
+    # Caddy pregunta por cada petición: familia no puede tocar Ajustes
+    code, h, _ = req("GET", "/auth/check", headers={"Cookie": cookie, "X-Forwarded-Uri": "/api/settings",
+                                                    "X-Forwarded-Method": "GET"})
+    assert code == 403
+    code, h, _ = req("GET", "/auth/check", headers={"Cookie": cookie, "X-Forwarded-Uri": "/api/devices"})
+    assert code == 200 and h["x-homelab-role"] == "familia"
+    me = json.loads(req("GET", "/api/me", headers={"Cookie": cookie})[2])
+    assert me["role"] == "familia" and me["user"] == "mama"
+    # Aviso de inicio de sesión desde un equipo nuevo (solo la primera vez por IP)
+    assert sum(e["kind"] == "login_new_ip" for e in db.events()) == 1
+    req("POST", "/auth/login", urlencode({"user": "mama", "password": "secreta123"}), form)
+    assert sum(e["kind"] == "login_new_ip" for e in db.events()) == 1
+    # Cambiar su propia contraseña
+    code, h, b = req("POST", "/api/me/password", json.dumps({"current": "mal", "new": "nuevaclave1"}), {**js, "Cookie": cookie})
+    assert code == 400
+    code, h, b = req("POST", "/api/me/password", json.dumps({"current": "secreta123", "new": "nuevaclave1"}), {**js, "Cookie": cookie})
+    assert code == 200 and "hl_session=" in h["set-cookie"]
+    assert db.q("SELECT hash FROM users WHERE username='mama'")[0]["hash"] == "H:nuevaclave1"
+    code, _, _ = req("GET", "/auth/check", headers={"Cookie": cookie, "X-Forwarded-Uri": "/api/devices"})
+    assert code == 401                                           # la cookie vieja ya no sirve
+    assert req("DELETE", "/api/users/mama")[0] == 200
+    server.should_exit = True
+
+
+# ----------------------------------------------------------- cámaras genéricas
+def test_camprobe_finds_v380_with_digest(monkeypatch):
+    import hashlib
+    import re as _re
+    import socket
+    import threading
+
+    from netwatch import camprobe
+
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(50)
+    port = srv.getsockname()[1]
+
+    def handle(c):
+        d = c.recv(4096).decode()
+        url = d.split()[1]
+        path = url.split(str(port), 1)[1]
+        cseq = _re.search(r"CSeq: (\d+)", d).group(1)
+        auth = _re.search(r'response="([0-9a-f]+)"', d)
+        if not auth:
+            c.sendall(f'RTSP/1.0 401 Unauthorized\r\nCSeq: {cseq}\r\nWWW-Authenticate: Digest realm="cam", '
+                      f'nonce="n1"\r\n\r\n'.encode())
+        else:
+            ha1 = hashlib.md5(b"admin:cam:clave123").hexdigest()
+            ha2 = hashlib.md5(f"DESCRIBE:{url}".encode()).hexdigest()
+            ok = auth.group(1) == hashlib.md5(f"{ha1}:n1:{ha2}".encode()).hexdigest()
+            code = "401 No" if not ok else ("200 OK" if path in ("/live/ch00_0", "/live/ch00_1") else "404 No")
+            c.sendall(f"RTSP/1.0 {code}\r\nCSeq: {cseq}\r\n\r\n".encode())
+        c.close()
+
+    def loop():
+        while True:
+            try:
+                c, _ = srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=handle, args=(c,), daemon=True).start()
+    threading.Thread(target=loop, daemon=True).start()
+    real = camprobe.describe
+    monkeypatch.setattr(camprobe, "open_ports", lambda ip, ports=None, timeout=1: [554, 8899])
+    monkeypatch.setattr(camprobe, "describe", lambda ip, p, path, u, pw: real(ip, port, path, u, pw))
+    r = camprobe.probe("127.0.0.1", "admin", "clave123", "Foco Sala")
+    assert r["found"]["family"].startswith("V380")
+    assert r["found"]["main"] == "rtsp://admin:clave123@127.0.0.1:554/live/ch00_0"
+    assert "clave123" not in r["found"]["main_masked"] and "••••" in r["found"]["main_masked"]
+    assert "{FRIGATE_FOCO_SALA_PASSWORD}" in r["frigate"] and "clave123" not in r["frigate"]
+    assert "foco_sala_sd" in r["frigate"]
+    assert any("iCSee" in n for n in r["notes"])              # 8899 abierto
+    r = camprobe.probe("127.0.0.1", "admin", "mala")
+    assert r["found"] is None and any("contraseña" in n for n in r["notes"])
+    monkeypatch.setattr(camprobe, "open_ports", lambda ip, ports=None, timeout=1: [6668, 80])
+    r = camprobe.probe("127.0.0.1")
+    assert any("Tuya" in n for n in r["notes"]) and r["found"] is None
+    srv.close()
+
+
+def test_classify_generic_cameras():
+    from netwatch.classify import classify
+    assert classify("", "", ["34567/tcp", "80/tcp"]) == "Cámara"          # iCSee / XMEye
+    assert classify("", "", ["8899/tcp"]) == "Cámara"                     # ONVIF Xiongmai
+    assert classify("", "V380-ABCD", []) == "Cámara"
+    assert classify("", "", ["22/tcp", "5000/tcp", "8554/tcp"]) == "Servidor"   # PC con Frigate
+    assert classify("", "", ["8554/tcp"]) == "Cámara"
+
+
+# ---------------------------------------------------------- Uptime Kuma
+def test_kuma_status_page_parse():
+    from netwatch import kuma
+    page = {"publicGroupList": [{"name": "Pi", "monitorList": [{"id": 1, "name": "AdGuard DNS", "type": "dns"},
+                                                               {"id": 2, "name": "Túnel VPS", "type": "ping"}]}]}
+    beats = {"heartbeatList": {"1": [{"status": 1, "ping": 3, "msg": "", "time": "t"}],
+                               "2": [{"status": 1}, {"status": 0, "msg": "timeout"}]},
+             "uptimeList": {"1_24": 1, "2_24": 0.95}}
+    ms = kuma.parse(page, beats)
+    assert [m["status_name"] for m in ms] == ["arriba", "caído"]
+    assert ms[1]["msg"] == "timeout" and ms[1]["history"] == [1, 0] and ms[1]["uptime_24h"] == 0.95
+    assert kuma.status("http://127.0.0.1:9", "homelab")["ok"] is False
+    assert "slug" in kuma.status("http://127.0.0.1:9", "")["error"]

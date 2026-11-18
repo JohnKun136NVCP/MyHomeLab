@@ -54,11 +54,14 @@ FIELDS: list[dict] = [
     {"group": "Vaultwarden", "key": "VW_SIGNUPS_ALLOWED", "label": "Permitir crear cuentas", "kind": "bool",
      "help": "Desactívalo en cuanto crees la tuya.", "restart": ["vaultwarden"]},
     {"group": "Vaultwarden", "key": "VW_DATA", "label": "Carpeta de datos",
-     "help": "Ideal en el disco USB. Respáldala.", "restart": ["vaultwarden"]},
+     "help": "En tu SSD. Entra en el respaldo semanal del homelab.", "restart": ["vaultwarden"]},
     {"group": "Vaultwarden", "key": "VW_ADMIN_TOKEN", "label": "Token de /vault/admin", "kind": "secret",
      "generate": True, "restart": ["vaultwarden"]},
     {"group": "Respaldos", "key": "BACKUPS_DIR", "label": "Carpeta de respaldos",
-     "help": "Monta ahí un disco USB (no la microSD).", "restart": ["bot"]},
+     "help": "Una carpeta en tu SSD, p. ej. /srv/respaldos.", "restart": ["bot"]},
+    {"group": "Respaldos", "key": "HOMELAB_BACKUP_PASSWORD", "label": "Contraseña del respaldo del homelab",
+     "kind": "secret", "help": "Cifra ./hl respaldo. Guárdala fuera de la Pi: sin ella no se restaura.",
+     "restart": []},
     {"group": "Redes sociales", "key": "META_PAGE_TOKEN", "label": "Token de página de Meta", "kind": "secret",
      "help": "docs/redes-sociales.md", "restart": ["bot"]},
     {"group": "Grafana", "key": "GRAFANA_ADMIN_PASSWORD", "label": "Contraseña inicial de admin", "kind": "secret",
@@ -78,12 +81,25 @@ YAML_FIELDS: list[dict] = [
      "help": "Control D familiar bloquea contenido para adultos, malware y anuncios para toda la casa."},
     {"group": "DNS de salida", "path": "dns.controld_resolver", "label": "ID de tu perfil de Control D",
      "help": "Solo con «Control D con tu perfil»: lo ves en controld.com → Endpoints (DoH: dns.controld.com/ESTE_ID)."},
-    {"group": "Reportes", "path": "reports.daily_time", "label": "Hora del reporte diario (HH:MM)"},
+    {"group": "Avisos", "path": "reports.daily_time", "label": "Hora del resumen diario (HH:MM)",
+     "help": "El bot te manda el resumen del día a esta hora."},
+    {"group": "Avisos", "path": "anomalies.quiet_hours", "label": "Horario de silencio", "kind": "range",
+     "help": "Ej. 23:00-07:00. Ahí solo llegan las alertas críticas con sonido; lo demás llega en silencio o espera."},
+    {"group": "Avisos", "path": "anomalies.notify_logins", "label": "Avisar inicios de sesión desde equipos nuevos",
+     "kind": "bool"},
+    {"group": "Avisos", "path": "services.status_page", "label": "Página de estado de Uptime Kuma (slug)",
+     "help": "En Uptime Kuma: Páginas de estado → Nueva → slug «homelab» y agrega tus monitores."},
     {"group": "Respaldos", "path": "backups.keep_per_device", "label": "Respaldos a guardar por equipo",
      "kind": "number"},
     {"group": "Respaldos", "path": "backups.max_age_days", "label": "Borrar respaldos con más de (días)",
      "kind": "number", "help": "0 = sin límite. Siempre se conserva el más reciente de cada equipo."},
     {"group": "Respaldos", "path": "backups.forward_to_telegram", "label": "Reenviarlos por Telegram", "kind": "bool"},
+    {"group": "Respaldo del homelab", "path": "homelab_backup.keep", "label": "Respaldos del homelab a guardar",
+     "kind": "number", "help": "Se hace uno cada domingo (8 = dos meses)."},
+    {"group": "Respaldo del homelab", "path": "homelab_backup.telegram", "label": "Mandármelo por Telegram",
+     "kind": "bool"},
+    {"group": "Respaldo del homelab", "path": "homelab_backup.vps", "label": "Copiar también al VPS",
+     "help": "usuario@ip:/carpeta (usa tu llave SSH). Vacío = no."},
     {"group": "Redes sociales", "path": "social.telegram_channel", "label": "Canal de Telegram",
      "help": "@tu_canal o -100…; el bot debe ser admin."},
     {"group": "Redes sociales", "path": "social.facebook_page_id", "label": "ID de la página de Facebook"},
@@ -222,10 +238,11 @@ def write_yaml(path: Path, data: dict) -> None:
 
 
 # --------------------------------------------------------------- aplicar
-def request_apply(services: list[str] | str = "all", force: list[str] | None = None) -> dict:
+def request_apply(services: list[str] | str = "all", force: list[str] | None = None,
+                  action: str = "apply") -> dict:
     if not RUN_DIR.exists():
         raise RuntimeError("Falta la carpeta run/ (corre scripts/install-apply-service.sh en la Pi)")
-    req = {"ts": time.time(), "services": services, "force": force or []}
+    req = {"ts": time.time(), "services": services, "force": force or [], "action": action}
     tmp = RUN_DIR / "apply-request.tmp"
     tmp.write_text(json.dumps(req))
     tmp.replace(RUN_DIR / "apply-request")

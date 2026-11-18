@@ -13,7 +13,9 @@ HOSTNAME_RULES = [
     (("iphone", "android", "galaxy", "redmi", "pixel", "moto", "huawei-", "oppo", "vivo-",
       "poco", "xiaomi-", "honor"), "Teléfono"),
     (("ipad", "tab-", "galaxy-tab", "fire-"), "Tablet"),
-    (("tapo", "c200", "c210", "c310", "imou", "ezviz", "ipc", "cam"), "Cámara"),
+    (("tapo", "c200", "c210", "c310", "imou", "ezviz", "ipc", "cam", "v380", "icsee", "xmeye",
+      "yoosee", "hi3518", "hi3516", "anyka", "ak39", "jooan", "sricam", "wificam", "bulb-cam",
+      "mvcam", "xm-", "ycc365", "carecam"), "Cámara"),
     (("tv", "roku", "chromecast", "firetv", "aft", "bravia", "webos", "tizen", "shield"),
      "TV / Streaming"),
     (("ps4", "ps5", "playstation", "xbox", "switch", "nintendo"), "Consola"),
@@ -49,7 +51,8 @@ def classify(vendor: str, hostname: str, ports: list[str], random_mac: bool = Fa
     if is_infra:
         return "Access Point / Router"
     # Los puertos son la pista más confiable
-    if "554" in pnums:  # RTSP
+    # RTSP / ONVIF / XMEye = cámara (8554 solo si no es un servidor con SSH, p. ej. Frigate)
+    if pnums & {"554", "10554", "8899", "34567"} or ("8554" in pnums and "22" not in pnums):
         return "Cámara"
     if pnums & {"631", "9100", "515"}:
         return "Impresora"

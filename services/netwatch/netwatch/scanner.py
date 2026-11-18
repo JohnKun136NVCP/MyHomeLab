@@ -128,11 +128,18 @@ def discover(cidr: str, iface: str) -> list[Host]:
     return list(by_mac.values())
 
 
+# Puertos que delatan qué es cada cosa (incluye los de cámaras genéricas: 8899 ONVIF y
+# 34567 de iCSee/XMEye, 10554 de algunas V380, 6668 de Tuya/Smart Life)
+SCAN_PORTS = ("21,22,23,25,53,80,81,88,110,111,135,139,143,443,445,515,548,554,631,993,995,1883,1900,"
+              "1925,3000,3306,3389,5000,5001,5357,5900,6668,7000,8000,8001,8002,8008,8009,8060,8080,"
+              "8081,8443,8554,8888,8899,9000,9090,9100,10554,34567,49152,62078")
+
+
 def port_scan(ip: str) -> list[str]:
-    """Puertos abiertos más comunes (nmap -F): ayuda a saber qué es el dispositivo."""
+    """Puertos abiertos que ayudan a saber qué es el dispositivo."""
     if not shutil.which("nmap"):
         return []
-    res = parse_nmap_xml(_run(["nmap", "-Pn", "-T4", "-F", "--open", "-oX", "-", ip], 180))
+    res = parse_nmap_xml(_run(["nmap", "-Pn", "-T4", "-p", SCAN_PORTS, "--open", "-oX", "-", ip], 180))
     return res[0].ports if res else []
 
 

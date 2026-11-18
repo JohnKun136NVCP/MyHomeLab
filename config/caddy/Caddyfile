@@ -1,6 +1,6 @@
 # Entrada única al homelab:  https://{$HOMELAB_HOST}
 # Certificado local de Caddy (la primera vez el navegador avisa; puedes instalar
-# la CA de Caddy en tus equipos: ver docs/respaldos.md, sección Certificado).
+# la CA de Caddy en tus equipos: ver docs/seguridad.md; se descarga en /ca.crt).
 {
 	admin off
 	# Al entrar por IP el navegador no manda SNI; sin esto Caddy (dentro de Docker)
@@ -25,6 +25,16 @@ https://{$HOMELAB_HOST}:443 {
 		}
 	}
 
+	# Panel de administración de Vaultwarden (invitar a la familia): además de su
+	# token, solo para administradores del dashboard
+	handle /vault/admin* {
+		forward_auth host.docker.internal:8000 {
+			uri /auth/check
+			copy_headers X-Homelab-User X-Homelab-Role
+		}
+		reverse_proxy vaultwarden:80
+	}
+
 	# Vaultwarden tiene su propio inicio de sesión (y las apps de Bitwarden no
 	# saben responder a la contraseña de Caddy), así que va sin basic_auth.
 	handle /vault* {
@@ -36,7 +46,7 @@ https://{$HOMELAB_HOST}:443 {
 	}
 
 	# Inicio de sesión del panel (página propia, con «Cerrar sesión»)
-	@public path /login /auth/login /auth/logout /static/*
+	@public path /login /auth/login /auth/logout /static/* /ca.crt
 	handle @public {
 		reverse_proxy host.docker.internal:8000
 	}
@@ -45,7 +55,7 @@ https://{$HOMELAB_HOST}:443 {
 		# Antes de cada página Caddy pregunta a netwatch si la cookie de sesión es válida
 		forward_auth host.docker.internal:8000 {
 			uri /auth/check
-			copy_headers X-Homelab-User
+			copy_headers X-Homelab-User X-Homelab-Role
 		}
 		handle /prometheus* {
 			reverse_proxy prometheus:9090

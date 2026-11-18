@@ -50,11 +50,22 @@ class BotApp:
         self._frigate_last: dict[str, float] = {}
 
     # ---------------------------------------------------------- utilidades
-    def notify(self, text: str) -> None:
+    def in_quiet_hours(self, now: dt.datetime | None = None) -> bool:
+        q = (self.cfg.get("anomalies", {}) or {}).get("quiet_hours")
+        if not q or len(q) != 2:
+            return False
+        tz = ZoneInfo((self.cfg.get("reports", {}) or {}).get("timezone", "America/Mexico_City"))
+        t = (now or dt.datetime.now(tz)).time()
+        s, e = dt.time.fromisoformat(q[0]), dt.time.fromisoformat(q[1])
+        return s <= t < e if s <= e else (t >= s or t < e)
+
+    def notify(self, text: str, urgent: bool = True) -> None:
+        """urgent=False en horario de silencio: llega igual, pero sin sonido."""
         if not self.owner or not text:
             return
         try:
-            self.tg.send_message(self.owner, text)
+            kw = {"disable_notification": True} if (not urgent and self.in_quiet_hours()) else {}
+            self.tg.send_message(self.owner, text, **kw)
         except TelegramError as e:
             log.error("No pude avisar: %s", e)
 
@@ -184,20 +195,26 @@ class BotApp:
     async def http_alert(self, request: Request):
         """Webhook de Alertmanager (solo llega desde la red interna de Docker)."""
         payload = await request.json()
-        await asyncio.to_thread(self.notify, formatting.alertmanager(payload))
+        urgent = any((a.get("labels") or {}).get("severity") == "critical" and a.get("status") != "resolved"
+                     for a in payload.get("alerts", []))
+        await asyncio.to_thread(self.notify, formatting.alertmanager(payload), urgent)
         return JSONResponse({"ok": True})
 
     async def http_notify(self, request: Request):
         if not self._internal_ok(request):
             return JSONResponse({"error": "no autorizado"}, 401)
         body = await request.json()
+        urgent = True
         if "events" in body:
             text = formatting.netwatch_events(body.get("events", []))
+            urgent = any(e.get("level") == "critical" for e in body.get("events", []))
         elif "heartbeat" in body or "monitor" in body or "msg" in body:      # webhook de Uptime Kuma
             text = formatting.uptime_kuma(body)
+            urgent = (body.get("heartbeat") or {}).get("status") == 0      # caído = con sonido
         else:
             text = esc(body.get("text", ""))
-        await asyncio.to_thread(self.notify, text)
+            urgent = not body.get("silent")
+        await asyncio.to_thread(self.notify, text, urgent)
         return JSONResponse({"ok": True})
 
     async def http_backup(self, request: Request):

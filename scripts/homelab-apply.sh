@@ -5,26 +5,46 @@
 #  También se puede correr a mano:  sudo ./scripts/homelab-apply.sh
 # ======================================================================
 set -uo pipefail
-cd "$(dirname "$0")/.."
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+# «Actualizar» hace git pull y puede cambiar este mismo archivo mientras corre:
+# bash lo lee poco a poco, así que trabajamos con una copia.
+if [[ -z "${HL_APPLY_COPY:-}" ]]; then
+  cp "$0" /tmp/homelab-apply.$$.sh
+  HL_APPLY_COPY=1 HL_REPO="$REPO" exec bash /tmp/homelab-apply.$$.sh "$@"
+fi
+trap 'rm -f "$0"' EXIT
+cd "${HL_REPO:-$REPO}"
 REQ=run/apply-request
 OUT=run/apply-result.json
 LOG=run/apply.log
 C=(docker compose -f hosts/pi/docker-compose.yml --env-file .env)
 
-services="all"; force=""
+services="all"; force=""; action="apply"
 if [[ -f "$REQ" ]]; then
-  read -r services force < <(python3 - "$REQ" <<'PY'
+  read -r services force action < <(python3 - "$REQ" <<'PY'
 import json, sys
 r = json.load(open(sys.argv[1]))
 s = r.get("services", "all")
-print("all" if s == "all" else ",".join(s) or "all", ",".join(r.get("force", [])) or "-")
+print("all" if s == "all" else ",".join(s) or "all", ",".join(r.get("force", [])) or "-",
+      r.get("action", "apply"))
 PY
 )
   [[ "$force" == "-" ]] && force=""
 fi
+owner="$(stat -c %U .)"
 start=$(date +%s)
 (
-  echo "== $(date '+%F %T') aplicar: servicios=${services} recrear=${force:-ninguno}"
+  echo "== $(date '+%F %T') ${action}: servicios=${services} recrear=${force:-ninguno}"
+  case "$action" in
+    revisar)
+      ./scripts/revisar.sh; exit 0 ;;
+    respaldo)
+      ./scripts/respaldo-homelab.sh; exit $? ;;
+    actualizar)
+      echo "   git pull (como $owner)"
+      sudo -u "$owner" git pull --ff-only || exit 1
+      git log -1 --format='   versión: %h %s' ;;
+  esac
   profiles="$(grep -E '^COMPOSE_PROFILES=' .env | tail -1 | cut -d= -f2- | tr -d '"'"'"' ')"
   echo "   perfiles activos: ${profiles:-ninguno}"
   # Apaga los servicios de los perfiles que desmarcaste

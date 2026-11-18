@@ -17,7 +17,7 @@ from homelab_common import http_json, prom_query, prom_range
 
 import ipaddress
 
-from . import acl, auth, metrics, scanner, settings as st, vpn
+from . import acl, auth, camprobe, kuma, metrics, scanner, settings as st, vpn
 from .inbound import service_name
 from .classify import ICONS, TYPES
 from .monitor import Monitor
@@ -30,6 +30,7 @@ RANGES = {"1h": (3600, 30), "6h": (21600, 120), "24h": (86400, 300), "7d": (6048
 def build_app(mon: Monitor) -> Starlette:
     db = mon.db
     cfg = mon.cfg
+    auth.bind(db)
     prom = os.environ.get("PROMETHEUS_URL", "http://127.0.0.1:9090/prometheus")
 
     async def index(_):
@@ -482,6 +483,9 @@ def build_app(mon: Monitor) -> Starlette:
         from .adguard import UPSTREAMS
         for f in st.YAML_FIELDS:
             item = {**f, "kind": f.get("kind", "text"), "value": st.yaml_get(data, f["path"])}
+            if item["kind"] == "range":
+                v = item["value"]
+                item["value"] = "-".join(v) if isinstance(v, list) and len(v) == 2 else ""
             if item.get("options") == "UPSTREAMS":
                 item["options"] = {k: v[0] for k, v in UPSTREAMS.items()}
                 item["value"] = item["value"] or ""
@@ -534,6 +538,14 @@ def build_app(mon: Monitor) -> Starlette:
                     return JSONResponse({"error": f"{f['label']}: debe ser un número"}, 400)
             elif f.get("kind") == "bool":
                 v = bool(v)
+            elif f.get("kind") == "range":
+                txt = str(v or "").replace(" ", "")
+                if not txt:
+                    v = None
+                elif re.match(r"^\d{2}:\d{2}-\d{2}:\d{2}$", txt):
+                    v = txt.split("-")
+                else:
+                    return JSONResponse({"error": f"{f['label']}: escribe por ejemplo 23:00-07:00"}, 400)
             if p == "reports.daily_time" and v and not re.match(r"^\d{2}:\d{2}$", str(v)):
                 return JSONResponse({"error": "La hora del reporte va como HH:MM"}, 400)
             old = st.yaml_get(data, p)
@@ -610,10 +622,14 @@ def build_app(mon: Monitor) -> Starlette:
 
     async def auth_check(request: Request):
         """Caddy (forward_auth) pregunta aquí antes de cada página del panel."""
-        user = auth.check_token(request.cookies.get(auth.COOKIE, ""))
-        if user:
-            return PlainTextResponse("ok", headers={"X-Homelab-User": user})
+        ses = auth.session(request.cookies.get(auth.COOKIE, ""))
         uri = request.headers.get("x-forwarded-uri", "/")
+        if ses:
+            if not auth.allowed(ses["role"], request.headers.get("x-forwarded-method", "GET"), uri):
+                return JSONResponse({"error": "Tu cuenta es de solo lectura: pídele al administrador "
+                                              "que haga este cambio"}, 403)
+            return PlainTextResponse("ok", headers={"X-Homelab-User": ses["user"],
+                                                    "X-Homelab-Role": ses["role"]})
         if uri.startswith(("/api/", "/prometheus/api/", "/metrics")):
             return JSONResponse({"error": "Sesión cerrada o caducada: vuelve a entrar"}, 401)
         from urllib.parse import quote
@@ -635,13 +651,16 @@ def build_app(mon: Monitor) -> Starlette:
         if auth.too_many(ip):
             return await login_page(request, "Demasiados intentos. Espera 10 minutos.", 429)
         form = {k: v[0] for k, v in parse_qs((await request.body()).decode(errors="replace")).items()}
-        user, hashed = auth.credentials()
-        if not hashed:
-            return await login_page(request, "No hay contraseña configurada: en la Pi corre ./scripts/gen-secrets.sh y luego: sudo docker compose -f hosts/pi/docker-compose.yml restart netwatch", 503)
-        if form.get("user") == user and auth.verify_password(form.get("password", ""), hashed):
+        main_user, main_hash = auth.credentials()
+        has_users = bool(db.q("SELECT 1 FROM users LIMIT 1"))
+        if not main_hash and not has_users:
+            return await login_page(request, "No hay contraseña configurada: en la Pi corre ./hl contraseña", 503)
+        acc = auth.authenticate(form.get("user", "").strip(), form.get("password", ""))
+        if acc:
             auth.clear_fails(ip)
+            note_login(acc, ip)
             r = RedirectResponse(auth.safe_next(form.get("next", "/")), 303)
-            r.set_cookie(auth.COOKIE, auth.make_token(user), max_age=auth.TTL, httponly=True,
+            r.set_cookie(auth.COOKIE, auth.make_token(acc["user"]), max_age=auth.TTL, httponly=True,
                          secure=True, samesite="lax", path="/")
             return r
         n = auth.record_fail(ip)
@@ -655,8 +674,163 @@ def build_app(mon: Monitor) -> Starlette:
         r.delete_cookie(auth.COOKIE, path="/")
         return r
 
+    def note_login(acc: dict, ip: str) -> None:
+        """Guarda desde dónde entra cada quien y avisa por Telegram si es una IP nueva."""
+        now = time.time()
+        user = acc["user"]
+        seen = db.q("SELECT 1 FROM login_ips WHERE username=? AND ip=?", (user, ip))
+        first_ever = not db.q("SELECT 1 FROM login_ips WHERE username=?", (user,))
+        db.x("INSERT INTO login_ips (username, ip, first, last) VALUES (?,?,?,?) "
+             "ON CONFLICT(username, ip) DO UPDATE SET last=excluded.last", (user, ip, now, now))
+        if not acc["main"]:
+            db.x("UPDATE users SET last_login=?, last_ip=? WHERE username=?", (now, ip, user))
+        if not seen and (cfg.get("anomalies", {}) or {}).get("notify_logins", True):
+            dev = db.q("SELECT name, hostname, vendor FROM devices WHERE ip=? ORDER BY last_seen DESC LIMIT 1", (ip,))
+            who = (dev[0].get("name") or dev[0].get("hostname") or dev[0].get("vendor")) if dev else ""
+            db.add_event("info" if first_ever else "warning", "login_new_ip",
+                         f"{user} entró al panel desde {'un equipo nuevo' if not first_ever else 'su primer equipo'}",
+                         f"IP {ip}" + (f" ({who})" if who else " (no está en tu lista de dispositivos)")
+                         + ". Si no fue esa persona, cambia su contraseña en Ajustes → Cuentas.", ip)
+
     async def me(request: Request):
-        return JSONResponse({"user": auth.check_token(request.cookies.get(auth.COOKIE, ""))})
+        ses = auth.session(request.cookies.get(auth.COOKIE, ""))
+        if not ses:
+            return JSONResponse({"user": None})
+        return JSONResponse({**ses, "role_name": auth.ROLES.get(ses["role"], ses["role"])})
+
+    async def me_password(request: Request):
+        ses = auth.session(request.cookies.get(auth.COOKIE, ""))
+        if not ses:
+            return JSONResponse({"error": "Sesión caducada"}, 401)
+        b = await request.json()
+        if not auth.authenticate(ses["user"], str(b.get("current", ""))):
+            return JSONResponse({"error": "La contraseña actual no es correcta"}, 400)
+        new = str(b.get("new", ""))
+        if len(new) < 8:
+            return JSONResponse({"error": "Usa al menos 8 caracteres"}, 400)
+        h = st.hash_password(new)
+        if ses["main"]:
+            st.write_env({"WEB_PASSWORD_HASH": h})
+        else:
+            db.x("UPDATE users SET hash=? WHERE username=?", (h, ses["user"]))
+        r = JSONResponse({"ok": True})        # nueva cookie: la vieja ya no vale
+        r.set_cookie(auth.COOKIE, auth.make_token(ses["user"]), max_age=auth.TTL, httponly=True,
+                     secure=True, samesite="lax", path="/")
+        return r
+
+    # ------------------------------------------------------------ cuentas
+    USER_RE = re.compile(r"^[a-zA-Z0-9._-]{2,32}$")
+
+    async def users_list(_):
+        main_user, _h = auth.credentials()
+        rows = db.q("SELECT username, role, created, last_login, last_ip FROM users ORDER BY username")
+        ips = db.q("SELECT username, COUNT(*) n, MAX(last) last FROM login_ips GROUP BY username")
+        by = {r["username"]: r for r in ips}
+        main = {"username": main_user, "role": "admin", "main": True,
+                "last_login": (by.get(main_user) or {}).get("last")}
+        return JSONResponse({"users": [main] + [{**r, "main": False, "devices": (by.get(r["username"]) or {}).get("n", 0)}
+                                                for r in rows],
+                             "roles": auth.ROLES})
+
+    async def users_save(request: Request):
+        b = await request.json()
+        name = str(b.get("username", "")).strip()
+        role = b.get("role", "familia")
+        if not USER_RE.match(name):
+            return JSONResponse({"error": "Usuario de 2 a 32 letras, números, punto, guion o guion bajo"}, 400)
+        if role not in auth.ROLES:
+            return JSONResponse({"error": "Rol inválido"}, 400)
+        if name == auth.credentials()[0]:
+            return JSONResponse({"error": "Ese es el usuario principal: cámbialo en «Mi cuenta»"}, 400)
+        pw = str(b.get("password", ""))
+        exists = db.q("SELECT 1 FROM users WHERE username=?", (name,))
+        if not exists and len(pw) < 8:
+            return JSONResponse({"error": "Pon una contraseña de al menos 8 caracteres"}, 400)
+        if pw and len(pw) < 8:
+            return JSONResponse({"error": "Usa al menos 8 caracteres"}, 400)
+        if exists:
+            db.x("UPDATE users SET role=? WHERE username=?", (role, name))
+            if pw:
+                db.x("UPDATE users SET hash=? WHERE username=?", (st.hash_password(pw), name))
+        else:
+            db.x("INSERT INTO users (username, hash, role, created) VALUES (?,?,?,?)",
+                 (name, st.hash_password(pw), role, time.time()))
+        return JSONResponse({"ok": True, "created": not exists})
+
+    async def users_delete(request: Request):
+        name = request.path_params["name"]
+        db.x("DELETE FROM users WHERE username=?", (name,))
+        db.x("DELETE FROM login_ips WHERE username=?", (name,))
+        return JSONResponse({"ok": True})
+
+    async def logins(_):
+        return JSONResponse({"logins": db.q("SELECT * FROM login_ips ORDER BY last DESC LIMIT 100")})
+
+    async def camera_probe(request: Request):
+        """Busca la ruta RTSP de una cámara genérica (foco 360°, mini cámara WiFi)."""
+        import asyncio
+        b = await request.json()
+        ip = str(b.get("ip", "")).strip()
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            return JSONResponse({"error": "Escribe la IP de la cámara (ej. 192.168.1.40)"}, 400)
+        res = await asyncio.to_thread(camprobe.probe, ip, str(b.get("user") or "admin"),
+                                      str(b.get("password") or ""), str(b.get("name") or ""))
+        if res.get("found"):
+            mac = scanner.neigh_mac(ip) or ""
+            dev = db.device(mac) if mac else None
+            if dev and dev["display_type"] != "Cámara" and not dev.get("type_manual"):
+                db.x("UPDATE devices SET type_manual='Cámara' WHERE mac=?", (mac,))
+            res["mac"] = mac
+        return JSONResponse(res)
+
+    async def services_status(_):
+        import asyncio
+        sv = cfg.get("services", {}) or {}
+        return JSONResponse(await asyncio.to_thread(kuma.status, sv.get("uptime_kuma_url", "http://127.0.0.1:3001"),
+                                                    sv.get("status_page", "homelab")))
+
+    # ------------------------------------------------------------ sistema
+    SYSTEM_ACTIONS = {"actualizar": "Actualizar desde GitHub", "revisar": "Revisar el homelab",
+                      "respaldo": "Respaldar el homelab"}
+
+    async def system_get(_):
+        rev = {}
+        f = st.RUN_DIR / "revisar.json"
+        if f.exists():
+            try:
+                import json as _json
+                rev = _json.loads(f.read_text())
+            except ValueError:
+                rev = {}
+        bk = {}
+        f = st.RUN_DIR / "homelab-backup.json"
+        if f.exists():
+            try:
+                import json as _json
+                bk = _json.loads(f.read_text())
+            except ValueError:
+                bk = {}
+        return JSONResponse({"apply": st.apply_status(), "revisar": rev, "backup": bk,
+                             "actions": SYSTEM_ACTIONS,
+                             "ca": (st.RUN_DIR / "homelab-ca.crt").exists()})
+
+    async def system_action(request: Request):
+        act = request.path_params["action"]
+        if act not in SYSTEM_ACTIONS:
+            return JSONResponse({"error": "acción desconocida"}, 404)
+        try:
+            req = st.request_apply("all", [], action=act)
+        except RuntimeError as e:
+            return JSONResponse({"error": str(e)}, 400)
+        return JSONResponse({"ok": True, "request": req})
+
+    async def ca_cert(_):
+        f = st.RUN_DIR / "homelab-ca.crt"
+        if not f.exists():
+            return PlainTextResponse("Aún no está el certificado: en la Pi corre ./hl ca", 404)
+        return FileResponse(f, media_type="application/x-x509-ca-cert", filename="homelab-ca.crt")
 
     # ------------------------------------------------------------------ VPN
     def vps_monitored(data: dict, hub_ip: str) -> bool:
@@ -763,6 +937,14 @@ def build_app(mon: Monitor) -> Starlette:
         Route("/auth/check", auth_check), Route("/login", login_get),
         Route("/auth/login", login_post, methods=["POST"]),
         Route("/auth/logout", logout, methods=["GET", "POST"]), Route("/api/me", me),
+        Route("/api/me/password", me_password, methods=["POST"]),
+        Route("/api/users", users_list), Route("/api/users", users_save, methods=["POST"]),
+        Route("/api/users/logins", logins),
+        Route("/api/users/{name}", users_delete, methods=["DELETE"]),
+        Route("/api/services", services_status),
+        Route("/api/cameras/probe", camera_probe, methods=["POST"]),
+        Route("/api/system", system_get), Route("/api/system/{action}", system_action, methods=["POST"]),
+        Route("/ca.crt", ca_cert),
         Route("/api/vpn", vpn_get), Route("/api/vpn/client", vpn_client, methods=["POST"]),
         Route("/api/vpn/client/{cid:int}", vpn_client_delete, methods=["DELETE"]),
         Route("/api/vpn/monitor", vpn_monitor, methods=["POST"]),

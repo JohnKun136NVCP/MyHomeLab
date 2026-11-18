@@ -18,6 +18,9 @@ putv() {
   cat "$tmp" > .env && rm -f "$tmp"
 }
 
+# --web-password: vuelve a pedir la contraseña de la web aunque ya exista
+if [[ "${1:-}" == "--web-password" ]]; then putv WEB_PASSWORD_HASH ""; fi
+
 rand() { openssl rand -base64 33 | tr -d '/+=\n' | cut -c1-40; }
 setv() {  # setv CLAVE valor  (solo si está vacía o con el valor de ejemplo)
   local k="$1" v="$2" cur
@@ -30,6 +33,8 @@ setv() {  # setv CLAVE valor  (solo si está vacía o con el valor de ejemplo)
 
 setv INTERNAL_TOKEN "$(rand)"
 setv GRAFANA_ADMIN_PASSWORD "$(rand | cut -c1-20)"
+grep -q '^HOMELAB_BACKUP_PASSWORD=' .env || NEW_BK_PASS=1
+setv HOMELAB_BACKUP_PASSWORD "$(rand | cut -c1-32)"
 grep -q '^VW_ADMIN_TOKEN=' .env || echo 'VW_ADMIN_TOKEN=' >> .env
 setv VW_ADMIN_TOKEN "$(rand)$(rand)"
 # Un token por cada dispositivo de config/homelab.yml
@@ -50,12 +55,13 @@ if ! grep -qE '^WEB_PASSWORD_HASH=.+' .env; then
     echo "  Docker aún no está instalado: la contraseña de la web se pedirá al final de install-pi.sh"
   else
     while :; do
-      read -r -s -p "Contraseña para entrar a la web del homelab: " pw; echo
-      read -r -s -p "Repítela: " pw2; echo
+      read -r -s -p "Contraseña para entrar a la web del homelab: " pw || { echo; echo "  (sin terminal: corre ./hl contraseña después)"; break; }; echo
+      read -r -s -p "Repítela: " pw2 || { pw=""; break; }; echo
       [[ -n "$pw" && "$pw" == "$pw2" ]] && break
       echo "  No coinciden o está vacía; otra vez."
     done
-    if h="$("${DOCKER[@]}" run --rm caddy:2-alpine caddy hash-password --plaintext "$pw")" && [[ "$h" == \$2* ]]; then
+    if [[ -z "${pw:-}" ]]; then :
+    elif h="$("${DOCKER[@]}" run --rm caddy:2-alpine caddy hash-password --plaintext "$pw")" && [[ "$h" == \$2* ]]; then
       putv WEB_PASSWORD_HASH "${h//\$/\$\$}"
       if grep -qE '^WEB_PASSWORD_HASH=\$\$2' .env; then
         echo "  WEB_PASSWORD_HASH guardado (usuario: $(grep -E '^WEB_USER=' .env | cut -d= -f2- || true))"
@@ -71,5 +77,11 @@ fi
 grep -qE '^WEB_USER=.+' .env || putv WEB_USER admin
 echo
 echo "Listo. Revisa .env (token del bot, TELEGRAM_ALLOWED_IDS, HOMELAB_HOST) y config/homelab.yml"
+if [[ -n "${NEW_BK_PASS:-}" ]]; then
+  echo
+  echo "🔐 Contraseña de los respaldos del homelab (guárdala en Vaultwarden Y en papel; sin ella"
+  echo "   no podrás restaurar si la Pi se muere):"
+  echo "     $(grep -E '^HOMELAB_BACKUP_PASSWORD=' .env | cut -d= -f2-)"
+fi
 echo "Tokens de respaldo para tus dispositivos:"
 grep '^BACKUP_TOKEN_' .env

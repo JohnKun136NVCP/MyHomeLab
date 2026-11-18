@@ -2,36 +2,50 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
 <title>MyHomeLab</title>
 <link rel="stylesheet" href="/static/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡</text></svg>">
 </head>
 <body>
-<header>
-  <div class="brand">🛡 <b>MyHomeLab</b> <span id="mode" class="pill"></span></div>
+<div class="topbar">
+  <button id="menu" class="icon-btn" aria-label="Menú" aria-controls="side" aria-expanded="false">☰</button>
+  <b class="topbar-title" id="title">MyHomeLab</b>
+  <span id="mode-m" class="pill"></span>
+</div>
+<div id="scrim" hidden></div>
+<aside id="side">
+  <div class="brand">🛡 <b>MyHomeLab</b><span id="mode" class="pill"></span></div>
   <nav id="tabs">
-    <a href="#inicio">Inicio</a>
-    <a href="#resumen">Resumen</a>
-    <a href="#dispositivos">Dispositivos</a>
-    <a href="#trafico">Tráfico</a>
-    <a href="#conexiones">Conexiones</a>
-    <a href="#ap">Por AP</a>
-    <a href="#mapa">Mapa</a>
-    <a href="#camaras">Cámaras</a>
-    <a href="#accesos">Accesos</a>
-    <a href="#vpn">VPN</a>
-    <a href="#acl">ACL</a>
-    <a href="#eventos">Eventos</a>
-    <a href="#ajustes">⚙ Ajustes</a>
+    <div class="nav-group">Red</div>
+    <a href="#inicio"><i>🏠</i>Inicio</a>
+    <a href="#resumen"><i>📊</i>Resumen</a>
+    <a href="#dispositivos"><i>💻</i>Dispositivos</a>
+    <a href="#trafico"><i>📈</i>Tráfico</a>
+    <a href="#conexiones" data-admin><i>🔌</i>Conexiones</a>
+    <a href="#ap"><i>📡</i>Por AP</a>
+    <a href="#mapa"><i>🗺</i>Mapa</a>
+    <div class="nav-group">Casa</div>
+    <a href="#camaras"><i>📷</i>Cámaras</a>
+    <a href="#servicios"><i>🧩</i>Servicios</a>
+    <a href="#accesos"><i>🔗</i>Accesos</a>
+    <div class="nav-group" data-admin>Seguridad</div>
+    <a href="#eventos"><i>🔔</i>Eventos</a>
+    <a href="#acl" data-admin><i>⛔</i>ACL</a>
+    <a href="#vpn" data-admin><i>🔐</i>VPN</a>
+    <div class="nav-group" data-admin>Administración</div>
+    <a href="#sistema" data-admin><i>🛠</i>Sistema</a>
+    <a href="#cuentas" data-admin><i>👥</i>Cuentas</a>
+    <a href="#ajustes" data-admin><i>⚙</i>Ajustes</a>
   </nav>
-  <form method="post" action="/auth/logout" class="logout">
-    <span id="me" class="muted small"></span>
-    <button type="submit" title="Cerrar sesión">⎋ Salir</button>
-  </form>
-</header>
+  <div class="side-foot">
+    <a href="#cuenta" class="me"><span class="avatar" id="avatar">?</span><span><b id="me">…</b><br><span class="muted small" id="role"></span></span></a>
+    <form method="post" action="/auth/logout"><button type="submit" class="icon-btn" title="Cerrar sesión">⎋</button></form>
+  </div>
+</aside>
 <main id="view"></main>
-<div id="toast"></div>
+<div id="toast" role="status"></div>
 <script src="/static/app.js"></script>
 </body>
 </html>

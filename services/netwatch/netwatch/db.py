@@ -59,6 +59,18 @@ CREATE TABLE IF NOT EXISTS vpn_clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT, iface TEXT, ip TEXT, public_key TEXT, created REAL
 );
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    hash     TEXT NOT NULL,
+    role     TEXT NOT NULL DEFAULT 'familia',      -- admin | familia
+    created  REAL,
+    last_login REAL,
+    last_ip  TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS login_ips (
+    username TEXT, ip TEXT, first REAL, last REAL,
+    PRIMARY KEY (username, ip)
+);
 CREATE TABLE IF NOT EXISTS ip_history (
     ip   TEXT,
     mac  TEXT,

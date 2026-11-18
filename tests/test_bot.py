@@ -324,3 +324,27 @@ def test_uptime_kuma_webhook(bot):
     assert wait(lambda: any("Uptime Kuma Testing" in t for t in sent_texts()))
     code, _ = http(bot, "POST", "/notify", json.dumps(down).encode(), {"Content-Type": "application/json"})
     assert code == 401
+
+
+def test_quiet_hours_silent(bot):
+    import datetime as dt
+    bot.cfg.setdefault("anomalies", {})["quiet_hours"] = ["23:00", "07:00"]
+    tz = __import__("zoneinfo").ZoneInfo("America/Mexico_City")
+    assert bot.in_quiet_hours(dt.datetime(2026, 11, 18, 2, 0, tzinfo=tz))
+    assert not bot.in_quiet_hours(dt.datetime(2026, 11, 18, 12, 0, tzinfo=tz))
+    bot.in_quiet_hours = lambda now=None: True          # de noche
+    hdr = {"Authorization": "Bearer interno", "Content-Type": "application/json"}
+    up = {"heartbeat": {"status": 1, "msg": "OK"}, "monitor": {"name": "Silencioso"}}
+    down = {"heartbeat": {"status": 0, "msg": "x"}, "monitor": {"name": "Urgente"}}
+    http(bot, "POST", "/notify", json.dumps(up).encode(), hdr)
+    http(bot, "POST", "/notify", json.dumps(down).encode(), hdr)
+
+    def body(name):
+        for m, p, b in Fake.calls:
+            if p.endswith("/sendMessage") and name in json.loads(b)["text"]:
+                return json.loads(b)
+    assert wait(lambda: body("Silencioso") and body("Urgente"))
+    assert body("Silencioso").get("disable_notification") is True     # llega sin sonido
+    assert not body("Urgente").get("disable_notification")            # caído: con sonido
+    del bot.in_quiet_hours
+    bot.cfg["anomalies"].pop("quiet_hours")

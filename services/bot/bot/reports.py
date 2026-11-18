@@ -140,6 +140,55 @@ def cameras_block(cfg: dict) -> str:
     return f"📷 <b>Cámaras (24 h)</b>: {body}\n"
 
 
+def services_block() -> str:
+    try:
+        s = _netwatch("/api/services")
+    except RuntimeError:
+        return ""
+    if not s.get("ok"):
+        return f"🧩 <b>Servicios</b>: {esc(s.get('error', 'sin datos'))}\n"
+    mons = s.get("monitors", [])
+    if not mons:
+        return ""
+    down = [m for m in mons if m.get("status") == 0]
+    low = [m for m in mons if m.get("status") == 1 and (m.get("uptime_24h") or 1) < 0.99]
+    lines = [f"🧩 <b>Servicios</b>: {s.get('up', 0)}/{len(mons)} arriba"]
+    for m in down:
+        lines.append(f"  🔴 {esc(m['name'])}: {esc(m.get('msg') or 'caído')}")
+    for m in low:
+        lines.append(f"  🟡 {esc(m['name'])}: {m['uptime_24h'] * 100:.1f}% arriba en 24 h")
+    return "\n".join(lines) + "\n"
+
+
+def dns_block() -> str:
+    try:
+        d = _netwatch("/api/dns")
+    except RuntimeError:
+        return ""
+    if not d.get("enabled"):
+        return ""
+    q, b = d.get("queries"), d.get("blocked")
+    if not q:
+        return ""
+    return (f"🧱 <b>DNS (24 h)</b>: {q:,} consultas · {b or 0:,} bloqueadas "
+            f"({(b or 0) / q * 100:.0f}%)\n").replace(",", " ")
+
+
+def new_devices_block() -> str:
+    try:
+        devs = _netwatch("/api/devices")
+    except RuntimeError:
+        return ""
+    devs = devs.get("devices", devs) if isinstance(devs, dict) else devs
+    day = time.time() - 86400
+    new = [d for d in devs or [] if (d.get("first_seen") or 0) >= day]
+    if not new:
+        return ""
+    names = ", ".join(esc(d.get("display_name") or d.get("hostname") or d.get("vendor") or d.get("ip") or "?")
+                      for d in new[:10])
+    return f"🆕 <b>Nuevos en la red</b>: {names}" + (f" y {len(new) - 10} más" if len(new) > 10 else "") + "\n"
+
+
 def alerts_block() -> str:
     firing = _by('ALERTS{alertstate="firing"}', "alertname")
     if not firing:
@@ -149,5 +198,6 @@ def alerts_block() -> str:
 
 def daily_report(cfg: dict, backups) -> str:
     return "\n".join([f"📋 <b>Reporte del homelab</b> · {time.strftime('%d/%m/%Y %H:%M')}\n",
-                      home_block(), vps_block(), nodes_block(), alerts_block(),
+                      home_block(), new_devices_block(), services_block(), dns_block(),
+                      vps_block(), nodes_block(), alerts_block(),
                       cameras_block(cfg), backups_block(backups)])

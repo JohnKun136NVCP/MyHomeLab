@@ -46,6 +46,12 @@ flowchart LR
 | Laboratorio CCNA | Containerlab con OSPF y ejercicios | [lab/](lab/README.md) |
 | Streaming propio | Jellyfin en la PC | `hosts/server` |
 | VPN | Reutiliza tu túnel WireGuard Pi ↔ VPS; wg-easy opcional para teléfono/laptop | [VPN](docs/vpn.md) |
+| Cuentas para toda la casa | Web → **Cuentas**: tú administrador, la familia solo ve; aviso por Telegram si alguien entra desde un equipo nuevo | [seguridad](docs/seguridad.md) |
+| Firewall y SSH con llave | `./hl firewall --solo-llave`: SSH solo desde tus 3 equipos del laboratorio y solo con llave | [seguridad](docs/seguridad.md) |
+| Respaldo del propio homelab | `./hl respaldo` cifrado (cada domingo): SSD + Telegram (+ VPS); `./hl restaurar` en una Pi nueva | [respaldos](docs/respaldos.md#respaldo-del-homelab) |
+| Diagnóstico y actualizar | `./hl revisar` / `./hl actualizar`, o Web → **Sistema** | [hl](#el-comando-hl) |
+| Estado de servicios y resumen diario | Web → **Servicios** (Uptime Kuma), resumen por Telegram a tu hora, horario de silencio | [servicios](docs/servicios.md) |
+| Cámaras genéricas (foco 360°) | Web → Cámaras → «Detectar cámara genérica» (iCSee, V380, Yoosee, CamHi) | [cámaras](docs/camaras.md#cámaras-genéricas-foco-360) |
 
 ## Instalación
 
@@ -60,9 +66,26 @@ Antes de terminar edita:
 - `config/homelab.yml`: tu red (`cidr`, `gateway`), las IP de tus 2 AP Tenda y del módem,
   tus dispositivos de respaldo y las redes sociales.
 
-Luego `docker compose -f hosts/pi/docker-compose.yml --env-file .env up -d` cada vez que cambies algo.
+Luego `./hl actualizar` (o `./hl up -d`) cada vez que cambies algo a mano; desde la web, Ajustes → «Guardar y aplicar».
 
-Entra a **https://IP-de-la-Pi** (usuario/contraseña de `.env`). Grafana está en `/grafana/`.
+Entra a **https://IP-de-la-Pi:PUERTO** con usuario `admin` y la contraseña que pusiste. Grafana está en `/grafana/`.
+
+#### El comando `hl`
+Atajo dentro del repo (siempre con `--env-file .env`, sin avisos `WARN`):
+
+| Comando | Qué hace |
+|---|---|
+| `./hl estado` | contenedores y si están sanos |
+| `./hl revisar` | diagnóstico completo con el arreglo de cada problema |
+| `./hl actualizar` | `git pull` + reconstruye + levanta |
+| `./hl reiniciar [svc]` / `./hl logs [svc]` | reiniciar / ver bitácora |
+| `./hl firewall [--solo-llave]` | reglas de UFW y SSH solo con llave |
+| `./hl respaldo` / `./hl restaurar ARCHIVO` | respaldo cifrado del homelab |
+| `./hl contraseña` | nueva contraseña del admin de la web |
+| `./hl ca` | certificado de Caddy para instalar en tus equipos |
+| `./hl <lo que sea>` | se pasa a `docker compose` (`ps`, `exec`, `pull`…) |
+
+Tip: `echo "alias hl='~/MyHomeLab/hl'" >> ~/.bashrc` y lo usas desde cualquier carpeta.
 
 > Tu servidor Bot API debe correr con `--local` y su carpeta de datos estar en
 > `TELEGRAM_API_DATA`: así el bot lee los archivos de hasta 2 GB que le mandas desde el
@@ -71,9 +94,11 @@ Entra a **https://IP-de-la-Pi** (usuario/contraseña de `.env`). Grafana está e
 
 ### 2. PC Linux (cámaras y streaming)
 ```bash
-docker compose -f hosts/server/docker-compose.yml --env-file .env up -d
+git clone https://github.com/JohnKun136NVCP/MyHomeLab && cd MyHomeLab
+./scripts/install-server.sh
 ```
-Pon la IP de la PC en `infrastructure.nodes`, `cameras.frigate_url` y `links` de `homelab.yml`.
+Instala Docker, detecta tu GPU, levanta Frigate + Jellyfin + métricas, pone el firewall,
+se registra sola en la Pi y programa su respaldo semanal. Detalles en [docs/servidor.md](docs/servidor.md).
 
 ### 3. VPS
 ```bash

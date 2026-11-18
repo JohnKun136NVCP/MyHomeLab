@@ -34,11 +34,35 @@ Cada equipo solo necesita su script (no el repo completo). Una vez configurado:
 
 ## Certificado
 La web usa un certificado local de Caddy. Los clientes funcionan sin instalarlo (no
-verifican), pero es mejor copiar la CA y ponerla en cada cliente (`ca` / `CA` /
-«Certificado CA»):
+verifican), pero es mejor ponerlo en cada cliente (`ca` / `CA` / «Certificado CA»):
+`./hl ca` en la Pi y luego descárgalo desde el dashboard (Sistema → Descargar certificado,
+o `https://IP-de-la-Pi:PUERTO/ca.crt`). Cómo instalarlo en cada sistema: [seguridad](seguridad.md#certificado-del-homelab).
+
+## Respaldo del homelab
+Además de respaldar tus computadoras, el homelab se respalda a sí mismo (si la SSD o la Pi
+mueren, lo restauras en minutos):
+
+| Incluye | No incluye |
+|---|---|
+| `.env`, `config/`, Vaultwarden, cuentas y dispositivos del dashboard, bot (publicaciones programadas), AdGuard, Uptime Kuma, Grafana, certificado de Caddy | los respaldos de tus equipos (ya son respaldos), historial de Prometheus, multimedia ya publicada |
+
 ```bash
-docker compose -f hosts/pi/docker-compose.yml cp caddy:/data/caddy/pki/authorities/local/root.crt .
+./hl respaldo                                   # ahora (o dashboard → Sistema → Respaldar ahora)
+sudo ./scripts/respaldo-homelab.sh --instalar   # cada domingo 04:30
 ```
+- Va **cifrado** (AES-256) con `HOMELAB_BACKUP_PASSWORD` del `.env`; `gen-secrets.sh` la
+  genera y te la muestra una vez. **Guárdala en Vaultwarden y en papel**: sin ella no se abre.
+- Se guarda en `BACKUPS_DIR/homelab` (tu SSD), te llega por Telegram y, si pones
+  `homelab_backup.vps: usuario@ip:/carpeta`, también al VPS. Se quedan los últimos 8.
+- Pausa 2–3 s Vaultwarden, Uptime Kuma, netwatch, bot y Grafana para copiar sus bases sin dañarlas.
+
+**Restaurar** (Pi nueva o SSD nueva):
+```bash
+git clone https://github.com/JohnKun136NVCP/MyHomeLab && cd MyHomeLab
+./scripts/install-pi.sh         # o solo instala Docker
+./hl restaurar ~/homelab-raspberrypi-20261122-0430.tar.gz.enc
+```
+Antes de pisar algo guarda lo actual en `run/antes-de-restaurar-FECHA/`.
 
 ## Recordatorio
 Windows (tarea cada 12 semanas), macOS (launchd, cada mes revisa 90 días), Android

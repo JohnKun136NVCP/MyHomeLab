@@ -34,8 +34,8 @@ network:
 infrastructure:
   modem:
     name: Módem
-    ip: 192.168.1.1
-    admin_url: http://192.168.1.1
+    ip: 192.168.1.254
+    admin_url: http://192.168.1.254
   access_points:
     # Router de otra red: «network» = su red, «ip» = su IP en esa red,
     # «wan_ip» = la IP que le dio el módem (si la Pi no está en su red, se le hace ping por ahí)
@@ -119,6 +119,7 @@ anomalies:
   notify_new_devices: true
   quarantine_unknown: false     # true = bloquea en automático lo desconocido (solo modo puente)
   quiet_hours: ["01:00", "07:00"]  # avisos no urgentes se juntan para el reporte diario
+  notify_logins: true           # avisa cuando alguien entra al dashboard desde un equipo nuevo
 
 reports:
   daily_time: "09:00"
@@ -146,3 +147,27 @@ social:
   facebook_page_id: ""          # ID numérico de la página de tu empresa
   instagram_user_id: ""         # ID de la cuenta Business ligada a esa página
   telegram_channel: ""          # @tu_canal o -100xxxxxxxxxx (el bot debe ser admin)
+
+# Firewall de la Pi:  ./hl firewall   (y ./hl firewall --solo-llave para SSH sin contraseña)
+firewall:
+  lan_networks: [192.168.1.0/24, 192.168.100.0/24]   # quién abre el dashboard y usa el DNS
+  ssh:
+    interface: wlan0            # SSH solo por la red del laboratorio
+    allow:                      # tus 3 equipos (pon IP fija en la Tenda del laboratorio)
+      - {ip: 192.168.100.10, nombre: laptop}
+      - {ip: 192.168.100.11, nombre: pc-lab}
+      - {ip: 192.168.100.12, nombre: tablet}
+  extra: []                     # reglas tuyas, ej. ["allow 8090/tcp comment nginx"]
+
+# Respaldo cifrado del homelab:  ./hl respaldo   (programado: sudo ./scripts/respaldo-homelab.sh --instalar)
+homelab_backup:
+  dir: ""                       # vacío = BACKUPS_DIR/homelab (tu SSD)
+  keep: 8                       # cuántos guardar (uno por semana = 2 meses)
+  telegram: true                # mandártelo por el bot (si pesa menos de 1.9 GB)
+  vps: ""                       # opcional: usuario@ip-vps:/ruta  (usa tu llave SSH)
+
+# Estado de servicios en el dashboard (pestaña Servicios) desde Uptime Kuma:
+# en Uptime Kuma crea una «Página de estado» con slug «homelab» y agrega tus monitores.
+services:
+  uptime_kuma_url: http://127.0.0.1:3001
+  status_page: homelab

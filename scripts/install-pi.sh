@@ -43,17 +43,24 @@ sudo ./scripts/install-apply-service.sh
 say "Levantando servicios"
 sudo docker compose -f hosts/pi/docker-compose.yml --env-file .env up -d --build
 
+say "Respaldo semanal cifrado del homelab"
+sudo ./scripts/respaldo-homelab.sh --instalar || true
+sleep 5; ./hl ca >/dev/null 2>&1 || true
+
 HOST="$(grep '^HOMELAB_HOST=' .env | cut -d= -f2)"
+PORT="$(grep '^HTTPS_PORT=' .env | cut -d= -f2)"; PORT="${PORT:-443}"
 cat <<EOF
 
 ✅ MyHomeLab está arriba.
-   Web:      https://$HOST        (usuario y contraseña de .env)
-   Grafana:  https://$HOST/grafana/  (admin / GRAFANA_ADMIN_PASSWORD)
+   Web:      https://$HOST:$PORT        (usuario $(grep '^WEB_USER=' .env | cut -d= -f2 || echo admin) y la contraseña que pusiste)
+   Grafana:  https://$HOST:$PORT/grafana/  (admin / GRAFANA_ADMIN_PASSWORD)
 
 Siguientes pasos (ver README):
-  • Certificado: instala la CA de Caddy en tus equipos para quitar el aviso:
-      sudo docker compose -f hosts/pi/docker-compose.yml cp caddy:/data/caddy/pki/authorities/local/root.crt .
-  • IDS:  sudo docker compose -f hosts/pi/docker-compose.yml --env-file .env --profile ids up -d
+  • ./hl revisar                   diagnóstico con el arreglo de cada cosa
+  • ./hl firewall --solo-llave     SSH solo desde tus equipos del laboratorio y con llave (docs/seguridad.md)
+  • Certificado: descárgalo en https://$HOST:$PORT/ca.crt e instálalo en tus equipos
+  • Cuentas de la familia: dashboard → Cuentas
+  • IDS:  dashboard → Ajustes → Servicios → ids
   • VPS:  pon VPN_VPS_IP (IP del VPS en tu túnel) y el nodo «vps» en homelab.yml (docs/vpn.md)
   • Ver todo el tráfico y bloquear (ACL): docs/modo-puente.md
 EOF
