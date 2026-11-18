@@ -4,7 +4,8 @@
 | Rol | Qué puede |
 |---|---|
 | **Administrador** | todo |
-| **Familia (solo ver)** | Inicio, Resumen, Dispositivos, Tráfico, Por AP, Mapa, Cámaras, Servicios, Accesos y Eventos. No cambia nada, no ve Ajustes, VPN, ACL, Conexiones, Sistema ni `/vault/admin` |
+| **Ve registros** (tú lo das) | todo en modo lectura: Resumen, Dispositivos, Tráfico, Conexiones, Mapa, Eventos… y recibe las alertas del bot si vincula su Telegram. No ve Ajustes, VPN, ACL, Sistema, Cuentas ni `/vault/admin` |
+| **Familia** | solo **Mis respaldos**, Cámaras, Servicios y Accesos. Recibe únicamente los avisos de sus propios respaldos ([respaldos de la familia](respaldos-familia.md)) |
 
 - La cuenta **principal** es la del `.env` (`WEB_USER`, normalmente `admin`). Su contraseña
   se cambia en **Mi cuenta** (clic en tu nombre abajo a la izquierda) o con `./hl contraseña`.

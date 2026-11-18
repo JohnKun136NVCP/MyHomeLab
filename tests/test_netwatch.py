@@ -603,9 +603,17 @@ def test_roles_and_family_accounts(tmp_path, monkeypatch):
     assert auth.authenticate("admin", "admin-pw")["main"] is True
     tok = auth.make_token("mama", now=1000)
     assert auth.session(tok, now=2000) == {"user": "mama", "role": "familia", "main": False}
-    # Familia: puede ver, no puede cambiar ni abrir lo sensible
-    assert auth.allowed("familia", "GET", "/api/devices")
-    assert auth.allowed("familia", "GET", "/#dispositivos")
+    # Familia: solo lo suyo (respaldos, cámaras, servicios); nada de registros
+    assert not auth.allowed("familia", "GET", "/api/devices")
+    assert not auth.allowed("familia", "GET", "/api/events")
+    assert auth.allowed("familia", "GET", "/api/my/backups")
+    assert auth.allowed("familia", "POST", "/api/my/devices")
+    assert auth.allowed("familia", "GET", "/#dispositivos")            # la página; la API la frena
+    # «registros»: ve todo en lectura, nada de configuración
+    assert auth.allowed("registros", "GET", "/api/devices")
+    assert auth.allowed("registros", "GET", "/api/inbound")
+    assert not auth.allowed("registros", "GET", "/api/settings")
+    assert not auth.allowed("registros", "PATCH", "/api/devices/aa:bb")
     assert not auth.allowed("familia", "PATCH", "/api/devices/aa:bb")
     assert not auth.allowed("familia", "GET", "/api/settings")
     assert not auth.allowed("familia", "GET", "/api/vpn")
@@ -671,7 +679,7 @@ def test_users_api_and_login_alert(tmp_path, monkeypatch):
     code, h, _ = req("GET", "/auth/check", headers={"Cookie": cookie, "X-Forwarded-Uri": "/api/settings",
                                                     "X-Forwarded-Method": "GET"})
     assert code == 403
-    code, h, _ = req("GET", "/auth/check", headers={"Cookie": cookie, "X-Forwarded-Uri": "/api/devices"})
+    code, h, _ = req("GET", "/auth/check", headers={"Cookie": cookie, "X-Forwarded-Uri": "/api/my/backups"})
     assert code == 200 and h["x-homelab-role"] == "familia"
     me = json.loads(req("GET", "/api/me", headers={"Cookie": cookie})[2])
     assert me["role"] == "familia" and me["user"] == "mama"
@@ -685,7 +693,7 @@ def test_users_api_and_login_alert(tmp_path, monkeypatch):
     code, h, b = req("POST", "/api/me/password", json.dumps({"current": "secreta123", "new": "nuevaclave1"}), {**js, "Cookie": cookie})
     assert code == 200 and "hl_session=" in h["set-cookie"]
     assert db.q("SELECT hash FROM users WHERE username='mama'")[0]["hash"] == "H:nuevaclave1"
-    code, _, _ = req("GET", "/auth/check", headers={"Cookie": cookie, "X-Forwarded-Uri": "/api/devices"})
+    code, _, _ = req("GET", "/auth/check", headers={"Cookie": cookie, "X-Forwarded-Uri": "/api/my/backups"})
     assert code == 401                                           # la cookie vieja ya no sirve
     assert req("DELETE", "/api/users/mama")[0] == 200
     server.should_exit = True

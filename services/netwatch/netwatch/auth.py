@@ -45,13 +45,17 @@ def _unb64(s: str) -> bytes:
 
 # Base de datos de netwatch (cuentas de la familia). La pone build_app().
 _db = None
-ROLES = {"admin": "Administrador", "familia": "Familia (solo ver)"}
-# Lo que la familia NO puede abrir: configuración, VPN, firewall, accesos, sistema
-FAMILY_DENY = ("/api/settings", "/api/apply", "/api/vpn", "/api/acl", "/api/users", "/api/system",
-               "/api/inbound", "/api/lookup", "/api/cameras/probe", "/prometheus", "/metrics",
-               "/vault/admin")
-# Lo único que la familia puede cambiar: su propia contraseña
-FAMILY_WRITE_OK = ("/api/me/password",)
+ROLES = {"admin": "Administrador", "registros": "Ve registros y alertas (sin cambiar nada)",
+         "familia": "Familia (sus respaldos)"}
+# «registros»: ve todo en modo lectura y recibe las alertas del bot, menos esto
+REG_DENY = ("/api/settings", "/api/apply", "/api/vpn", "/api/acl", "/api/users", "/api/system",
+            "/api/lookup", "/api/cameras/probe", "/prometheus", "/metrics", "/vault/admin", "/internal")
+# «familia»: solo sus respaldos, cámaras, servicios y enlaces (allowlist)
+FAMILY_ALLOW = ("/api/me", "/api/my/", "/api/services", "/api/cameras", "/api/links")
+FAMILY_DENY = REG_DENY + ("/api/inbound",)     # compatibilidad (pruebas y otros módulos)
+# Lo único que alguien sin rol admin puede cambiar: su cuenta y sus respaldos
+FAMILY_WRITE_OK = ("/api/me/password", "/api/my/")
+CAN_SEE_LOGS = ("admin", "registros")
 
 
 def bind(db) -> None:
@@ -114,10 +118,15 @@ def allowed(role: str, method: str, uri: str) -> bool:
     if role == "admin":
         return True
     path = (uri or "/").split("?", 1)[0]
-    if path.startswith(FAMILY_DENY):
+    if path.startswith("/internal") or path.startswith("/api/cameras/probe"):
         return False
     if method.upper() not in ("GET", "HEAD", "OPTIONS"):
         return path.startswith(FAMILY_WRITE_OK)
+    if role == "registros":
+        return not path.startswith(REG_DENY)
+    # familia: páginas y estáticos sí; de la API solo lo suyo
+    if path.startswith(("/api/", "/prometheus", "/metrics", "/vault/admin")):
+        return path.startswith(FAMILY_ALLOW) and not path.startswith("/api/cameras/probe")
     return True
 
 

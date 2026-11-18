@@ -35,3 +35,16 @@ bot actual ya las lee, este chocará con él. Opciones:
 
 Los avisos no urgentes esperan al final de `anomalies.quiet_hours`; los críticos llegan siempre.
 El reporte diario sale a `reports.daily_time`.
+
+
+## Cuentas de la casa en el bot
+Solo `TELEGRAM_ALLOWED_IDS` (tú) puede usar todos los comandos. Las demás personas se vinculan
+desde el dashboard (Mis respaldos → «Vincular mi Telegram», o `/vincular 123456`):
+
+| Rol de la cuenta | Qué puede en el bot |
+|---|---|
+| Familia | `/misrespaldos`, `/desvincular`, mandar fotos/archivos (se guardan en **su** respaldo) y recibir los avisos de **sus** respaldos |
+| Ve registros | lo anterior + alertas, reporte diario, fotos de cámaras y `/estado /reporte /vps /dispositivos /nuevos /eventos /conexiones /dns /camaras /foto` |
+
+Nadie más que tú puede bloquear, programar publicaciones ni cambiar nada. Un chat que no está
+vinculado sigue sin recibir respuesta (y a ti te llega «🚫 Alguien intentó usar tu bot»).

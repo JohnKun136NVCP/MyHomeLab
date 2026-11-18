@@ -196,6 +196,7 @@ async function chartCard(el, title, q, range) {
 /* ------------------------------------------------------------------ vistas */
 const views = {
   async inicio() {
+    if (!LOGS) return views.inicioFamilia();
     view.innerHTML = `<div class="toolbar"><h2 class="grow">Hola${ME ? ", " + esc(ME.user) : ""} 👋</h2>
       ${ADMIN ? '<a href="#sistema"><button>🛠 Sistema</button></a>' : ""}</div>
       <div class="grid" id="kpis"></div>
@@ -241,6 +242,148 @@ const views = {
         ${t.status === true ? ' <span class="dot on" title="responde"></span>' : t.status === false ? ' <span class="dot off" title="no responde"></span>' : ""}
         <div class="muted small">${esc(t.desc || "")}</div></div></a>`).join("")}</div>`).join("")
       + (ADMIN ? `<p class="muted small" style="margin-top:16px">¿Falta algo? Agrega enlaces en Ajustes → editor avanzado (sección <span class="mono">links</span>).</p>` : "");
+  },
+
+  async inicioFamilia() {
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Hola${ME ? ", " + esc(ME.user) : ""} 👋</h2></div>
+      <div class="grid" id="kpis"></div>
+      <div class="section-title">Atajos</div>
+      <div class="links">
+        <a class="link" href="#respaldos"><span class="i">📦</span><div><b>Mis respaldos</b><div class="muted small">Tus equipos, subir fotos y archivos</div></div></a>
+        <a class="link" href="#camaras"><span class="i">📷</span><div><b>Cámaras</b><div class="muted small">Ver la casa</div></div></a>
+        <a class="link" href="#servicios"><span class="i">🧩</span><div><b>Servicios</b><div class="muted small">¿Funciona todo?</div></div></a>
+        <a class="link" href="#cuenta"><span class="i">👤</span><div><b>Mi cuenta</b><div class="muted small">Cambiar tu contraseña</div></div></a>
+      </div>`;
+    const [b, v] = await Promise.all([api("/api/my/backups").catch(() => null), api("/api/services").catch(() => null)]);
+    const last = b ? Math.max(0, ...b.devices.map((d) => d.last || 0)) : 0;
+    $("#kpis").innerHTML = `
+      <a class="card kpi" href="#respaldos"><span class="l">Tu último respaldo</span><span class="v" style="font-size:22px">${last ? ago(last) : "nunca"}</span>
+        <span class="muted small">${b ? b.devices.length + " equipo(s)" : ""}</span></a>
+      <a class="card kpi" href="#respaldos"><span class="l">Avisos nuevos</span><span class="v">${b ? b.notices.filter((n) => !n.seen).length : "—"}</span><span class="muted small">en Mis respaldos</span></a>
+      <a class="card kpi" href="#respaldos"><span class="l">Telegram</span><span class="v" style="font-size:22px">${b?.telegram ? "✅" : "—"}</span><span class="muted small">${b?.telegram ? "vinculado" : "sin vincular"}</span></a>
+      <a class="card kpi" href="#servicios"><span class="l">Servicios</span><span class="v">${v?.ok ? `${v.up}/${v.monitors.length}` : "—"}</span><span class="muted small">${v?.ok ? (v.down ? v.down + " caído(s)" : "todo arriba") : ""}</span></a>`;
+  },
+
+  async respaldos() {
+    const j = await api("/api/my/backups");
+    const OSI = { windows: "🪟", linux: "🐧", macos: "🍎", web: "🌐", telegram: "✈", android: "📱" };
+    const unread = j.notices.filter((n) => !n.seen).length;
+    const devCard = (d) => `<div class="card dev" data-dev="${esc(d.name)}">
+      <h3><span style="font-size:20px">${OSI[d.os] || "💾"}</span> <span style="color:var(--text)">${esc(d.label || d.name)}</span>
+        <span class="pill">${esc(d.name)}</span> ${d.last ? `<span class="pill ok">último ${ago(d.last)}</span>` : '<span class="pill warn">sin respaldos</span>'}</h3>
+      <p class="small muted">${d.count ? `${d.count} archivo(s) · ${bytes(d.size)}` : "Todavía no llega nada."}
+        ${d.clave && !["web", "telegram"].includes(d.os) ? ` · contraseña para restaurar: <span class="mono" data-clave="${esc(d.clave)}">••••••</span> <a href="#" data-show>ver</a>` : ""}</p>
+      ${d.setup ? setupBox(d) : ""}
+      ${d.files?.length ? `<details><summary class="small">Archivos (${d.files.length})</summary><div class="table-wrap"><table>
+        ${d.files.map((f) => `<tr><td class="small ellipsis" style="max-width:340px" title="${esc(f.name)}">${esc(f.name)}</td><td class="small nowrap">${bytes(f.size)}</td>
+          <td class="small nowrap">${ago(f.ts)}</td><td>${d.legacy ? "" : `<a href="/api/my/devices/${encodeURIComponent(d.name)}/files/${f.id}" download><button>⬇</button></a>`}</td></tr>`).join("")}</table></div></details>` : ""}
+      ${d.legacy || ["web", "telegram"].includes(d.os) ? "" : `<div class="toolbar" style="margin:10px 0 0">
+        ${d.setup ? "" : '<button data-newlink>🔗 Nuevo enlace de instalación</button>'}
+        <button class="danger" data-delete>Quitar equipo</button></div>`}</div>`;
+    const setupBox = (d) => d.os === "windows"
+      ? `<div class="banner info"><b>Instalar en la computadora Windows</b> (enlace válido hasta ${fmtTime(d.setup.expires)}):<ol style="margin:6px 0 0 18px;padding:0">
+          <li>En esa computadora abre este dashboard y descarga: <a href="${esc(d.setup.windows)}"><b>Respaldo-${esc(d.name)}.cmd</b></a></li>
+          <li>Ábrelo con doble clic. Si Windows dice «protegió su PC»: <i>Más información → Ejecutar de todas formas</i>.</li>
+          <li>Listo: hace el primer respaldo y luego se repite solo cada 4 semanas.</li></ol></div>`
+      : `<div class="banner info"><b>Instalar en ${d.os === "macos" ? "la Mac" : "la computadora Linux"}</b> (válido hasta ${fmtTime(d.setup.expires)}):
+          abre la <b>Terminal</b> en esa computadora, pega esto y presiona Enter:
+          <pre class="mono small" style="user-select:all;white-space:pre-wrap;margin:8px 0">${esc(d.setup.unix)}</pre>
+          <button data-copy="${esc(d.setup.unix)}">Copiar</button> Hace el primer respaldo y luego se repite solo cada 4 semanas.</div>`;
+    const linked = j.telegram;
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Mis respaldos</h2></div>
+      <div class="grid2">
+        <div class="card"><h3>📤 Subir desde este equipo</h3>
+          <p class="small muted">Para el <b>celular</b> (Android o iPhone) o cualquier computadora, sin instalar nada: elige fotos, videos o documentos y se guardan en la Pi.</p>
+          <div class="toolbar" style="margin:0">
+            <label class="btn primary"><input type="file" id="upf" multiple hidden>📷 Elegir fotos y archivos</label>
+            <label class="btn"><input type="file" id="upd" webkitdirectory multiple hidden>📁 Elegir una carpeta</label></div>
+          <div id="upbox"></div>
+          <p class="small muted" style="margin-top:8px">Se borran solos después de ${j.max_age_days || "—"} días: descarga lo que quieras conservar.</p></div>
+        <div class="card"><h3>➕ Respaldar una computadora automáticamente</h3>
+          <p class="small muted">Elige su sistema: te doy un instalador ya configurado. Respalda Documentos, Escritorio e Imágenes, cifrado con una contraseña que solo tú ves aquí.</p>
+          <div class="toolbar" style="margin:0"><input id="dlabel" placeholder="nombre, ej. laptop de mamá">
+            <button data-add="windows">🪟 Windows</button><button data-add="linux">🐧 Linux</button><button data-add="macos">🍎 Mac</button></div></div>
+      </div>
+      <div class="section-title">Tus equipos</div>
+      <div class="grid2" id="devs">${j.devices.map(devCard).join("") || '<div class="card muted">Aún no tienes equipos. Sube algo desde aquí o agrega una computadora.</div>'}</div>
+      <div class="grid2" style="margin-top:var(--gap)">
+        <div class="card"><h3>✈ Avisos por Telegram</h3>
+          ${linked ? `<p>✅ Vinculado: <b>${esc(linked.name || "tu Telegram")}</b>. Ahí te llegan los avisos de <b>tus</b> respaldos${LOGS ? " y las alertas del homelab" : ""}, y puedes mandarle fotos y archivos al bot para guardarlos.</p>
+              <button class="danger" id="tgoff">Desvincular</button>`
+            : `<p class="small muted">Opcional. Si no usas Telegram, los avisos te aparecen aquí abajo.</p>
+              <button class="primary" id="tgon">Vincular mi Telegram</button><div id="tgbox"></div>`}</div>
+        <div class="card"><h3>🔔 Avisos ${unread ? `<span class="pill warn">${unread} nuevo(s)</span>` : ""}</h3>
+          ${j.notices.length ? j.notices.map((n) => `<div class="ev"><span>${n.level === "ok" ? "✅" : n.level === "warning" ? "⚠" : "ℹ"}</span>
+            <span class="t">${fmtTime(n.ts)}</span><div class="${n.seen ? "muted" : ""}">${esc(n.text)}</div></div>`).join("") : '<p class="muted">Sin avisos todavía.</p>'}</div>
+      </div>`;
+    if (unread) api("/api/my/notices/seen", { method: "POST" }).then(() => setUnread(0)).catch(() => {});
+    // --- equipos
+    view.querySelectorAll("[data-add]").forEach((b) => b.onclick = async () => {
+      try {
+        await api("/api/my/devices", { method: "POST", body: JSON.stringify({ os: b.dataset.add, label: $("#dlabel").value.trim() }) });
+        toast("Equipo agregado: sigue las instrucciones"); views.respaldos();
+      } catch (e) { toast(e.message); }
+    });
+    view.querySelectorAll(".dev").forEach((c) => {
+      const name = c.dataset.dev;
+      c.querySelector("[data-show]")?.addEventListener("click", (e) => {
+        e.preventDefault(); const sp = c.querySelector("[data-clave]"); sp.textContent = sp.dataset.clave; e.target.remove();
+      });
+      c.querySelector("[data-newlink]")?.addEventListener("click", async () => {
+        await api(`/api/my/devices/${encodeURIComponent(name)}/setup`, { method: "POST" }); views.respaldos();
+      });
+      c.querySelector("[data-delete]")?.addEventListener("click", async () => {
+        if (!confirm(`¿Quitar ${name}? Ya no podrá subir respaldos.`)) return;
+        const r = await api(`/api/my/devices/${encodeURIComponent(name)}`, { method: "DELETE" }); toast(r.note); views.respaldos();
+      });
+      c.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => navigator.clipboard?.writeText(b.dataset.copy).then(() => toast("Copiado")));
+    });
+    // --- Telegram
+    $("#tgoff")?.addEventListener("click", async () => { await api("/api/my/telegram", { method: "DELETE" }); views.respaldos(); });
+    $("#tgon")?.addEventListener("click", async () => {
+      const r = await api("/api/my/telegram", { method: "POST" });
+      const link = r.bot ? `https://t.me/${r.bot}?start=${r.code}` : "";
+      $("#tgbox").innerHTML = `<div class="banner info" style="margin-top:10px">
+        ${link ? `<p><a href="${esc(link)}" target="_blank" rel="noopener"><button class="primary">Abrir Telegram</button></a> y presiona <b>Iniciar</b>.</p><p class="small">O mándale al bot${r.bot ? ` <b>@${esc(r.bot)}</b>` : ""}:</p>` : "<p>Mándale al bot del homelab:</p>"}
+        <pre class="mono" style="user-select:all;margin:4px 0">/vincular ${esc(r.code)}</pre><span class="small">El código sirve ${r.minutes} minutos.</span></div>`;
+    });
+    // --- subida desde el navegador
+    const upload = async (files) => {
+      if (!files.length) return;
+      const box = $("#upbox");
+      const { device, token } = await api("/api/my/web-token", { method: "POST" });
+      const session = "web-" + Date.now(), total = [...files].reduce((s, f) => s + f.size, 0);
+      let done = 0, ok = 0, fail = 0;
+      const used = new Set();
+      box.innerHTML = `<div style="margin-top:12px"><div class="progress"><i style="width:0%"></i></div>
+        <p class="small" id="upmsg">Preparando ${files.length} archivo(s), ${bytes(total)}…</p></div>`;
+      const bar = box.querySelector(".progress i"), msg = $("#upmsg");
+      const put = (path, body, extra = {}) => new Promise((res) => {
+        const x = new XMLHttpRequest();
+        x.open("PUT", `/api/backup/${encodeURIComponent(device)}/${encodeURIComponent(path)}`);
+        x.setRequestHeader("Authorization", "Bearer " + token);
+        x.setRequestHeader("X-Backup-Session", session);
+        Object.entries(extra).forEach(([k, v]) => x.setRequestHeader(k, v));
+        x.upload.onprogress = (e) => { bar.style.width = ((done + e.loaded) / Math.max(1, total) * 100).toFixed(1) + "%"; };
+        x.onload = () => res(x.status === 200); x.onerror = () => res(false);
+        x.send(body);
+      });
+      for (const f of files) {
+        let n = (f.webkitRelativePath || f.name).replaceAll("/", "__");
+        for (let i = 2; used.has(n); i++) n = n.replace(/(\.[^.]*)?$/, `_${i}$1`);
+        used.add(n);
+        msg.textContent = `Subiendo ${ok + fail + 1} de ${files.length}: ${f.name}`;
+        (await put(n, f, { "X-Backup-Batch": "1" })) ? ok++ : fail++;
+        done += f.size;
+      }
+      await put("__fin__", "");
+      bar.style.width = "100%";
+      msg.innerHTML = fail ? `⚠ Subí ${ok} y fallaron ${fail}. Revisa tu conexión y vuelve a intentar con los que faltan.`
+        : `✅ Listo: ${ok} archivo(s), ${bytes(total)} guardados en la Pi.`;
+      setTimeout(() => views.respaldos(), 2500);
+    };
+    $("#upf").onchange = (e) => upload(e.target.files);
+    $("#upd").onchange = (e) => upload(e.target.files);
   },
 
   async servicios() {
@@ -317,24 +460,26 @@ const views = {
 
   async cuentas() {
     const j = await api("/api/users");
-    const roleSel = (r) => `<select data-role>${Object.entries(j.roles).map(([k, l]) => `<option value="${k}" ${k === r ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+    const roleSel = (r) => `<select data-role style="max-width:280px">${Object.entries(j.roles).map(([k, l]) => `<option value="${k}" ${k === r ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
     view.innerHTML = `<div class="toolbar"><h2 class="grow">Cuentas de la casa</h2></div>
-      <div class="banner info">👨‍👩‍👧 <b>Familia</b> ve Inicio, dispositivos, tráfico, mapa, cámaras, servicios y eventos, pero no puede cambiar nada.
-        <b>Administrador</b> puede todo. Cada quien entra con su usuario; te llega aviso por Telegram si alguien entra desde un equipo nuevo.</div>
-      <div class="grid2">
-        <div class="card flush"><table class="cards"><thead><tr><th>Usuario</th><th>Rol</th><th>Último acceso</th><th></th></tr></thead><tbody>
+      <div class="banner info">👨‍👩‍👧 <b>Familia</b>: solo sus respaldos, cámaras y servicios; los avisos de sus respaldos le llegan solo a esa persona.
+        <b>Ve registros</b>: además ve dispositivos, tráfico, conexiones y eventos, y recibe las alertas del bot (sin poder cambiar nada).
+        <b>Administrador</b>: todo. Te llega aviso por Telegram si alguien entra desde un equipo nuevo.</div>
+      <div class="card flush"><table class="cards"><thead><tr><th>Usuario</th><th>Rol</th><th>Último acceso</th><th></th></tr></thead><tbody>
           ${j.users.map((u) => `<tr data-user="${esc(u.username)}"><td><b>${esc(u.username)}</b>${u.main ? ' <span class="pill ok">principal</span>' : ""}</td>
             <td data-l="Rol">${u.main ? "Administrador" : roleSel(u.role)}</td>
             <td data-l="Último acceso" class="small">${u.last_login ? ago(u.last_login) + (u.last_ip ? ` · <span class="mono">${esc(u.last_ip)}</span>` : "") : "nunca"}</td>
             <td>${u.main ? '<a href="#cuenta" class="small">cambiar contraseña</a>' : `<div class="acts"><button data-pw title="Nueva contraseña">🔑</button><button class="danger" data-del title="Borrar">🗑</button></div>`}</td></tr>`).join("")}
         </tbody></table></div>
+      <div class="grid2">
         <div class="card"><h3>➕ Nueva cuenta</h3>
           <div class="frow"><label for="nu">Usuario</label><div><input id="nu" autocomplete="off" placeholder="mama, papa, hermana…"></div></div>
           <div class="frow"><label for="np">Contraseña</label><div><input id="np" type="password" autocomplete="new-password" placeholder="mínimo 8 caracteres"></div></div>
           <div class="frow"><label>Rol</label><div id="nr">${roleSel("familia")}</div></div>
           <button class="primary" id="nadd">Crear cuenta</button></div>
-      </div>
-      <div class="card"><h3>Equipos desde los que han entrado</h3><div id="logins" class="muted">Cargando…</div></div>`;
+
+        <div class="card"><h3>Equipos desde los que han entrado</h3><div id="logins" class="muted">Cargando…</div></div>
+      </div>`;
     $("#nadd").onclick = async () => {
       try {
         await api("/api/users", { method: "POST", body: JSON.stringify({ username: $("#nu").value.trim(), password: $("#np").value, role: $("#nr select").value }) });
@@ -957,12 +1102,13 @@ function treeSVG(root, onlyOnline) {
 }
 
 /* ------------------------------------------------------------------ router */
-let ADMIN = true, ME = null;
+let ADMIN = true, LOGS = true, ME = null;
 const TITLES = { inicio: "Inicio", resumen: "Resumen", dispositivos: "Dispositivos", trafico: "Tráfico",
   conexiones: "Conexiones", ap: "Por AP", mapa: "Mapa", camaras: "Cámaras", servicios: "Servicios",
   accesos: "Accesos", eventos: "Eventos", acl: "ACL", vpn: "VPN", sistema: "Sistema", cuentas: "Cuentas",
-  ajustes: "Ajustes", cuenta: "Mi cuenta" };
-const ADMIN_ONLY = ["conexiones", "acl", "vpn", "sistema", "cuentas", "ajustes"];
+  ajustes: "Ajustes", cuenta: "Mi cuenta", respaldos: "Mis respaldos" };
+const ADMIN_ONLY = ["acl", "vpn", "sistema", "cuentas", "ajustes"];
+const LOGS_ONLY = ["resumen", "dispositivos", "trafico", "conexiones", "ap", "mapa", "eventos"];
 const setNav = (open) => {
   document.body.classList.toggle("nav-open", open);
   $("#scrim").hidden = !open;
@@ -977,7 +1123,7 @@ async function route() {
   setNav(false);
   let name = (location.hash || "#inicio").slice(1).split("?")[0];
   if (!views[name]) name = "inicio";
-  if (!ADMIN && ADMIN_ONLY.includes(name)) name = "inicio";
+  if ((!ADMIN && ADMIN_ONLY.includes(name)) || (!LOGS && LOGS_ONLY.includes(name))) name = "inicio";
   document.querySelectorAll("#tabs a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + name));
   $("#title").textContent = TITLES[name] || "MyHomeLab";
   document.title = `${TITLES[name] || "Inicio"} · MyHomeLab`;
@@ -997,13 +1143,16 @@ async function route() {
 window.addEventListener("hashchange", route);
 api("/api/me", { noRedirect: true }).then((m) => {
   if (m.user) {
-    ME = m; ADMIN = m.role === "admin";
+    ME = m; ADMIN = m.role === "admin"; LOGS = !!m.logs;
     $("#me").textContent = m.user; $("#role").textContent = m.role_name || m.role;
     $("#avatar").textContent = m.user.slice(0, 1).toUpperCase();
     document.querySelectorAll("[data-admin]").forEach((el) => { el.hidden = !ADMIN; });
+    document.querySelectorAll("[data-logs]").forEach((el) => { el.hidden = !LOGS; });
+    setUnread(m.unread);
   }
 }).catch(() => {}).finally(route);
-api("/api/summary").then((s) => {
+function setUnread(n) { const b = $("#unread"); if (b) { b.hidden = !n; b.textContent = n || ""; } }
+api("/api/summary", { noRedirect: true }).then((s) => {
   const t = s.bridge_mode ? `puente · ${s.interface}` : `pasivo · ${s.interface}`;
   ["#mode", "#mode-m"].forEach((id) => { $(id).textContent = t; $(id).className = "pill " + (s.bridge_mode ? "ok" : ""); });
 }).catch(() => {});

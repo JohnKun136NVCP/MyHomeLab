@@ -17,7 +17,7 @@ from homelab_common import http_json, prom_query, prom_range
 
 import ipaddress
 
-from . import acl, auth, camprobe, kuma, metrics, scanner, settings as st, vpn
+from . import acl, auth, camprobe, kuma, respaldos, metrics, scanner, settings as st, vpn
 from .inbound import service_name
 from .classify import ICONS, TYPES
 from .monitor import Monitor
@@ -696,7 +696,9 @@ def build_app(mon: Monitor) -> Starlette:
         ses = auth.session(request.cookies.get(auth.COOKIE, ""))
         if not ses:
             return JSONResponse({"user": None})
-        return JSONResponse({**ses, "role_name": auth.ROLES.get(ses["role"], ses["role"])})
+        unread = db.q("SELECT COUNT(*) n FROM notices WHERE username=? AND seen=0", (ses["user"],))[0]["n"]
+        return JSONResponse({**ses, "role_name": auth.ROLES.get(ses["role"], ses["role"]),
+                             "logs": ses["role"] in auth.CAN_SEE_LOGS, "unread": unread})
 
     async def me_password(request: Request):
         ses = auth.session(request.cookies.get(auth.COOKIE, ""))
@@ -761,6 +763,8 @@ def build_app(mon: Monitor) -> Starlette:
         name = request.path_params["name"]
         db.x("DELETE FROM users WHERE username=?", (name,))
         db.x("DELETE FROM login_ips WHERE username=?", (name,))
+        for t in ("telegram_links", "notices", "link_codes", "backup_devices"):
+            db.x(f"DELETE FROM {t} WHERE {'owner' if t == 'backup_devices' else 'username'}=?", (name,))
         return JSONResponse({"ok": True})
 
     async def logins(_):
@@ -954,4 +958,5 @@ def build_app(mon: Monitor) -> Starlette:
     async def bad_request(_request, exc):
         return JSONResponse({"error": f"Petición inválida: {exc}"}, 400)
 
+    routes[1:1] = respaldos.routes(db, mon)
     return Starlette(routes=routes, exception_handlers={ValueError: bad_request})

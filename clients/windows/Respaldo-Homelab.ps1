@@ -14,13 +14,15 @@
   .\Respaldo-Homelab.ps1 -Programar      # tarea programada cada 12 semanas
   .\Respaldo-Homelab.ps1 -SoloLocal      # no sube nada, solo deja el .7z
   .\Respaldo-Homelab.ps1 -Instalar       # se copia a tu perfil y crea accesos en Inicio y Escritorio
+  .\Respaldo-Homelab.ps1 -Auto URL       # lo usa el instalador de «Mis respaldos» (sin preguntas)
 #>
 [CmdletBinding()]
 param(
     [switch]$Configurar,
     [switch]$Programar,
     [switch]$SoloLocal,
-    [switch]$Instalar
+    [switch]$Instalar,
+    [string]$Auto = ""
 )
 $ErrorActionPreference = "Stop"
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -28,6 +30,41 @@ $ConfigFile = Join-Path $Here "homelab-backup.json"
 $SecretFile = Join-Path $env:LOCALAPPDATA "MyHomeLab\backup-secret.xml"
 
 function Say($m, $c = "Cyan") { Write-Host "==> $m" -ForegroundColor $c }
+
+# ------------------------------------- instalación automática (Mis respaldos)
+if ($Auto) {
+    Say "Bajando tu configuración del homelab…"
+    $raw = & curl.exe -fsSk "$Auto/config.json"
+    if ($LASTEXITCODE -ne 0) { throw "No pude bajar la configuración (¿el enlace caducó?)" }
+    $c = $raw | ConvertFrom-Json
+    $cfg = [ordered]@{
+        url = $c.url; device = $c.device; ca = ""
+        destino = (Join-Path $env:LOCALAPPDATA "MyHomeLab\Respaldos")
+        carpetas = @($c.carpetas); excluir = @("node_modules", ".cache", "*.tmp", "Cache", "GPUCache", "desktop.ini")
+        frecuencia_semanas = [int]$c.frecuencia_semanas; borrar_local = $true; sin_programas = $true
+    }
+    $cfg | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 $ConfigFile
+    New-Item -ItemType Directory -Force (Split-Path $SecretFile) | Out-Null
+    @{ token = (ConvertTo-SecureString $c.token -AsPlainText -Force)
+       password = (ConvertTo-SecureString $c.clave -AsPlainText -Force) } | Export-Clixml $SecretFile
+    $c = $null; $raw = $null
+    # Tarea programada (cada N semanas) y accesos directos
+    $me = $MyInvocation.MyCommand.Path
+    $action = New-ScheduledTaskAction -Execute "powershell.exe" `
+        -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$me`""
+    $weeks = [Math]::Max(1, [int]$cfg.frecuencia_semanas)
+    $trigger = New-ScheduledTaskTrigger -Weekly -WeeksInterval $weeks -DaysOfWeek Sunday -At 1pm
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable
+    Register-ScheduledTask -TaskName "MyHomeLab Respaldo" -Action $action -Trigger $trigger `
+        -Settings $settings -Description "Respaldo automático a MyHomeLab" -Force | Out-Null
+    $ws = New-Object -ComObject WScript.Shell
+    $lnk = $ws.CreateShortcut((Join-Path ([Environment]::GetFolderPath("Desktop")) "Respaldar ahora.lnk"))
+    $lnk.TargetPath = "powershell.exe"
+    $lnk.Arguments = "-NoExit -NoProfile -ExecutionPolicy Bypass -File `"$me`""
+    $lnk.IconLocation = "shell32.dll,7"; $lnk.Save()
+    Say "Listo: se respalda solo cada $weeks semanas (domingo 13:00) y tienes «Respaldar ahora» en el Escritorio." "Green"
+    Say "Haciendo tu primer respaldo…" "Green"
+}
 
 # ------------------------------------------------- instalar (accesos directos)
 if ($Instalar) {
@@ -54,7 +91,7 @@ if ($Instalar) {
 
 
 # ---------------------------------------------------------------- configuración
-if ($Configurar -or -not (Test-Path $ConfigFile)) {
+if ($Configurar -or (-not $Auto -and -not (Test-Path $ConfigFile))) {
     Say "Configuración inicial"
     $cfg = [ordered]@{
         url       = Read-Host "URL del homelab (ej. https://192.168.0.5)"
@@ -117,6 +154,7 @@ $work = Join-Path $env:TEMP $name
 New-Item -ItemType Directory -Force $work, "$work\archivos", $cfg.destino | Out-Null
 
 # ---------------------------------------------------------- lista de programas
+if (-not $cfg.sin_programas) {
 Say "Exportando lista de programas (winget)…"
 try {
     winget export -o "$work\apps-winget.json" --include-versions --accept-source-agreements | Out-Null
@@ -126,6 +164,7 @@ Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*,
                  HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* -ErrorAction SilentlyContinue |
     Where-Object DisplayName | Select-Object DisplayName, DisplayVersion, Publisher |
     Sort-Object DisplayName | Export-Csv -NoTypeInformation -Encoding UTF8 "$work\programas-instalados.csv"
+}
 @"
 # Restaurar en un Windows nuevo:
 #   1) Extrae: 7z x $name.7z.001
@@ -138,6 +177,8 @@ Say "Copiando carpetas y configuraciones…"
 $map = @()
 $i = 0
 foreach ($src in $cfg.carpetas) {
+    # «::MyDocuments» = la carpeta real de Documentos (aunque esté en OneDrive)
+    if ($src.StartsWith("::")) { $src = [Environment]::GetFolderPath($src.Substring(2)) }
     $src = [Environment]::ExpandEnvironmentVariables($src)
     if (-not (Test-Path $src)) { continue }
     $i++
@@ -182,4 +223,5 @@ foreach ($p in $parts) {
     Write-Host "   ✔ guardado en la Pi" -ForegroundColor Green
 }
 $tok = $null
-Say "Respaldo enviado a MyHomeLab ✅ (llegará también a tu Telegram)" "Green"
+if ($cfg.borrar_local) { $parts | Remove-Item -Force -ErrorAction SilentlyContinue }
+Say "Respaldo enviado a MyHomeLab ✅ (el aviso te llega a «Mis respaldos» y a tu Telegram si lo vinculaste)" "Green"

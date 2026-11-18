@@ -45,6 +45,16 @@ https://{$HOMELAB_HOST}:443 {
 		reverse_proxy grafana:3000
 	}
 
+	# Solo para el bot (dentro de la Pi); desde fuera no existe
+	handle /internal/* {
+		respond 404
+	}
+
+	# Instaladores de «Mis respaldos» (enlace secreto que caduca en 7 días)
+	handle /setup/* {
+		reverse_proxy host.docker.internal:8000
+	}
+
 	# Inicio de sesión del panel (página propia, con «Cerrar sesión»)
 	@public path /login /auth/login /auth/logout /static/* /ca.crt
 	handle @public {

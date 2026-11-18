@@ -67,6 +67,27 @@ CREATE TABLE IF NOT EXISTS users (
     last_login REAL,
     last_ip  TEXT DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS backup_devices (
+    name     TEXT PRIMARY KEY,           -- ej. mama-laptop (carpeta en la Pi)
+    owner    TEXT NOT NULL,              -- usuario del dashboard
+    os       TEXT DEFAULT '',            -- windows | linux | macos | android | web | telegram
+    label    TEXT DEFAULT '',
+    token    TEXT NOT NULL,
+    clave    TEXT DEFAULT '',            -- contraseña de cifrado (para que su dueño restaure)
+    created  REAL,
+    setup_code TEXT DEFAULT '',
+    setup_expires REAL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS notices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT, ts REAL, text TEXT, level TEXT DEFAULT 'info', seen INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS telegram_links (
+    username TEXT PRIMARY KEY, chat_id INTEGER UNIQUE, name TEXT DEFAULT '', linked REAL
+);
+CREATE TABLE IF NOT EXISTS link_codes (
+    code TEXT PRIMARY KEY, username TEXT, expires REAL
+);
 CREATE TABLE IF NOT EXISTS login_ips (
     username TEXT, ip TEXT, first REAL, last REAL,
     PRIMARY KEY (username, ip)

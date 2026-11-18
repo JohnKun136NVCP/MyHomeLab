@@ -53,6 +53,21 @@ Escribe <code>#nombre</code> en el pie para guardarlo en otro dispositivo.
 Redes: fb = Facebook, ig = Instagram, tg = canal de Telegram"""
 
 
+MEMBER_HELP = """🛡 <b>MyHomeLab</b> · hola, {user}
+
+/misrespaldos – tus equipos y su último respaldo
+Mándame cualquier archivo, foto o video y lo guardo en tu respaldo.
+/desvincular – dejar de recibir avisos aquí
+{extra}
+Todo lo demás está en el dashboard → <b>Mis respaldos</b>."""
+LOGS_HELP = """
+<b>Puedes ver los registros del homelab</b>
+/estado · /reporte · /vps · /dispositivos · /nuevos · /eventos · /conexiones · /dns · /camaras · /foto NOMBRE"""
+# Comandos de solo lectura para cuentas con permiso de ver registros
+READ_CMDS = {"estado", "reporte", "vps", "dispositivos", "nuevos", "eventos", "conexiones", "dns",
+             "camaras", "foto", "respaldos"}
+
+
 def parse_schedule(text: str, tz: ZoneInfo, now: dt.datetime | None = None):
     """'/programar 2026-11-20 18:00 fb,ig texto…' → (datetime, [redes], texto)."""
     now = now or dt.datetime.now(tz)
@@ -107,8 +122,7 @@ class Handlers:
         user = msg.get("from", {})
         chat = msg["chat"]["id"]
         if user.get("id") not in self.a.allowed:
-            self.a.unauthorized(user, msg)
-            return
+            return self.handle_member(chat, user, msg)
         text = msg.get("text") or msg.get("caption") or ""
         if text.startswith("/programar"):
             return self.cmd_programar(chat, text, msg)
@@ -126,6 +140,106 @@ class Handlers:
         except Exception as e:  # noqa: BLE001
             log.exception("Error en %s", cmd)
             self.reply(chat, f"⚠ Error: {esc(e)}")
+
+    # ---------------------------------------------- familia (cuentas vinculadas)
+    def handle_member(self, chat, user: dict, msg: dict) -> None:
+        text = (msg.get("text") or msg.get("caption") or "").strip()
+        cmd, _, arg = text.partition(" ")
+        cmd = cmd.split("@")[0].lower()
+        if cmd in ("/vincular", "/start") and re.search(r"\d{6}", arg or ""):
+            return self.link(chat, user, arg)
+        who = self.a.who(chat)
+        if not who:
+            if cmd == "/start":
+                return self.reply(chat, "Hola 👋 Este es el bot de un homelab privado. Si tienes cuenta, entra "
+                                        "al dashboard → <b>Mis respaldos</b> → «Vincular Telegram» y mándame "
+                                        "<code>/vincular CÓDIGO</code>.")
+            if cmd == "/vincular":
+                return self.reply(chat, "Escribe el código de 6 números: <code>/vincular 123456</code>")
+            return self.a.unauthorized(user, msg)
+        name, role = who["user"], who["role"]
+        if any(k in msg for k in ("document", "photo", "video", "audio", "voice")):
+            return self.save_member_file(chat, name, msg)
+        if cmd in ("/start", "/ayuda", "/help") or not cmd.startswith("/"):
+            return self.reply(chat, MEMBER_HELP.format(user=esc(name),
+                                                       extra=LOGS_HELP if role in ("admin", "registros") else ""))
+        if cmd == "/misrespaldos":
+            return self.my_backups(chat, name)
+        if cmd == "/desvincular":
+            try:
+                self.a.nw("/internal/telegram/unlink", {"chat_id": chat})
+            except RuntimeError as e:
+                return self.reply(chat, f"⚠ {esc(e)}")
+            return self.reply(chat, "Listo, ya no te llegarán avisos aquí. Puedes volver a vincularte desde el dashboard.")
+        if role in ("admin", "registros") and cmd[1:] in READ_CMDS:
+            fn = getattr(self, "cmd_" + cmd[1:])
+            try:
+                return fn(chat, arg.strip())
+            except Exception as e:  # noqa: BLE001
+                log.exception("Error en %s", cmd)
+                return self.reply(chat, f"⚠ Error: {esc(e)}")
+        return self.reply(chat, "Ese comando no está disponible para tu cuenta. /ayuda")
+
+    def link(self, chat, user: dict, arg: str) -> None:
+        key = f"link:{chat}"
+        tries = [t for t in self.a.store.get(key, []) if t > time.time() - 3600]
+        if len(tries) >= 5:
+            return self.reply(chat, "Demasiados intentos. Espera una hora.")
+        try:
+            r = self.a.nw("/internal/telegram/link", {"code": re.search(r"\d{6}", arg).group(0), "chat_id": chat,
+                                                      "name": (user.get("first_name") or "")
+                                                      + (f" @{user['username']}" if user.get("username") else "")})
+        except RuntimeError as e:
+            return self.reply(chat, f"⚠ No pude vincularte: {esc(e)}")
+        if not r.get("ok"):
+            self.a.store.set(key, tries + [time.time()])
+            return self.reply(chat, f"❌ {esc(r.get('error', 'Código incorrecto'))}. Genera otro en el dashboard.")
+        self.a._rcpt = ([], 0.0)                  # recalcular quién recibe alertas
+        role = r.get("role", "familia")
+        self.reply(chat, f"✅ Listo, <b>{esc(r['user'])}</b>. Aquí te llegarán los avisos de tus respaldos"
+                         + (" y las alertas del homelab." if role in ("admin", "registros") else ".")
+                         + "\n\n" + MEMBER_HELP.format(user=esc(r["user"]),
+                                                        extra=LOGS_HELP if role in ("admin", "registros") else ""))
+
+    def save_member_file(self, chat, name: str, msg: dict) -> None:
+        try:
+            device = self.a.nw("/internal/telegram-device", {"user": name})["device"]
+        except (RuntimeError, KeyError, TypeError) as e:
+            return self.reply(chat, f"⚠ No pude guardar: {esc(e)}")
+        if "photo" in msg:
+            f = msg["photo"][-1]
+            fname = f"foto_{dt.datetime.fromtimestamp(msg['date']).strftime('%Y%m%d_%H%M%S')}.jpg"
+        else:
+            kind = next(k for k in ("document", "video", "audio", "voice") if k in msg)
+            f = msg[kind]
+            fname = f.get("file_name") or f"{kind}_{msg['date']}.{f.get('mime_type', 'x/bin').split('/')[-1]}"
+        size = f.get("file_size", 0)
+        if size > self.a.tg.limit:
+            return self.reply(chat, f"Ese archivo pesa {human_bytes(size)}; mi límite es {human_bytes(self.a.tg.limit)}. "
+                                    "Súbelo desde el dashboard → Mis respaldos.")
+        dest = self.a.backups.root / safe_name(device) / dt.date.today().isoformat() / safe_name(fname)
+        if dest.exists():
+            dest = dest.with_name(f"{dest.stem}_{int(time.time())}{dest.suffix}")
+        self.a.tg.download(f["file_id"], dest)
+        n = dest.stat().st_size
+        self.a.store.add_backup(device, "telegram", str(dest), n, "telegram")
+        self.a.notice(name, f"✅ Guardé {dest.name} ({human_bytes(n)}) que mandaste por Telegram.", "ok")
+        self.reply(chat, f"💾 Guardado en tu respaldo: {esc(dest.name)} ({human_bytes(n)})")
+
+    def my_backups(self, chat, name: str) -> None:
+        try:
+            devs = self.a.nw(f"/internal/devices-of?user={name}").get("devices", [])
+        except RuntimeError as e:
+            return self.reply(chat, f"⚠ {esc(e)}")
+        if not devs:
+            return self.reply(chat, "Aún no tienes equipos. Agrégalos en el dashboard → Mis respaldos.")
+        lines = ["📦 <b>Tus respaldos</b>"]
+        for d in devs:
+            rows = [r for r in self.a.store.backups_of(d) if Path(r["path"]).exists()]
+            last = reports.ago(rows[0]["ts"]) if rows else "nunca"
+            lines.append(f"  {esc(d)}: {last}" + (f" · {len(rows)} archivo(s), "
+                                                   f"{human_bytes(sum(r['size'] or 0 for r in rows))}" if rows else ""))
+        self.reply(chat, "\n".join(lines))
 
     # ------------------------------------------------------------- estado
     def cmd_start(self, chat, _):

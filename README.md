@@ -46,7 +46,8 @@ flowchart LR
 | Laboratorio CCNA | Containerlab con OSPF y ejercicios | [lab/](lab/README.md) |
 | Streaming propio | Jellyfin en la PC | `hosts/server` |
 | VPN | Reutiliza tu túnel WireGuard Pi ↔ VPS; wg-easy opcional para teléfono/laptop | [VPN](docs/vpn.md) |
-| Cuentas para toda la casa | Web → **Cuentas**: tú administrador, la familia solo ve; aviso por Telegram si alguien entra desde un equipo nuevo | [seguridad](docs/seguridad.md) |
+| Cuentas para toda la casa | Web → **Cuentas**: administrador, «ve registros» (lo das tú) y familia (solo sus respaldos); aviso si alguien entra desde un equipo nuevo | [seguridad](docs/seguridad.md) |
+| Respaldos de la familia sin saber de computadoras | Web → **Mis respaldos**: instalador ya configurado (Windows doble clic, Linux/Mac un comando), subir fotos desde el celular, Telegram opcional; cada quien recibe solo sus avisos | [respaldos de la familia](docs/respaldos-familia.md) |
 | Firewall y SSH con llave | `./hl firewall --solo-llave`: SSH solo desde tus 3 equipos del laboratorio y solo con llave | [seguridad](docs/seguridad.md) |
 | Respaldo del propio homelab | `./hl respaldo` cifrado (cada domingo): SSD + Telegram (+ VPS); `./hl restaurar` en una Pi nueva | [respaldos](docs/respaldos.md#respaldo-del-homelab) |
 | Diagnóstico y actualizar | `./hl revisar` / `./hl actualizar`, o Web → **Sistema** | [hl](#el-comando-hl) |
