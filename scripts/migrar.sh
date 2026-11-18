@@ -249,7 +249,17 @@ sleep 5; ./hl ca >/dev/null 2>&1 || true
 if ((WITH_PC)); then
   step "6. Lo de la PC (Frigate, Jellyfin, Cine en casa, Immich)"
   HL_TODO_EN_UNO=1 ./scripts/install-server.sh --pi "$MY_IP" --puerto "$(envget HTTPS_PORT)"
-  [[ -x scripts/instalar-immich.sh ]] && ./scripts/instalar-immich.sh --si || true
+  if [[ $MODE == pi ]] && "${RSSH[@]}" "$PI" "test -f $PIREPO/hosts/server/immich/.env" 2>/dev/null; then
+    if yes_no "La Pi tiene Immich. ¿Lo mudo aquí con todas sus fotos, cuentas y álbumes?"; then
+      SSH_PORT_OVERRIDE="$SSH_PORT" ./scripts/instalar-immich.sh --traer-de "$PI" --si || \
+        echo "  ${Y}⚠${N} La mudanza de Immich no terminó; Immich sigue en la Pi. Reintenta: ./scripts/instalar-immich.sh --traer-de $PI"
+    else
+      ./scripts/instalar-immich.sh --solo-ml "$PI_IP" && \
+        echo "  En la Pi corre:  ./scripts/instalar-immich.sh --ml-remoto http://$MY_IP:3003" || true
+    fi
+  else
+    ./scripts/instalar-immich.sh --si || true
+  fi
 fi
 
 step "7. Firewall"

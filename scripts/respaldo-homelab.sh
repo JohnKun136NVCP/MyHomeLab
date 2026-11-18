@@ -113,6 +113,12 @@ vol uptime_kuma uptime-kuma
 vol adguard_conf adguard-conf
 vol adguard_work adguard-work data/querylog.json 'data/querylog.json.*' data/stats.db
 vol caddy_data caddy
+if [[ -f hosts/server/immich/.env ]]; then          # Immich en la Pi: su .env y la copia más reciente de su base
+  UL="$(grep -E '^UPLOAD_LOCATION=' hosts/server/immich/.env | cut -d= -f2-)"
+  mkdir -p "$STAGE/immich"; cp -a hosts/server/immich/.env "$STAGE/immich/immich.env"
+  last="$(ls -1t "$UL"/backups/*.sql.gz 2>/dev/null | head -1 || true)"
+  [[ -n $last ]] && cp -a "$last" "$STAGE/immich/" && echo "   + immich (base: $(basename "$last"); las fotos se quedan en $UL)"
+fi
 VW="$(envv VW_DATA)"; VW="${VW:-./vaultwarden}"
 [[ "$VW" != /* ]] && VW="$REPO/hosts/pi/$VW"
 if [[ -d "$VW" ]]; then

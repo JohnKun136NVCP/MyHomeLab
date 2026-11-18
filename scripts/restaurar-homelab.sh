@@ -64,6 +64,11 @@ if [[ -d "$STAGE/vaultwarden" ]]; then
   mkdir -p "$VW"; cp -a "$STAGE/vaultwarden/." "$VW/"
   echo "   ✔ Vaultwarden → $VW"
 fi
+if [[ -d "$STAGE/immich" ]]; then     # Immich vivía en la Pi: su configuración y la copia de su base
+  mkdir -p run/immich-respaldo; cp -a "$STAGE/immich/." run/immich-respaldo/; chown -R "$owner" run/immich-respaldo
+  echo "   ✔ Immich: configuración y copia de su base en run/immich-respaldo/ (las fotos no van en el respaldo)."
+  echo "     Para mudar Immich con sus fotos usa:  ./scripts/instalar-immich.sh --traer-de usuario@IP-de-la-Pi"
+fi
 if [[ -z "${HL_RESTORE_NO_UP:-}" ]]; then "${C[@]}" up -d --build; fi
 echo
 echo "✅ Restaurado. Lo que había antes quedó en $SAVE"

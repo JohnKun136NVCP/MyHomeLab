@@ -30,6 +30,8 @@ Qué hace:
    `api_id`/`api_hash`) y los puertos 80/443 si están libres.
 4. Levanta todo junto en la PC (el panel, el bot y además Frigate, Jellyfin, Cine en casa e
    Immich), el firewall y los servicios programados (respaldos, aplicar cambios).
+   Si la Pi ya tenía **Immich**, te ofrece mudarlo con todas sus fotos, cuentas y álbumes
+   (o dejarlo en la Pi y que la PC solo haga el reconocimiento de caras). Ver [fotos](fotos.md).
 5. **SSH y firewall de esta máquina**:
    - Si la Pi tiene SSH en otro puerto (p. ej. 2222), te ofrece poner el mismo aquí
      (`/etc/ssh/sshd_config.d/05-homelab-puerto.conf`; en Ubuntu reciente reinicia `ssh.socket`;
@@ -50,7 +52,8 @@ sudo ./scripts/limpiar-pi.sh --plan          # solo muestra qué quitaría
 sudo ./scripts/limpiar-pi.sh                 # quita todo lo del homelab
 ```
 
-Quita: contenedores, volúmenes e imágenes del homelab (Pi, PC, Immich, laboratorio),
+Quita: contenedores, volúmenes e imágenes del homelab (Pi, PC, Immich, laboratorio; las
+**fotos** de Immich no se borran, siguen en su carpeta del SSD),
 servicios de systemd, nftables y el puente `br0`, reglas de UFW del homelab, SSH solo con
 llave, NUT (regresa la configuración original), el agente de Wazuh y `wg0` si lo creó
 `pi-vpn.sh`. Antes hace un último respaldo cifrado (`/root/homelab-respaldo-final`) y te pide

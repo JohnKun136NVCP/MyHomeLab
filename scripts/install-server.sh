@@ -146,8 +146,21 @@ CS+=(--env-file .env)
 "${CS[@]}" ps --format 'table {{.Service}}\t{{.Status}}'
 
 if [[ -z "${HL_TODO_EN_UNO:-}" ]]; then         # migrar.sh lo llama aparte
-  if ((YES)); then IM=s; else read -r -p "  ¿Instalo también Immich (respaldo automático de fotos de los celulares)? [S/n] " IM; fi
-  [[ "${IM:-s}" =~ ^[sSyY] ]] && ./scripts/instalar-immich.sh $( ((YES)) && echo --si ) || true
+  if curl -fsS -m 4 "http://$PI:2283/api/server/ping" 2>/dev/null | grep -q pong; then
+    echo "  La Raspberry ya tiene Immich. ¿Qué hago con él?"
+    echo "    1) Que esta PC haga el reconocimiento de caras para la Pi (las fotos se quedan en la Pi)"
+    echo "    2) Mudar Immich completo a esta PC (fotos, cuentas y álbumes)"
+    echo "    3) Nada por ahora"
+    if ((YES)); then IM=1; else read -r -p "  Elige [1]: " IM; fi
+    case "${IM:-1}" in
+      1) ./scripts/instalar-immich.sh --solo-ml "$PI" && echo "  En la Pi corre:  ./scripts/instalar-immich.sh --ml-remoto http://$MY_IP:3003" || true ;;
+      2) read -r -p "  Usuario SSH de la Pi (usuario@$PI o usuario@$PI:PUERTO) [$(id -un)@$PI]: " PU
+         ./scripts/instalar-immich.sh --traer-de "${PU:-$(id -un)@$PI}" || true ;;
+    esac
+  else
+    if ((YES)); then IM=s; else read -r -p "  ¿Instalo también Immich (respaldo automático de fotos de los celulares)? [S/n] " IM; fi
+    [[ "${IM:-s}" =~ ^[sSyY] ]] && ./scripts/instalar-immich.sh $( ((YES)) && echo --si ) || true
+  fi
 fi
 
 # ---------------------------------------------------------------- 5. firewall

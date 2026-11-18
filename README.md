@@ -53,7 +53,7 @@ flowchart LR
 | Diagnóstico y actualizar | `./hl revisar` / `./hl actualizar`, o Web → **Sistema** | [hl](#el-comando-hl) |
 | Estado de servicios y resumen diario | Web → **Servicios** (Uptime Kuma), resumen por Telegram a tu hora, horario de silencio | [servicios](docs/servicios.md) |
 | Cámaras genéricas (foco 360°) | Web → Cámaras → «Detectar cámara genérica» (iCSee, V380, Yoosee, CamHi) | [cámaras](docs/camaras.md#cámaras-genéricas-foco-360) |
-| Fotos de la familia | **Immich** en la PC (`:2283`): la app del celular sube las fotos sola; cada quien su cuenta | [fotos](docs/fotos.md) |
+| Fotos de la familia | **Immich** en la Pi o la PC (`:2283`): la app del celular sube las fotos sola; cada quien su cuenta; se muda a la PC con un comando | [fotos](docs/fotos.md) |
 | No-break | `./hl nobreak`: aviso por Telegram si se va la luz, apagado en orden de PC y Pi, tarjeta en Inicio | [no-break](docs/no-break.md) |
 | Inicio de sesión único | `./hl sso`: Authelia en `panel.casa.lan`, 2FA para administradores, mismas cuentas del panel | [sso](docs/sso.md) |
 | Laboratorio de seguridad | Wazuh (SIEM) + DVWA, Juice Shop y Metasploitable en una red aislada, Kali y prácticas | [laboratorio de seguridad](docs/laboratorio-seguridad.md) |

@@ -28,8 +28,12 @@ cam = c.setdefault("cameras", {})
 cam["frigate_url"] = f"http://{ip}:5000"
 cam["go2rtc_url"] = f"http://{ip}:1984"
 links = c.setdefault("links", [])
+import os
+immich_here = os.path.exists("hosts/server/immich/.env")      # Immich vive en la Pi: su botón se queda
 for lk_name, port, icon in (("Cine en casa", 8097, "🍿"), ("Fotos (Immich)", 2283, "📸"),
                             ("Frigate (cámaras)", 5000, "🎥"), ("Jellyfin (administrar)", 8096, "🎬")):
+    if immich_here and lk_name.startswith("Fotos"):
+        continue
     for lk in links:
         if lk.get("name") == lk_name or (lk_name.startswith("Jellyfin") and str(lk.get("name", "")).startswith("Jellyfin")):
             lk["url"] = f"http://{ip}:{port}"

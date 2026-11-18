@@ -116,15 +116,20 @@ if ((HAVE_DOCKER)); then
   step "Contenedores, volúmenes e imágenes"
   for f in hosts/pi/docker-compose.yml hosts/server/docker-compose.yml hosts/server/immich/docker-compose.yml lab/seguridad/docker-compose.yml; do
     [[ -f "$f" ]] || continue
-    docker compose -f "$f" --env-file .env --profile '*' down --volumes --rmi all --remove-orphans 2>/dev/null \
-      || docker compose -f "$f" --env-file .env down --volumes --rmi all --remove-orphans 2>/dev/null || true
+    ef=.env; [[ $f == hosts/server/immich/* ]] && ef=hosts/server/immich/.env     # Immich trae su propio .env
+    [[ -f $ef ]] || ef=/dev/null
+    docker compose -f "$f" --env-file "$ef" --profile '*' down --volumes --rmi all --remove-orphans 2>/dev/null \
+      || docker compose -f "$f" --env-file "$ef" down --volumes --rmi all --remove-orphans 2>/dev/null || true
   done
-  for p in homelab-pi homelab-server homelab-immich homelab-seclab; do
+  for p in homelab-pi homelab-server homelab-immich homelab-seclab immich; do
     docker ps -aq --filter "label=com.docker.compose.project=$p" | xargs -r docker rm -f >/dev/null
     docker volume ls -q --filter "label=com.docker.compose.project=$p" | xargs -r docker volume rm -f >/dev/null
     docker network ls -q --filter "label=com.docker.compose.project=$p" | xargs -r docker network rm >/dev/null 2>&1
   done
   docker ps -aq --filter name=immich_ | xargs -r docker rm -f >/dev/null
+  if [[ -f hosts/server/immich/.env ]]; then
+    echo "  (las fotos de Immich NO se borran: siguen en $(grep -E '^UPLOAD_LOCATION=' hosts/server/immich/.env | cut -d= -f2-) y su base en $(grep -E '^DB_DATA_LOCATION=' hosts/server/immich/.env | cut -d= -f2-))"
+  fi
   docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | awk '$1 ~ /^homelab-(pi|server)-/ {print $2}' | xargs -r docker rmi -f >/dev/null 2>&1
   docker builder prune -af >/dev/null 2>&1
   docker image prune -f >/dev/null 2>&1
@@ -145,6 +150,7 @@ if ((NUT)); then
   rm -f /etc/nut/.homelab /etc/nut/.homelab-pass /etc/nut/homelab-notify.sh /etc/nut/homelab-notify.env \
     /etc/nut/homelab-notify-both.sh /etc/nut/homelab-upssched.sh; echo "  - configuración de NUT devuelta a la original"
 fi
+rm -f /etc/sudoers.d/90-homelab-immich-mudanza    # por si una mudanza de Immich se quedó a medias
 if ((WZA)); then step "Agente de Wazuh"; ./lab/seguridad/agente-wazuh.sh --quitar; fi
 
 if command -v ufw >/dev/null; then

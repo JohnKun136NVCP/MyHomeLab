@@ -1,32 +1,84 @@
 # Fotos de la familia (Immich)
 
-Immich es como Google Fotos, pero las fotos se quedan en la PC de la casa. Cada quien tiene
-su cuenta, la app del celular sube las fotos en segundo plano y nadie ve las fotos de otro
-si no se las comparte.
+Immich es como Google Fotos, pero las fotos se quedan en casa. Cada quien tiene su cuenta,
+la app del celular sube las fotos en segundo plano y nadie ve las fotos de otro si no se las
+comparte. Puede vivir en la **Raspberry** (64 bits, 8 GB de RAM, fotos en el SSD) o en la **PC**,
+y pasarse de una a otra cuando quieras.
 
 | Qué | Dónde |
 |---|---|
-| Web | `http://IP-de-la-PC:2283` (botón «📸 Fotos (Immich)» en Inicio del panel) |
-| Fotos en disco | la carpeta que elegiste al instalar (por defecto `/srv/fotos`) |
-| Base de datos | `hosts/server/immich/postgres` |
-| Instalar / actualizar | `./scripts/instalar-immich.sh` / `./scripts/instalar-immich.sh --actualizar` |
+| Web | `http://IP:2283` (botón «📸 Fotos (Immich)» en Inicio del panel) |
+| Fotos en disco | la carpeta que elegiste al instalar (por defecto `/srv/fotos`; en la Pi, ponla en el SSD) |
+| Base de datos | `hosts/server/immich/postgres` (si el repo está en la microSD, junto a las fotos) |
+| Estado | `./scripts/instalar-immich.sh --estado` |
+| Actualizar | `./scripts/instalar-immich.sh --actualizar` |
 
-## Instalarlo (en la PC)
+## Instalarlo
 
 ```bash
 ./scripts/instalar-immich.sh
 ```
 
-Te pregunta en qué carpeta guardar las fotos (pon una del disco grande), baja la versión
-oficial de Immich, genera la contraseña de su base de datos, abre el puerto 2283 en el
-firewall y agrega el botón al panel. Si la PC tiene gráfica Intel, el reconocimiento de
-caras y objetos la usa.
+Funciona igual en la Pi y en la PC. Te pregunta en qué carpeta guardar las fotos, baja la versión
+oficial de Immich, genera la contraseña de su base de datos, abre el puerto 2283 en el firewall
+y agrega el botón al panel. En una PC con gráfica Intel el reconocimiento de caras la usa.
 
-`install-server.sh` y `migrar.sh` te lo ofrecen solos.
+En la Pi todo funciona, incluido el reconocimiento de caras y la búsqueda inteligente, solo que
+lento: la primera vez que procesa muchas fotos puede tardar horas (luego, solo lo nuevo). Las
+fotos se suben y se ven al instante; lo lento es lo de «quién sale en la foto».
+
+La copia diaria de la base que hace Immich entra en el respaldo cifrado del homelab
+(`./hl respaldo`), estés en la Pi o en la PC. Las fotos, por su tamaño, no: ya están en el SSD.
+
+## Cuando tengas la PC: dos caminos
+
+### A. La forma intermedia (las fotos se quedan en la Pi)
+
+La Pi sigue recibiendo fotos las 24 horas; la PC hace el trabajo pesado del reconocimiento.
+
+```bash
+# En la PC
+./scripts/instalar-immich.sh --solo-ml 192.168.1.69          # IP de la Pi
+# En la Pi
+./scripts/instalar-immich.sh --ml-remoto http://IP-de-la-PC:3003
+```
+
+El segundo comando te dice el último paso, en la web de Immich: **Administración →
+Configuración → Aprendizaje automático → URL**, pon primero la de la PC y después
+`http://immich-machine-learning:3003` (la de la Pi). Si la PC está apagada, Immich usa la de la
+Pi y nada se detiene. La PC instala la **misma versión** que la Pi; si actualizas Immich en la
+Pi, vuelve a correr `--solo-ml` en la PC. Para regresar todo a la Pi: `--ml-local`.
+
+### B. Mudar Immich completo a la PC
+
+```bash
+# En la PC
+./scripts/instalar-immich.sh --traer-de pi@192.168.1.69         # o pi@IP:2222 si tu SSH usa otro puerto
+```
+
+Qué hace:
+
+1. La Pi pausa Immich (nadie sube mientras se copia) y exporta su base.
+2. La PC instala **la misma versión** que tiene la Pi, con la misma contraseña de base.
+3. Copia fotos y videos con `rsync`: si se corta, vuelve a correrlo y sigue donde se quedó.
+4. Restaura la base con el procedimiento oficial de Immich y lo levanta.
+5. Cambia el botón «Fotos» del panel a la PC y apaga Immich en la Pi.
+
+Si algo falla a medio camino, Immich vuelve a funcionar en la Pi como estaba. Cuentas, álbumes,
+caras y fotos quedan iguales. En cada celular solo cambias la dirección del servidor (Cerrar
+sesión → `http://IP-de-la-PC:2283` → entrar); lo que ya se subió no se sube otra vez.
+
+Las fotos siguen en el SSD de la Pi hasta que tú las borres: revisa primero que en la PC esté
+todo. `./hl migrar` hace esta mudanza sola si la Pi tiene Immich, y `install-server.sh` te
+ofrece los dos caminos.
+
+Para copiar fotos que son de root, la Pi da un permiso temporal a `rsync` en
+`/etc/sudoers.d/90-homelab-immich-mudanza`; se quita al terminar (y `./hl limpiar` lo quita si
+se quedó).
 
 ## Primera vez (el administrador)
 
-1. Abre `http://IP-de-la-PC:2283` y crea **tu** cuenta: la primera cuenta es la de administrador.
+1. Abre `http://IP:2283` y crea **tu** cuenta: la primera cuenta es la de administrador.
 2. **Administración → Usuarios → Crear usuario** para cada persona de la casa (correo puede
    ser inventado, p. ej. `mama@casa`; lo que importa es la contraseña).
 3. **Administración → Ajustes → Copia de la base de datos**: déjala diaria (viene así).
@@ -37,7 +89,7 @@ caras y objetos la usa.
 ## En el celular (cada persona)
 
 1. Instala **Immich** desde Play Store o App Store.
-2. En «URL del servidor» escribe `http://IP-de-la-PC:2283` y entra con tu correo y contraseña.
+2. En «URL del servidor» escribe `http://IP:2283` (la de la Pi o la PC, donde viva Immich) y entra con tu correo y contraseña.
 3. Toca la nube ☁ arriba a la derecha → elige los álbumes (Cámara, WhatsApp…) → **Activar respaldo**.
 4. Activa **Respaldo en segundo plano** y, en Android, quítale a Immich la «optimización de batería»
    para que el sistema no lo detenga.
