@@ -7,8 +7,9 @@
 #
 #  Qué hace (solo AGREGA reglas; las tuyas, como nginx o el 8090, se quedan):
 #   • Entrante bloqueado por defecto, saliente permitido.
-#   • SSH (22) solo desde los equipos de firewall.ssh.allow y por firewall.ssh.interface.
-#     Quita las reglas «22 desde cualquier lado».
+#   • SSH solo desde los equipos de firewall.ssh.allow y por firewall.ssh.interface, en el
+#     puerto en el que de verdad escucha tu SSH (lo detecta; o firewall.ssh.port en homelab.yml).
+#     Quita las reglas «SSH desde cualquier lado» de ese puerto.
 #   • DNS (53) desde la casa, el laboratorio y los contenedores (Uptime Kuma).
 #   • Dashboard (HTTP_PORT/HTTPS_PORT) desde las redes de la casa.
 #   • Con --solo-llave: revisa que tu llave ya esté instalada ANTES de apagar contraseñas.
@@ -32,6 +33,8 @@ envv() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'";
 HTTPS_PORT="$(envv HTTPS_PORT)"; HTTPS_PORT="${HTTPS_PORT:-443}"
 HTTP_PORT="$(envv HTTP_PORT)"; HTTP_PORT="${HTTP_PORT:-80}"
 PROFILES=",$(envv COMPOSE_PROFILES),"
+HL_REPO="$PWD"; . scripts/lib/ssh.sh
+mapfile -t SSH_PORTS < <(ssh_ports)
 
 # Lee la sección firewall (y las redes) de homelab.yml
 eval "$(python3 - <<'PY'
@@ -85,13 +88,15 @@ PLAN=()
 plan() { PLAN+=("$(printf '%q ' "$@")"); }
 plan default deny incoming
 plan default allow outgoing
-for i in "${!SSH_ALLOW[@]}"; do
-  ip="${SSH_ALLOW[$i]}"
-  if [[ -n "$SSH_IFACE" ]]; then
-    plan allow in on "$SSH_IFACE" from "$ip" to any port 22 proto tcp comment "SSH ${SSH_NAMES[$i]}"
-  else
-    plan allow from "$ip" to any port 22 proto tcp comment "SSH ${SSH_NAMES[$i]}"
-  fi
+for sp in "${SSH_PORTS[@]}"; do
+  for i in "${!SSH_ALLOW[@]}"; do
+    ip="${SSH_ALLOW[$i]}"
+    if [[ -n "$SSH_IFACE" ]]; then
+      plan allow in on "$SSH_IFACE" from "$ip" to any port "$sp" proto tcp comment "SSH ${SSH_NAMES[$i]}"
+    else
+      plan allow from "$ip" to any port "$sp" proto tcp comment "SSH ${SSH_NAMES[$i]}"
+    fi
+  done
 done
 for n in "${LAN[@]}"; do
   plan allow from "$n" to any port "$HTTPS_PORT" proto tcp comment "Dashboard homelab"
@@ -108,9 +113,11 @@ for wg in $(wg show interfaces 2>/dev/null || true); do
 done
 for e in "${EXTRA[@]}"; do plan $e; done
 
-# Reglas de SSH abiertas a todos que se van
-mapfile -t OPEN22 < <(ufw status numbered 2>/dev/null | grep -E '\] (22|22/tcp|OpenSSH) +ALLOW IN +Anywhere' | sed -E 's/^\[ *([0-9]+)\].*/\1/' | sort -rn)
+# Reglas de SSH abiertas a todos que se van (IPv4 e IPv6), en cualquiera de sus puertos
+pat="OpenSSH"; for sp in "${SSH_PORTS[@]}"; do pat="$sp|$sp/tcp|$pat"; done
+mapfile -t OPEN22 < <(ufw status numbered 2>/dev/null | grep -E "\] ($pat)( \(v6\))? +ALLOW IN +Anywhere" | sed -E 's/^\[ *([0-9]+)\].*/\1/' | sort -rn)
 
+echo "SSH de esta máquina en el puerto: ${SSH_PORTS[*]}"
 echo "Plan para UFW:"
 for p in "${PLAN[@]}"; do echo "  ufw $p"; done
 ((${#OPEN22[@]})) && echo "  (se borran ${#OPEN22[@]} regla(s) de SSH abiertas a cualquiera)"
@@ -138,7 +145,7 @@ if ((KEYONLY)); then
 ✘ $U no tiene llaves en $AK: NO apagué las contraseñas (te quedarías fuera).
   Desde cada uno de tus 3 equipos del laboratorio corre:
      ssh-keygen -t ed25519            (si aún no tienes llave)
-     ssh-copy-id $U@IP-de-la-Pi
+     ssh-copy-id -p ${SSH_PORTS[0]} $U@IP-de-la-Pi
   y luego otra vez:  ./hl firewall --solo-llave
 EOF
     exit 1

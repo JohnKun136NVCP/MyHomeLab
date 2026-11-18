@@ -156,6 +156,7 @@ firewall:
   lan_networks: [192.168.1.0/24, 192.168.100.0/24]   # quién abre el dashboard y usa el DNS
   ssh:
     interface: wlan0            # SSH solo por la red del laboratorio
+    # port: 2222                # el puerto de tu SSH; si no lo pones, se detecta solo
     allow:                      # tus 3 equipos (pon IP fija en la Tenda del laboratorio)
       - {ip: 192.168.100.10, nombre: laptop}
       - {ip: 192.168.100.11, nombre: pc-lab}

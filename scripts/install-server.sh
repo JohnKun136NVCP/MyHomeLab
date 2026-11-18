@@ -157,15 +157,18 @@ ask LAB "Red del laboratorio para SSH (vacío = toda la casa)" "192.168.100.0/24
 sudo ufw default deny incoming >/dev/null; sudo ufw default allow outgoing >/dev/null
 for p in 5000 1984 8554 8555 8096 8097; do sudo ufw allow from "$LAN" to any port "$p" comment "homelab $p" >/dev/null; done
 sudo ufw allow from "$PI" to any port 9100 proto tcp comment "métricas para la Pi" >/dev/null
-sudo ufw allow from "${LAB:-$LAN}" to any port 22 proto tcp comment "SSH" >/dev/null
-[[ -n "$LAB" ]] && sudo ufw allow from "$PI" to any port 22 proto tcp comment "SSH desde la Pi" >/dev/null
+HL_REPO="$REPO"; . scripts/lib/ssh.sh
+for sp in $(ssh_ports); do            # el puerto real del SSH de esta PC (no siempre es 22)
+  sudo ufw allow from "${LAB:-$LAN}" to any port "$sp" proto tcp comment "SSH" >/dev/null
+  [[ -n "$LAB" ]] && sudo ufw allow from "$PI" to any port "$sp" proto tcp comment "SSH desde la Pi" >/dev/null
+done
 sudo ufw --force enable >/dev/null
 echo "  ${G}✔${N} UFW: servicios para $LAN, métricas solo para $PI, SSH desde ${LAB:-$LAN}"
 echo "  (Docker publica sus puertos por fuera de UFW; las reglas de arriba cubren lo demás.)"
 
 # ---------------------------------------------------------------- 6. registrar en la Pi
 step "6/7 Registrar esta PC en la Pi"
-[[ -n "$PI_SSH" || -n "${HL_TODO_EN_UNO:-}" ]] || ask PI_SSH "Usuario SSH de la Pi (usuario@$PI, vacío = te doy los pasos)" "$(id -un)@$PI"
+[[ -n "$PI_SSH" || -n "${HL_TODO_EN_UNO:-}" ]] || ask PI_SSH "Usuario SSH de la Pi (usuario@$PI, o usuario@$PI:PUERTO si no es el 22; vacío = te doy los pasos)" "$(id -un)@$PI"
 # MAC de la tarjeta por la que sale a la red: para encenderla desde el panel/bot (Wake-on-LAN)
 MY_MAC=""
 if [[ -z "${HL_TODO_EN_UNO:-}" ]]; then
@@ -183,8 +186,9 @@ if [[ -n "${HL_TODO_EN_UNO:-}" ]]; then          # la «Pi» es esta misma máqu
   out="$(eval "$REG")"; echo "$out" | sed 's/^/  /' | head -3
   tok="$(echo "$out" | tail -1 | tr -d '[:space:]')"
   [[ ${#tok} -ge 20 && -z "$(envget BACKUP_TOKEN)" ]] && envset BACKUP_TOKEN "$tok"
-elif [[ -n "$PI_SSH" ]] && ssh -o BatchMode=yes -o ConnectTimeout=5 "$PI_SSH" true 2>/dev/null; then
-  if out="$(ssh "$PI_SSH" "cd ~/MyHomeLab 2>/dev/null || cd ~/myhomelab; $REG")"; then
+elif [[ -n "$PI_SSH" ]] && { HL_REPO="$REPO"; . scripts/lib/ssh.sh; ssh_target "$PI_SSH"; } && \
+     "${RSSH[@]}" -o BatchMode=yes -o ConnectTimeout=5 "$SSH_HOST" true 2>/dev/null; then
+  if out="$("${RSSH[@]}" "$SSH_HOST" "cd ~/MyHomeLab 2>/dev/null || cd ~/myhomelab; $REG")"; then
     echo "$out" | sed 's/^/  /' | head -3
     tok="$(echo "$out" | tail -1 | tr -d '[:space:]')"
     [[ ${#tok} -ge 20 && -z "$(envget BACKUP_TOKEN)" ]] && envset BACKUP_TOKEN "$tok" && echo "  ${G}✔${N} Token de respaldo guardado"

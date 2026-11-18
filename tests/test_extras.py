@@ -182,3 +182,44 @@ def test_panel_con_inicio_de_sesion_unico(tmp_path, monkeypatch):
     code, _, b = req("POST", "/api/wol", {"Content-Type": "application/json"}, json.dumps({"mac": "nada"}))
     assert code == 400
     server.should_exit = True
+
+
+# ------------------------------------------------------- SSH en otro puerto y UFW de la Pi
+def _bash(code, **env):
+    import os
+    import subprocess
+    return subprocess.run(["bash", "-c", code], capture_output=True, text=True,
+                          env={**os.environ, **env}, cwd=ROOT).stdout
+
+
+def test_puerto_ssh_de_la_pi():
+    out = _bash('. scripts/lib/ssh.sh; ssh_target pi@192.168.1.69:2222; echo "$SSH_USER|$SSH_IP|$SSH_PORT|${RSSH[1]} ${RSSH[2]}"')
+    assert out.strip() == "pi|192.168.1.69|2222|-p 2222"
+    out = _bash('. scripts/lib/ssh.sh; SSH_PORT_OVERRIDE=2200; ssh_target pi@10.0.0.2; echo "$SSH_PORT|$RSYNC_SSH"')
+    assert out.startswith("2200|ssh -p 2200")
+
+
+def test_puerto_ssh_fijo_en_homelab_yml(tmp_path):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "homelab.yml").write_text("firewall:\n  ssh:\n    port: [2222, 22]\n")
+    assert _bash(". scripts/lib/ssh.sh; ssh_ports", HL_REPO=str(tmp_path)).split() == ["22", "2222"]
+
+
+def test_reglas_ufw_de_la_pi_se_adaptan(tmp_path):
+    import re
+    import subprocess
+    src = (ROOT / "scripts" / "migrar.sh").read_text()
+    py = re.search(r"<<'PY'\n(import re, sys\nf, old, new, casa, lab, sshp.*?)\nPY\n", src, re.S).group(1)
+    rules = tmp_path / "ufw.txt"
+    rules.write_text("Added user rules:\n"
+                     "ufw allow 2222/tcp\n"
+                     "ufw allow from 192.168.100.10 to any port 2222 proto tcp comment 'SSH laptop'\n"
+                     "ufw allow from 192.168.1.0/24 to any port 8443 proto tcp comment 'Dashboard homelab'\n"
+                     "ufw allow from 192.168.1.0/24 to any port 8090 proto tcp comment 'mi app'\n"
+                     "ufw allow in on wlan0 to any port 5201 proto tcp\n"
+                     "ufw allow in on eth0 to 192.168.1.69 port 51820 proto udp\n")
+    out = subprocess.run([sys.executable, "-c", py, str(rules), "192.168.1.69", "192.168.1.50", "enp3s0", "", "2222"],
+                         capture_output=True, text=True)
+    assert out.stdout.splitlines() == ["allow from 192.168.1.0/24 to any port 8090 proto tcp comment 'mi app'",
+                                       "allow in on enp3s0 to 192.168.1.50 port 51820 proto udp"]
+    assert "SSH" in out.stderr and "laboratorio" in out.stderr      # wlan0 sin red de lab: no se copia

@@ -9,8 +9,12 @@ Córrelo **en la PC nueva**, dentro del repo clonado:
 ```bash
 git clone https://github.com/JohnKun136NVCP/MyHomeLab && cd MyHomeLab
 ./scripts/migrar.sh --desde-pi pi@192.168.1.5     # copia tu configuración de la Pi
+./scripts/migrar.sh --desde-pi pi@192.168.1.5:2222   # si el SSH de la Pi está en otro puerto
 ./scripts/migrar.sh --desde-cero                  # instalación nueva
 ```
+
+También sirve un alias de `~/.ssh/config` (`--desde-pi mipi`) o `--puerto-ssh 2222`. Si el
+puerto no contesta, te lo pregunta. Usa una sola conexión SSH para todo el proceso.
 
 Opciones: `--con-respaldos` (trae también los respaldos de los equipos), `--con-tunel` (mueve
 el WireGuard de la Pi a la PC), `--sin-pc` (no instala Frigate/Jellyfin/Immich), `--limpiar-pi`
@@ -26,7 +30,16 @@ Qué hace:
    `api_id`/`api_hash`) y los puertos 80/443 si están libres.
 4. Levanta todo junto en la PC (el panel, el bot y además Frigate, Jellyfin, Cine en casa e
    Immich), el firewall y los servicios programados (respaldos, aplicar cambios).
-5. Te dice qué falta a mano: el DNS del módem si usabas AdGuard en la Pi, revisar Uptime Kuma.
+5. **SSH y firewall de esta máquina**:
+   - Si la Pi tiene SSH en otro puerto (p. ej. 2222), te ofrece poner el mismo aquí
+     (`/etc/ssh/sshd_config.d/05-homelab-puerto.conf`; en Ubuntu reciente reinicia `ssh.socket`;
+     en Fedora registra el puerto en SELinux). Tu sesión abierta no se corta.
+   - Aplica las reglas del homelab (`firewall.sh`) con el puerto y las tarjetas de aquí.
+   - Copia **tus** reglas de UFW de la Pi (nginx, 8090, iperf…): cambia la IP de la Pi por la de
+     esta máquina y `eth0`/`wlan0` por las tarjetas que elegiste, te las muestra y pregunta antes
+     de agregarlas. No copia las del homelab ni las de SSH (ya están hechas para aquí).
+     `--sin-firewall-pi` lo salta.
+6. Te dice qué falta a mano: el DNS del módem si usabas AdGuard en la Pi, revisar Uptime Kuma.
 
 ## `./hl limpiar` — dejar la Pi como estaba
 

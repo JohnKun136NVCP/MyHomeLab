@@ -7,11 +7,15 @@
 #    ./scripts/migrar.sh                          te pregunta cómo
 #    ./scripts/migrar.sh --desde-cero             instalación nueva, sin nada de la Pi
 #    ./scripts/migrar.sh --desde-pi usuario@IP    copia TODO de la Raspberry por SSH (con llave)
+#    ./scripts/migrar.sh --desde-pi usuario@IP:2222   …si el SSH de la Pi no está en el 22
+#                                                 (también sirve un alias de ~/.ssh/config)
 #
 #  Opciones: --con-respaldos  (trae también los respaldos de tus equipos; pueden ser GB)
 #            --con-tunel      (mueve tu túnel WireGuard al VPS a esta máquina)
 #            --sin-pc         (solo lo de la Pi; sin Frigate/Jellyfin/Cine/Immich)
 #            --limpiar-pi     (al final deja la Raspberry limpia con limpiar-pi.sh)
+#            --puerto-ssh N   (puerto SSH de la Pi; igual que usuario@IP:N)
+#            --sin-firewall-pi  (no copiar las reglas propias de UFW de la Pi)
 #
 #  Desde la Pi trae: .env, config/, Vaultwarden, cuentas y equipos del dashboard, bot y
 #  publicaciones, AdGuard, Uptime Kuma, Grafana, el certificado de Caddy (los equipos que ya lo
@@ -21,13 +25,16 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
-MODE=""; PI=""; WITH_BK=0; WITH_WG=0; WITH_PC=1; CLEAN_PI=0
+HL_REPO="$REPO"; . scripts/lib/ssh.sh
+MODE=""; PI=""; WITH_BK=0; WITH_WG=0; WITH_PC=1; CLEAN_PI=0; SSH_PORT_OVERRIDE=""; COPY_UFW=1
 while (($#)); do
   case "$1" in
     --desde-cero) MODE=cero ;;
     --desde-pi) MODE=pi; PI="${2:?Falta usuario@IP de la Pi}"; shift ;;
+    --puerto-ssh) SSH_PORT_OVERRIDE="${2:?Falta el puerto}"; shift ;;
+    --sin-firewall-pi) COPY_UFW=0 ;;
     --con-respaldos) WITH_BK=1 ;; --con-tunel) WITH_WG=1 ;; --sin-pc) WITH_PC=0 ;; --limpiar-pi) CLEAN_PI=1 ;;
-    -h|--help) sed -n '3,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Opción desconocida: $1"; exit 2 ;;
   esac
   shift
@@ -51,7 +58,8 @@ if [[ -z "$MODE" ]]; then
   echo "  2) Desde cero (sin nada de la Raspberry)"
   case "$(ask "Elige" 1)" in
     2) MODE=cero ;;
-    *) MODE=pi; PI="$(ask "Usuario e IP de la Raspberry" "$(id -un)@192.168.1.69")" ;;
+    *) MODE=pi; PI="$(ask "Usuario e IP de la Raspberry" "$(id -un)@192.168.1.69")"
+       [[ $PI =~ :[0-9]+$ || -n $SSH_PORT_OVERRIDE ]] || SSH_PORT_OVERRIDE="$(ask "Puerto SSH de la Raspberry" 22)" ;;
   esac
 fi
 
@@ -86,25 +94,32 @@ sudo mkdir -p /var/lib/telegram-bot-api
 # ---------------------------------------------------------------- 2. traer de la Pi
 PI_IP=""
 if [[ "$MODE" == pi ]]; then
-  step "2. Conectando con la Raspberry ($PI)"
-  PI_IP="${PI#*@}"
-  if ! ssh -o BatchMode=yes -o ConnectTimeout=6 "$PI" true 2>/dev/null; then
+  ssh_target "$PI"
+  step "2. Conectando con la Raspberry ($SSH_USER@$SSH_IP, puerto SSH $SSH_PORT)"
+  PI_IP="$SSH_IP"; PI="$SSH_HOST"
+  # ¿El puerto contesta? Si no, quizá el SSH de la Pi está en otro
+  if ! timeout 5 bash -c "</dev/tcp/$PI_IP/$SSH_PORT" 2>/dev/null; then
+    echo "  ${Y}⚠${N} $PI_IP no contesta en el puerto $SSH_PORT."
+    SSH_PORT_OVERRIDE="$(ask "¿En qué puerto escucha el SSH de la Pi?" "$SSH_PORT")"; ssh_target "$PI"
+  fi
+  if ! "${RSSH[@]}" -o BatchMode=yes -o ConnectTimeout=6 "$PI" true 2>/dev/null; then
     echo "  Todavía no entro con llave. Creo una (si no tienes) y la copio a la Pi:"
     [[ -f ~/.ssh/id_ed25519 ]] || ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 -C "homelab-migracion@$(hostname)" >/dev/null
     echo "  (te pide UNA vez la contraseña de la Pi; si SSH ya solo acepta llave, cópiala desde un equipo del laboratorio)"
-    ssh-copy-id -i ~/.ssh/id_ed25519.pub "$PI" || { echo "${R}✘ No pude copiar la llave.${N}"; exit 1; }
+    ssh-copy-id -p "$SSH_PORT" -i ~/.ssh/id_ed25519.pub "$PI" || { echo "${R}✘ No pude copiar la llave.${N}"; exit 1; }
   fi
   ok "Entro a la Pi con llave"
-  PIREPO="$(ssh "$PI" 'for d in ~/MyHomeLab ~/myhomelab; do [ -f "$d/hl" ] && { echo "$d"; break; }; done')"
+  PIREPO="$("${RSSH[@]}" "$PI" 'for d in ~/MyHomeLab ~/myhomelab; do [ -f "$d/hl" ] && { echo "$d"; break; }; done')"
   [[ -n "$PIREPO" ]] || { echo "${R}✘ No encontré el repo en la Pi (~/MyHomeLab).${N}"; exit 1; }
   echo "  Repo en la Pi: $PIREPO"
-  PIUSER="${PI%@*}"
+  PIUSER="$SSH_USER"
   echo "  Haciendo el respaldo cifrado en la Pi (te pide la contraseña de sudo de la Pi)…"
-  ssh -t "$PI" "cd $PIREPO && git pull -q --ff-only || true; sudo ./scripts/respaldo-homelab.sh --copia-para $PIUSER"
-  scp -q "$PI:homelab-migracion.tar.gz.enc" /tmp/homelab-migracion.tar.gz.enc
-  BKPASS="$(ssh "$PI" "grep -E '^HOMELAB_BACKUP_PASSWORD=' $PIREPO/.env | cut -d= -f2-")"
+  "${RSSH[@]}" -t "$PI" "cd $PIREPO && git pull -q --ff-only || true; sudo ./scripts/respaldo-homelab.sh --copia-para $PIUSER; sudo ufw show added > ~/homelab-ufw.txt 2>/dev/null; sudo ufw status verbose 2>/dev/null | grep -E '^(Default|Logging):' >> ~/homelab-ufw.txt; true"
+  "${RSCP[@]}" -q "$PI:homelab-migracion.tar.gz.enc" /tmp/homelab-migracion.tar.gz.enc
+  BKPASS="$("${RSSH[@]}" "$PI" "grep -E '^HOMELAB_BACKUP_PASSWORD=' $PIREPO/.env | cut -d= -f2-")"
   BKPASS="${BKPASS//\$\$/\$}"
-  ssh "$PI" 'rm -f ~/homelab-migracion.tar.gz.enc'
+  "${RSSH[@]}" "$PI" 'rm -f ~/homelab-migracion.tar.gz.enc'
+  "${RSCP[@]}" -q "$PI:homelab-ufw.txt" /tmp/homelab-ufw-pi.txt 2>/dev/null && "${RSSH[@]}" "$PI" 'rm -f ~/homelab-ufw.txt' || true
   ok "Respaldo traído ($(du -h /tmp/homelab-migracion.tar.gz.enc | cut -f1))"
 
   step "3. Restaurando aquí"
@@ -117,18 +132,18 @@ if [[ "$MODE" == pi ]]; then
     NEWBK="$(ask "¿Dónde los guardo aquí? (un disco grande)" "${OLDBK:-/srv/respaldos}")"
     sudo mkdir -p "$NEWBK"
     echo "  Empaquetando en la Pi (te pide sudo de la Pi; necesita espacio libre allá)…"
-    ssh -t "$PI" "sudo tar -C '$OLDBK' -cf ~/homelab-respaldos.tar . && sudo chown $PIUSER ~/homelab-respaldos.tar"
-    rsync -ah --info=progress2 --remove-source-files "$PI:homelab-respaldos.tar" /tmp/homelab-respaldos.tar
+    "${RSSH[@]}" -t "$PI" "sudo tar -C '$OLDBK' -cf ~/homelab-respaldos.tar . && sudo chown $PIUSER ~/homelab-respaldos.tar"
+    rsync -ah --info=progress2 --remove-source-files -e "$RSYNC_SSH" "$PI:homelab-respaldos.tar" /tmp/homelab-respaldos.tar
     sudo tar -C "$NEWBK" -xf /tmp/homelab-respaldos.tar && rm -f /tmp/homelab-respaldos.tar
     envset BACKUPS_DIR "$NEWBK"; ok "Respaldos en $NEWBK"
   fi
-  if ((WITH_WG)) || { ssh "$PI" 'ls /etc/wireguard/*.conf' >/dev/null 2>&1 && yes_no "¿Muevo tu túnel WireGuard al VPS a esta máquina? (la Pi lo apaga)"; }; then
-    WG="$(ssh "$PI" 'ls /etc/wireguard/ | grep -E "\.conf$" | grep -v "^wg0.conf$" | head -1')"; WG="${WG%.conf}"
+  if ((WITH_WG)) || { "${RSSH[@]}" "$PI" 'ls /etc/wireguard/*.conf' >/dev/null 2>&1 && yes_no "¿Muevo tu túnel WireGuard al VPS a esta máquina? (la Pi lo apaga)"; }; then
+    WG="$("${RSSH[@]}" "$PI" 'ls /etc/wireguard/ | grep -E "\.conf$" | grep -v "^wg0.conf$" | head -1')"; WG="${WG%.conf}"
     if [[ -n "$WG" ]]; then
-      ssh -t "$PI" "sudo install -m 600 -o $PIUSER /etc/wireguard/$WG.conf ~/$WG.conf"
-      scp -q "$PI:$WG.conf" /tmp/"$WG".conf && ssh "$PI" "rm -f ~/$WG.conf"
+      "${RSSH[@]}" -t "$PI" "sudo install -m 600 -o $PIUSER /etc/wireguard/$WG.conf ~/$WG.conf"
+      "${RSCP[@]}" -q "$PI:$WG.conf" /tmp/"$WG".conf && "${RSSH[@]}" "$PI" "rm -f ~/$WG.conf"
       sudo install -m 600 -o root /tmp/"$WG".conf "/etc/wireguard/$WG.conf"; rm -f /tmp/"$WG".conf
-      ssh -t "$PI" "sudo systemctl disable --now wg-quick@$WG" >/dev/null 2>&1 || true
+      "${RSSH[@]}" -t "$PI" "sudo systemctl disable --now wg-quick@$WG" >/dev/null 2>&1 || true
       sudo systemctl enable --now "wg-quick@$WG" && ok "Túnel $WG activo aquí (misma llave: el VPS no cambia nada)"
     fi
   fi
@@ -172,6 +187,33 @@ with open(p, "w") as f:
     yaml.safe_dump(c, f, sort_keys=False, allow_unicode=True)
 print(f"  ✔ homelab.yml: casa={casa}" + (f", laboratorio={lab}" if lab else "") + (f", IP {old} → {new}" if old and old != new else ""))
 PY
+# SSH: ¿mismo puerto que la Pi?
+LOCAL_SSH="$(ssh_ports | head -1)"
+if [[ $MODE == pi && -n ${SSH_PORT:-} && $SSH_PORT != "$LOCAL_SSH" ]] && \
+   yes_no "La Pi tiene SSH en el puerto $SSH_PORT y esta máquina en el $LOCAL_SSH. ¿Pongo aquí también el $SSH_PORT?"; then
+  NEWP="$SSH_PORT"
+  if sudo ufw status 2>/dev/null | grep -q "Status: active"; then   # que no te quedes fuera al cambiarlo
+    sudo ufw allow "$NEWP/tcp" comment "SSH (temporal: firewall.sh lo deja solo para el laboratorio)" >/dev/null
+  fi
+  command -v semanage >/dev/null && sudo semanage port -a -t ssh_port_t -p tcp "$NEWP" 2>/dev/null || true   # SELinux (Fedora)
+  grep -qE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d' /etc/ssh/sshd_config 2>/dev/null || \
+    echo "  ${Y}⚠${N} Tu sshd_config no lee sshd_config.d/: agrega «Port $NEWP» a /etc/ssh/sshd_config a mano."
+  printf '# MyHomeLab (migrar.sh): mismo puerto que tenía la Raspberry\nPort %s\n' "$NEWP" | \
+    sudo tee /etc/ssh/sshd_config.d/05-homelab-puerto.conf >/dev/null
+  if sudo sshd -t 2>/dev/null; then
+    if systemctl is-active -q ssh.socket 2>/dev/null; then   # Ubuntu 22.10+: el puerto lo abre el socket
+      sudo systemctl daemon-reload && sudo systemctl restart ssh.socket
+    else
+      sudo systemctl restart ssh 2>/dev/null || sudo systemctl restart sshd
+    fi
+    sleep 1
+    if sudo ss -ltnH "sport = :$NEWP" | grep -q .; then ok "SSH de esta máquina ahora en el puerto $NEWP (tu sesión actual no se corta)"
+    else echo "  ${Y}⚠${N} No veo SSH escuchando en $NEWP; revisa:  sudo systemctl status ssh"; fi
+  else
+    sudo rm -f /etc/ssh/sshd_config.d/05-homelab-puerto.conf
+    echo "  ${Y}⚠${N} La configuración de SSH no pasó la prueba; dejé el puerto como estaba ($LOCAL_SSH)."
+  fi
+fi
 # Rutas que en la Pi apuntaban a sus discos
 for k in BACKUPS_DIR VW_DATA; do
   v="$(envget $k)"; [[ -z "$v" || "$v" != /* ]] && continue
@@ -211,7 +253,60 @@ if ((WITH_PC)); then
 fi
 
 step "7. Firewall"
-./scripts/firewall.sh || true
+./scripts/firewall.sh || echo "  ${Y}⚠${N} firewall.sh no aplicó las reglas del homelab (revisa firewall.ssh.allow en homelab.yml y corre ./hl firewall)"
+
+# Las reglas de UFW que pusiste tú en la Pi (nginx, 8090, lo que sea): se adaptan a esta máquina.
+# Las del homelab y las de SSH no se copian: firewall.sh ya las hizo con el puerto y las tarjetas de aquí.
+if [[ $MODE == pi ]] && ((COPY_UFW)) && [[ -s /tmp/homelab-ufw-pi.txt ]]; then
+  step "7b. Tus reglas de UFW de la Raspberry"
+  grep -E '^(Default|Logging):' /tmp/homelab-ufw-pi.txt | sed 's/^/  En la Pi → /' || true
+  mapfile -t PI_RULES < <(python3 - /tmp/homelab-ufw-pi.txt "$PI_IP" "$MY_IP" "$CASA_IF" "$LAB_IF" "${SSH_PORT:-22}" <<'PY'
+import re, sys
+f, old, new, casa, lab, sshp = sys.argv[1:]
+homelab = re.compile(r"comment '?(Dashboard homelab|Dashboard \(redirige a https\)|DNS AdGuard|DNS desde Docker|"
+                     r"node-exporter por VPN|homelab|honeypot|NUT|SSH|m[eé]tricas para la Pi)", re.I)
+ssh = re.compile(rf"\bOpenSSH\b|\bport ({sshp}|22)\b|^(allow|limit|deny|reject)( in)? ({sshp}|22)(/tcp)?(\s|$)")
+seen = set()
+for ln in open(f, errors="replace"):
+    ln = ln.strip()
+    if not ln.startswith("ufw "):
+        continue
+    r = ln[4:]
+    if homelab.search(r):
+        continue
+    if ssh.search(r):
+        print(f"  (no copio la regla de SSH «{r}»: la de aquí usa el puerto y los equipos del laboratorio)", file=sys.stderr)
+        continue
+    m = re.search(r"\bon (\S+)", r)
+    if m:
+        ifc = m.group(1)
+        to = lab if ifc.startswith(("wl", "wlan")) else casa
+        if not to:
+            print(f"  (no copio «{r}»: aquí no hay red del laboratorio)", file=sys.stderr)
+            continue
+        r = r.replace(f"on {ifc}", f"on {to}", 1)
+    if old and new and old != new:
+        r = re.sub(rf"(?<![\d.]){re.escape(old)}(?![\d.])", new, r)
+    if r not in seen:
+        seen.add(r)
+        print(r)
+PY
+)
+  if ((${#PI_RULES[@]})); then
+    printf '    ufw %s\n' "${PI_RULES[@]}"
+    if yes_no "¿Agrego estas ${#PI_RULES[@]} regla(s) aquí?"; then
+      n=0
+      for r in "${PI_RULES[@]}"; do
+        if eval "sudo ufw $r" >/dev/null 2>&1; then n=$((n + 1)); else echo "  ${Y}⚠${N} No pude: ufw $r"; fi
+      done
+      sudo ufw reload >/dev/null 2>&1 || true
+      ok "$n regla(s) de la Pi copiadas"
+    fi
+  else
+    ok "La Pi no tenía reglas propias aparte de las del homelab"
+  fi
+  rm -f /tmp/homelab-ufw-pi.txt
+fi
 
 if [[ "$MODE" == pi ]]; then
   echo
@@ -223,9 +318,9 @@ if [[ "$MODE" == pi ]]; then
   [[ -n "$(envget SSO_DOMAIN)" ]] && echo "  • Inicio de sesión único: en AdGuard cambia *.$(envget SSO_DOMAIN) a $MY_IP (o corre ./hl sso de nuevo)."
   [[ -n "$(envget NUT_HOST)" ]] && echo "  • No-break: conecta su USB a esta PC y corre  sudo ./hl nobreak"
   if ((CLEAN_PI)) || yes_no "¿Dejo la Raspberry limpia ahora? (borra el homelab de la Pi)"; then
-    ssh -t "$PI" "cd $PIREPO && sudo ./scripts/limpiar-pi.sh --sin-respaldo"
+    "${RSSH[@]}" -t "$PI" "cd $PIREPO && sudo ./scripts/limpiar-pi.sh --sin-respaldo"
   else
-    echo "  Cuando quieras:  ssh -t $PI 'cd $PIREPO && sudo ./scripts/limpiar-pi.sh'"
+    echo "  Cuando quieras:  ssh -p $SSH_PORT -t $PI 'cd $PIREPO && sudo ./scripts/limpiar-pi.sh'"
   fi
 fi
 echo

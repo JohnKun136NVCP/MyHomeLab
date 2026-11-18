@@ -46,7 +46,10 @@ ssh TU_USUARIO@192.168.100.X          # debe entrar SIN pedir contraseña
 ./hl firewall --solo-llave  # además apaga el acceso con contraseña
 ```
 - Solo **agrega** reglas; las tuyas (nginx 80/443, 8090…) se quedan. Quita las reglas
-  «22 desde cualquier lado».
+  «SSH desde cualquier lado».
+- Usa el puerto en el que **de verdad** escucha tu SSH (lo detecta con `sshd -T`, o el socket
+  en Ubuntu reciente). Si quieres fijarlo: `firewall.ssh.port: 2222` en `homelab.yml`.
+  `./hl revisar` te avisa si UFW no tiene regla para ese puerto.
 - Si estás conectado desde un equipo que no está en la lista, **se detiene** para no dejarte fuera.
 - `--solo-llave` revisa primero que tu usuario tenga llaves en `~/.ssh/authorized_keys`; si no,
   no cambia nada. Escribe `/etc/ssh/sshd_config.d/10-homelab.conf` (sin contraseña, sin root).

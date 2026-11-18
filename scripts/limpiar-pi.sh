@@ -152,7 +152,9 @@ if command -v ufw >/dev/null; then
   dels=("${UFWN[@]}"); ((SSH)) && dels+=("${UFWSSH[@]}")
   if ((SSH)) && ((${#UFWSSH[@]})); then           # que no te quedes fuera
     for net in $(python3 -c 'import yaml;c=yaml.safe_load(open("config/homelab.yml"));print(" ".join(n["cidr"] for n in c.get("network",{}).get("networks",[]) if n.get("cidr")))' 2>/dev/null || echo 192.168.0.0/16); do
-      ufw allow from "$net" to any port 22 proto tcp >/dev/null && echo "  + SSH desde $net (para que no te quedes fuera)"
+      for sp in $(HL_REPO="$REPO"; . scripts/lib/ssh.sh; ssh_ports); do
+        ufw allow from "$net" to any port "$sp" proto tcp >/dev/null && echo "  + SSH (puerto $sp) desde $net (para que no te quedes fuera)"
+      done
     done
   fi
   for n in $(printf '%s\n' "${dels[@]}" | sort -rn); do yes | ufw delete "$n" >/dev/null && echo "  - regla [$n]"; done

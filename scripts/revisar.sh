@@ -95,7 +95,11 @@ else
   else
     add ok "UFW activo"
     grep -qE '^53.*ALLOW.*172\.16\.0\.0/12' <<<"$st" && add ok "DNS permitido desde Docker" || add warn "Uptime Kuma no puede consultar el DNS" "./hl firewall"
-    if grep -qE '^22(/tcp)? .*ALLOW +Anywhere' <<<"$st"; then add warn "SSH abierto a cualquiera" "./hl firewall (solo tus equipos del laboratorio)"; else add ok "SSH limitado"; fi
+    sshp="$(HL_REPO="$PWD"; . scripts/lib/ssh.sh; ssh_ports | paste -sd'|')"
+    if grep -qE "^(${sshp:-22})(/tcp)?( \(v6\))? .*ALLOW( IN)? +Anywhere" <<<"$st"; then add warn "SSH (puerto ${sshp//|/, }) abierto a cualquiera" "./hl firewall (solo tus equipos del laboratorio)"
+    else add ok "SSH (puerto ${sshp//|/, }) limitado"; fi
+    # ¿Hay regla para el puerto real del SSH? Si no, al reiniciar UFW te quedarías fuera
+    for p in ${sshp//|/ }; do grep -qE "^$p(/tcp)? " <<<"$st" || add bad "UFW no tiene ninguna regla para el SSH (puerto $p)" "./hl firewall"; done
   fi
   if sudo -n sshd -T 2>/dev/null | grep -q '^passwordauthentication no'; then add ok "SSH solo con llave"
   else add warn "SSH acepta contraseña" "./hl firewall --solo-llave"; fi
