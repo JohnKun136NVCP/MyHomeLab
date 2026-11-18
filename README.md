@@ -81,8 +81,15 @@ Entra a **https://IP-de-la-Pi:PUERTO** con usuario `admin` y la contraseña que 
 #### El comando `hl`
 Atajo dentro del repo (siempre con `--env-file .env`, sin avisos `WARN`):
 
+**`./hl` solo abre un menú** con todo (estado, servicios opcionales, fotos, respaldos, seguridad,
+no-break, laboratorio, mudanza). Cada opción te muestra el comando que corre, por si luego lo
+quieres usar directo.
+
 | Comando | Qué hace |
 |---|---|
+| `./hl` | menú con todas las herramientas |
+| `./hl servicios encender speedtest` | enciende/apaga opcionales: dns, servicios, ids, speedtest, diun |
+| `./hl fotos diagnostico` | Immich: `estado`, `diagnostico`, `abrir-firewall`, `actualizar` |
 | `./hl estado` | contenedores y si están sanos |
 | `./hl revisar` | diagnóstico completo con el arreglo de cada problema |
 | `./hl actualizar` | `git pull` + reconstruye + levanta |

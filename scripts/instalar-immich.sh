@@ -7,6 +7,8 @@
 #    ./scripts/instalar-immich.sh --si            igual, con los valores sugeridos
 #    ./scripts/instalar-immich.sh --actualizar    baja la versión nueva de Immich y reinicia
 #    ./scripts/instalar-immich.sh --estado        versión, fotos, dónde vive y quién reconoce caras
+#    ./scripts/instalar-immich.sh --diagnostico   «no abre»: revisa contenedores, red y firewall
+#    ./scripts/instalar-immich.sh --abrir-firewall  deja entrar a la casa al 2283
 #
 #  Forma intermedia (Immich en la Pi, reconocimiento de caras en la PC):
 #    (en la PC)  ./scripts/instalar-immich.sh --solo-ml IP-de-la-Pi
@@ -29,6 +31,8 @@ while [[ $# -gt 0 ]]; do
     --si|-y) YES=1 ;;
     --actualizar) MODE=update ;;
     --estado) MODE=status ;;
+    --diagnostico|--diagnóstico) MODE=diag ;;
+    --abrir-firewall) MODE=openfw ;;
     --solo-ml) MODE=mlonly; ARG="${2:-}"; [[ -n $ARG && $ARG != -* ]] && shift || ARG="" ;;
     --ml-remoto) MODE=mlremote; ARG="${2:?Falta la URL, ej. http://192.168.1.50:3003}"; shift ;;
     --ml-local) MODE=mllocal ;;
@@ -57,7 +61,25 @@ compose() {
   "${D[@]}" compose "${f[@]}" --env-file "$DIR/.env" "$@"
 }
 my_ip() { ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}'; }
-lan_net() { ip -4 route | awk '/proto kernel/ && $1 ~ /\// {print $1; exit}'; }
+# Redes de la casa: las de homelab.yml; si no hay, la red de la tarjeta por la que sale a internet
+# (antes tomaba la primera ruta del sistema, que a veces es la de Docker: 172.17.0.0/16)
+lan_nets() {
+  local n=""
+  [[ -f config/homelab.yml ]] && n="$(python3 - <<'PY' 2>/dev/null || true
+import yaml
+c = yaml.safe_load(open("config/homelab.yml")) or {}
+fw = (c.get("firewall") or {}).get("lan_networks") or []
+nets = fw or [x.get("cidr") for x in (c.get("network") or {}).get("networks") or [] if x.get("cidr") and x.get("enabled", True)]
+print("\n".join(nets))
+PY
+)"
+  if [[ -z $n ]]; then
+    local dev; dev="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}')"
+    n="$(ip -4 -o addr show dev "$dev" 2>/dev/null | awk '{print $4}' | head -1 | python3 -c 'import ipaddress,sys; print(ipaddress.ip_interface(sys.stdin.read().strip()).network)' 2>/dev/null || true)"
+  fi
+  printf '%s\n' "${n:-192.168.1.0/24}"
+}
+lan_net() { lan_nets | head -1; }
 ufw_on() { command -v ufw >/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; }
 running_version() {   # versión de Immich que corre en HOST (http://HOST:2283)
   curl -fsS -m 5 "http://$1:2283/api/server/version" 2>/dev/null | python3 -c \
@@ -131,7 +153,10 @@ first_env() {
 
 open_fw() {
   ufw_on || return 0
-  sudo ufw allow from "$(lan_net || echo 192.168.1.0/24)" to any port 2283 proto tcp comment "homelab immich" >/dev/null
+  local n
+  for n in $(lan_nets); do
+    sudo ufw allow from "$n" to any port 2283 proto tcp comment "homelab immich" >/dev/null && ok "Firewall: 2283 abierto para $n"
+  done
 }
 
 set_link() {   # botón «Fotos (Immich)» en el panel, apuntando a URL
@@ -196,6 +221,55 @@ install|update)
     echo "                        (Pi) ./scripts/instalar-immich.sh --ml-remoto http://IP-de-la-PC:3003"
     echo "  O mudar todo a la PC: (PC) ./scripts/instalar-immich.sh --traer-de $(id -un)@$(my_ip)"
   fi
+  ;;
+
+# ------------------------------------------------------------------ diagnóstico
+openfw)
+  ufw_on || { ok "UFW está apagado: no bloquea nada."; exit 0; }
+  open_fw ;;
+diag)
+  bad=0; IP="$(my_ip)"
+  pass() { echo "  ${G}✔${N} $*"; }; fail() { echo "  ${R}✘${N} $*"; bad=1; }; hint() { echo "      → $*"; }
+  echo "${B}== Diagnóstico de Immich${N}"
+  if [[ ! -f "$DIR/.env" ]]; then
+    fail "Immich no está instalado en esta máquina ($DIR/.env no existe)"
+    hint "Instálalo:  ./scripts/instalar-immich.sh"; exit 1
+  fi
+  pass "Instalado (fotos en $(envget UPLOAD_LOCATION))"
+  for c in immich_server immich_machine_learning immich_redis immich_postgres; do
+    st="$("${D[@]}" ps -a --filter "name=^${c}\$" --format '{{.Status}}' | head -1)"
+    if [[ -z $st ]]; then fail "$c no existe"; hint "./scripts/instalar-immich.sh  (lo vuelve a crear sin borrar fotos)"
+    elif [[ $st == Up*unhealthy* ]]; then fail "$c: $st"; hint "${D[*]} logs --tail 40 $c"
+    elif [[ $st == Up* ]]; then pass "$c: $st"
+    else fail "$c: $st"; hint "${D[*]} logs --tail 40 $c   y luego  ./scripts/instalar-immich.sh --actualizar"; fi
+  done
+  if curl -fsS -m 5 http://127.0.0.1:2283/api/server/ping 2>/dev/null | grep -q pong; then pass "Contesta en la propia máquina (127.0.0.1:2283)"
+  else fail "No contesta ni en la propia máquina"; hint "Si acaba de arrancar espera 1–2 min; si no:  ${D[*]} logs --tail 40 immich_server"; fi
+  if curl -fsS -m 5 "http://$IP:2283/api/server/ping" 2>/dev/null | grep -q pong; then pass "Contesta en la red: http://$IP:2283"
+  else fail "No contesta en http://$IP:2283"; fi
+  sudo ss -ltnH 'sport = :2283' | grep -q . && pass "El puerto 2283 está escuchando" || { fail "Nadie escucha en el 2283"; hint "¿Otro programa usa el puerto?  sudo ss -ltnp | grep 2283"; }
+  # Firewall. Docker normalmente se salta UFW, salvo que Docker tenga "iptables": false o haya reglas en DOCKER-USER
+  if ufw_on; then
+    rules="$(sudo ufw status | grep -E '^2283' || true)"
+    if [[ -n $rules ]]; then pass "UFW tiene regla para el 2283:"; sed 's/^/        /' <<<"$rules"
+      for n in $(lan_nets); do grep -q "$n" <<<"$rules" || { fail "…pero no para tu red $n"; hint "./scripts/instalar-immich.sh --abrir-firewall"; }; done
+    else
+      fail "UFW está activo y no tiene regla para el 2283"; hint "./scripts/instalar-immich.sh --abrir-firewall"
+    fi
+    grep -qs '"iptables"[[:space:]]*:[[:space:]]*false' /etc/docker/daemon.json && \
+      echo "      (Docker tiene \"iptables\": false: aquí UFW SÍ decide quién entra a los contenedores)"
+    if sudo iptables -S DOCKER-USER 2>/dev/null | grep -qE -- '-j (DROP|REJECT)'; then
+      fail "Hay reglas que bloquean en DOCKER-USER (por ejemplo, de ufw-docker)"
+      hint "sudo iptables -S DOCKER-USER   ·   con ufw-docker:  sudo ufw route allow proto tcp from $(lan_net) to any port 2283"
+    fi
+  else
+    pass "UFW apagado (no bloquea)"
+  fi
+  echo
+  if ((bad)); then echo "Arregla lo marcado con ${R}✘${N} y vuelve a correr:  ./scripts/instalar-immich.sh --diagnostico"
+  else echo "${G}Todo bien.${N} Desde otro equipo de la casa abre http://$IP:2283"
+       echo "(Si aun así no abre desde el celular: ¿está en la misma Wi-Fi? La red de invitados de la Tenda no ve la Pi.)"; fi
+  exit $bad
   ;;
 
 # ------------------------------------------------------------------ estado

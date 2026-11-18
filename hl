@@ -3,7 +3,11 @@
 #  hl — atajo para manejar el homelab de la Pi sin recordar comandos largos.
 #  Siempre usa hosts/pi/docker-compose.yml y --env-file .env (sin avisos WARN).
 #
-#    ./hl                      ayuda
+#    ./hl                      MENÚ con todas las herramientas (en una terminal)
+#    ./hl menu [sección]       el menú directo en: estado servicios fotos respaldos seguridad…
+#    ./hl ayuda                esta lista
+#    ./hl servicios [encender|apagar NOMBRE]   opcionales: dns servicios ids speedtest diun
+#    ./hl fotos [estado|diagnostico|abrir-firewall|actualizar]   Immich
 #    ./hl estado               contenedores y si están sanos
 #    ./hl actualizar           git pull + reconstruir + levantar
 #    ./hl reiniciar [svc...]   reinicia todo o los servicios indicados
@@ -29,13 +33,14 @@ C=("${D[@]}" compose -f hosts/pi/docker-compose.yml --env-file .env)
 
 perfiles() { grep -E '^COMPOSE_PROFILES=' .env | tail -1 | cut -d= -f2- | tr -d "\"' "; }
 
+if [[ $# -eq 0 && -t 0 && -t 1 ]]; then exec ./scripts/menu.sh; fi
 cmd="${1:-ayuda}"; shift || true
 if [[ ! -f .env && ! "$cmd" =~ ^(ayuda|help|-h|--help)$ ]]; then
   echo "Falta .env: corre ./scripts/gen-secrets.sh"; exit 1
 fi
 case "$cmd" in
   ayuda|help|-h|--help)
-    sed -n '3,22p' "$0" | sed 's/^# \{0,3\}//' ;;
+    sed -n '3,27p' "$0" | sed 's/^# \{0,3\}//' ;;
   estado|status)
     "${C[@]}" ps --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}' ;;
   actualizar|update)
@@ -65,6 +70,26 @@ case "$cmd" in
   contraseña|contrasena|password)
     ./scripts/gen-secrets.sh --web-password
     "${C[@]}" restart netwatch >/dev/null && echo "✅ Listo, ya puedes entrar con la contraseña nueva." ;;
+  menu) exec ./scripts/menu.sh "$@" ;;
+  fotos|immich)
+    a="${1:-estado}"; shift || true
+    case "$a" in -*) exec ./scripts/instalar-immich.sh "$a" "$@" ;; instalar) exec ./scripts/instalar-immich.sh "$@" ;;
+      *) exec ./scripts/instalar-immich.sh "--$a" "$@" ;; esac ;;
+  servicios|perfiles)
+    if [[ $# -eq 0 ]]; then
+      echo "Encendidos: $(perfiles | tr ',' ' ')"; echo "Opciones: dns servicios ids speedtest diun botapi"
+      echo "Uso: ./hl servicios encender speedtest   ·   ./hl servicios apagar diun   ·   ./hl menu servicios"
+      exit 0
+    fi
+    acc="$1"; p="${2:?Falta el nombre (dns, servicios, ids, speedtest, diun, botapi)}"
+    cur="$(perfiles | tr ',' '\n' | grep -vx "$p" | grep -v '^$' || true)"
+    case "$acc" in encender|on) cur="$(printf '%s\n%s' "$cur" "$p")" ;; apagar|off) ;; *) echo "Usa encender o apagar"; exit 2 ;; esac
+    new="$(grep -v '^$' <<<"$cur" | paste -sd, -)"
+    tmp="$(mktemp)"; V="$new" awk 'BEGIN{v=ENVIRON["V"]; d=0} /^COMPOSE_PROFILES=/ {if(!d) print "COMPOSE_PROFILES="v; d=1; next} {print} END{if(!d) print "COMPOSE_PROFILES="v}' .env > "$tmp"
+    cat "$tmp" > .env; rm -f "$tmp"
+    ./scripts/gen-secrets.sh >/dev/null 2>&1 || true
+    echo "COMPOSE_PROFILES=$new"
+    "${C[@]}" up -d --remove-orphans ;;
   probar-respaldo) exec ./scripts/probar-respaldo.sh "$@" ;;
   nobreak|no-break|nut|ups) exec ./scripts/instalar-nut.sh "$@" ;;
   sso|authelia) exec ./scripts/instalar-sso.sh "$@" ;;

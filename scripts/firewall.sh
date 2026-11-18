@@ -104,6 +104,9 @@ for n in "${LAN[@]}"; do
   if [[ "$PROFILES" == *,dns,* ]]; then
     plan allow from "$n" to any port 53 comment "DNS AdGuard"
   fi
+  # Normalmente Docker se salta UFW; estas reglas importan si Docker tiene "iptables": false
+  [[ -f hosts/server/immich/.env ]] && plan allow from "$n" to any port 2283 proto tcp comment "homelab immich"
+  [[ "$PROFILES" == *,speedtest,* ]] && plan allow from "$n" to any port 8765 proto tcp comment "homelab speedtest"
 done
 if [[ "$PROFILES" == *,dns,* ]]; then
   plan allow from 172.16.0.0/12 to any port 53 comment "DNS desde Docker"
