@@ -137,6 +137,7 @@ step "4/7 Frigate, Jellyfin y node-exporter"
 CS=("${D[@]}" compose -f hosts/server/docker-compose.yml)
 [[ -f "$OV" ]] && CS+=(-f "$OV")
 CS+=(--env-file .env)
+./services/cine/descargar-letras.sh >/dev/null 2>&1 && echo "  ${G}✔${N} Letras del portal guardadas en la PC" || true
 "${CS[@]}" pull -q
 "${CS[@]}" up -d
 "${CS[@]}" ps --format 'table {{.Service}}\t{{.Status}}'
@@ -146,7 +147,7 @@ step "5/7 Firewall"
 LAN="$(ip -4 route | awk -v ip="$MY_IP" '$0 ~ "src "ip && $1 ~ "/" {print $1; exit}')"; LAN="${LAN:-192.168.1.0/24}"
 ask LAB "Red del laboratorio para SSH (vacío = toda la casa)" "192.168.100.0/24"
 sudo ufw default deny incoming >/dev/null; sudo ufw default allow outgoing >/dev/null
-for p in 5000 1984 8554 8555 8096; do sudo ufw allow from "$LAN" to any port "$p" comment "homelab $p" >/dev/null; done
+for p in 5000 1984 8554 8555 8096 8097; do sudo ufw allow from "$LAN" to any port "$p" comment "homelab $p" >/dev/null; done
 sudo ufw allow from "$PI" to any port 9100 proto tcp comment "métricas para la Pi" >/dev/null
 sudo ufw allow from "${LAB:-$LAN}" to any port 22 proto tcp comment "SSH" >/dev/null
 [[ -n "$LAB" ]] && sudo ufw allow from "$PI" to any port 22 proto tcp comment "SSH desde la Pi" >/dev/null
@@ -201,7 +202,8 @@ echo "  ${G}✔${N} Cada domingo 05:00 (Frigate config + Jellyfin) → bot del h
 
 echo
 echo "${G}${B}✅ PC lista.${N}"
-echo "   Frigate:  http://$MY_IP:5000      Jellyfin: http://$MY_IP:8096"
+echo "   🍿 Cine en casa: http://$MY_IP:8097   (en la tele: http://$MY_IP:8097/?tele)"
+echo "   Frigate:  http://$MY_IP:5000      Jellyfin (administrar): http://$MY_IP:8096"
 echo "   Cámaras:  dashboard → Cámaras → «Detectar cámara genérica» te da el bloque para config/frigate/config.yml"
 echo "   Después de editar config/frigate/config.yml:  ${D[*]} compose -f hosts/server/docker-compose.yml --env-file .env restart frigate"
 echo "   🔐 Contraseña de respaldo de esta PC (guárdala en Vaultwarden): $(envget HOMELAB_BACKUP_PASSWORD)"

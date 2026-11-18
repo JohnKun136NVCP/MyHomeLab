@@ -81,7 +81,10 @@ links:
   - name: Frigate (cámaras)
     url: http://192.168.1.10:5000
     icon: 🎥
-  - name: Jellyfin (streaming)
+  - name: Cine en casa
+    url: http://192.168.1.10:8097
+    icon: 🍿
+  - name: Jellyfin (administrar)
     url: http://192.168.1.10:8096
     icon: 🎬
   # - name: VPN (wg-easy)          # solo si usas el perfil wg-easy en el VPS

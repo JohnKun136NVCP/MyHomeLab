@@ -34,7 +34,8 @@ copia tu llave a la Pi (`ssh-copy-id usuario@IP-de-la-Pi`).
   y pega el bloque en `config/frigate/config.yml`; luego
   `docker compose -f hosts/server/docker-compose.yml --env-file .env restart frigate`.
   Las contraseñas de cada cámara van en el `.env` de la PC como `FRIGATE_<NOMBRE>_PASSWORD`.
-- **Jellyfin:** abre `http://IP-de-la-PC:8096`, crea tu usuario y agrega la biblioteca `/media`.
+- **Cine en casa** (`http://IP-de-la-PC:8097`): el portal para la familia. Primero prepara Jellyfin
+  (`http://IP-de-la-PC:8096`): usuarios y bibliotecas, ver [streaming](streaming.md).
   Si tienes GPU Intel/AMD: Panel → Reproducción → Transcodificación → «VA-API» o «Intel QuickSync»,
   dispositivo `/dev/dri/renderD128`.
 - **Respaldo de tus archivos personales de la PC:** Linux Guardian (`clients/linux-guardian`),

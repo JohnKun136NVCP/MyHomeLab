@@ -27,10 +27,12 @@ cam = c.setdefault("cameras", {})
 cam["frigate_url"] = f"http://{ip}:5000"
 cam["go2rtc_url"] = f"http://{ip}:1984"
 links = c.setdefault("links", [])
-for lk_name, port, icon in (("Frigate (cámaras)", 5000, "🎥"), ("Jellyfin (streaming)", 8096, "🎬")):
+for lk_name, port, icon in (("Cine en casa", 8097, "🍿"), ("Frigate (cámaras)", 5000, "🎥"),
+                            ("Jellyfin (administrar)", 8096, "🎬")):
     for lk in links:
-        if lk.get("name") == lk_name:
+        if lk.get("name") == lk_name or (lk_name.startswith("Jellyfin") and str(lk.get("name", "")).startswith("Jellyfin")):
             lk["url"] = f"http://{ip}:{port}"
+            lk["name"] = lk_name
             break
     else:
         links.append({"name": lk_name, "url": f"http://{ip}:{port}", "icon": icon})

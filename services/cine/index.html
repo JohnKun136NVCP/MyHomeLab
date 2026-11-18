@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0F1326">
+<title>Cine en casa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="fonts/fonts.css"><!-- letras guardadas en la PC (descargar-letras.sh); si no, las de Google -->
+<link rel="stylesheet" href="cine.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icono.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230F1326'/><circle cx='50' cy='50' r='26' fill='none' stroke='%23E9B44C' stroke-width='8'/><circle cx='50' cy='50' r='7' fill='%23E9B44C'/></svg>">
+</head>
+<body>
+<header class="bar" id="bar" hidden>
+  <a href="#/inicio" class="brand" id="brand"><span class="reel" aria-hidden="true"></span><span id="brandname">Cine en casa</span></a>
+  <nav class="nav" id="nav"></nav>
+  <a href="#/buscar" class="iconbtn" aria-label="Buscar" data-nav="buscar"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg></a>
+  <a href="#/perfiles" class="who" id="who" aria-label="Cambiar de perfil"></a>
+</header>
+<main id="app" tabindex="-1"></main>
+<nav class="tabbar" id="tabbar" hidden></nav>
+<div id="toast" role="status"></div>
+<script src="config.js"></script>
+<script src="cine.js"></script>
+</body>
+</html>

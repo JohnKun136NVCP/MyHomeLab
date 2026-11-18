@@ -1,0 +1,10 @@
+{
+  "name": "Cine en casa",
+  "short_name": "Cine",
+  "start_url": "./#/inicio",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0F1326",
+  "theme_color": "#0F1326",
+  "icons": [{ "src": "icono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

@@ -44,7 +44,7 @@ flowchart LR
 | VPN en el panel | Web → **VPN**: lee tu WireGuard, detecta el VPS, crea equipos con QR y comandos para el VPS, alerta si se cae | [VPN](docs/vpn.md) |
 | IDS en casa y laboratorio | Suricata en `eth0` y `wlan0` a la vez | [ids](docs/ids.md) |
 | Laboratorio CCNA | Containerlab con OSPF y ejercicios | [lab/](lab/README.md) |
-| Streaming propio | Jellyfin en la PC | `hosts/server` |
+| Streaming propio | **Cine en casa** (`:8097`): portal tipo Netflix con perfiles de la familia, seguir viendo, siguiente episodio, búsqueda y reproductor propio; se maneja con el control de la tele, mouse o dedo. Por dentro, Jellyfin | [streaming](docs/streaming.md) |
 | VPN | Reutiliza tu túnel WireGuard Pi ↔ VPS; wg-easy opcional para teléfono/laptop | [VPN](docs/vpn.md) |
 | Cuentas para toda la casa | Web → **Cuentas**: administrador, «ve registros» (lo das tú) y familia (solo sus respaldos); aviso si alguien entra desde un equipo nuevo | [seguridad](docs/seguridad.md) |
 | Respaldos de la familia sin saber de computadoras | Web → **Mis respaldos**: instalador ya configurado (Windows doble clic, Linux/Mac un comando), subir fotos desde el celular, Telegram opcional; cada quien recibe solo sus avisos | [respaldos de la familia](docs/respaldos-familia.md) |
