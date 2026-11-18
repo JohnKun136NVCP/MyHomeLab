@@ -435,6 +435,39 @@ def build_app(mon: Monitor) -> Starlette:
                  "desc": "¿Están arriba tu página, el VPS y tus servicios?", "check": "http://127.0.0.1:3001"},
                 {"name": "Vaultwarden", "icon": "🔑", "url": "/vault/", "group": "Servicios",
                  "desc": "Tus contraseñas (apps de Bitwarden)", "check": f"{base}/vault/alive"}]
+        # --- Servicios que agregan los scripts (Immich, Speedtest, Diun, Authelia, no-break, lo de la PC)
+        links_by_name = {l.get("name"): l for l in cfg.get("links", []) or []}
+        im = links_by_name.get("Fotos (Immich)")
+        if im or check_url("http://127.0.0.1:2283/api/server/ping"):
+            url = (im or {}).get("url") or f"http://{host}:2283"
+            tools.append({"name": "Fotos (Immich)", "icon": "📸", "url": url, "group": "Servicios",
+                          "desc": "Fotos y videos de los celulares, cada quien su cuenta",
+                          "check": url.rstrip("/") + "/api/server/ping"})
+        if "speedtest" in profiles:
+            tools.append({"name": "Velocidad del internet", "icon": "🚀", "url": f"http://{host}:8765", "group": "Servicios",
+                          "desc": "Speedtest Tracker: mide cada 6 h y guarda el historial",
+                          "check": "http://127.0.0.1:8765"})
+        if "diun" in profiles:
+            tools.append({"name": "Avisos de versiones", "icon": "🆕", "url": "#sistema", "group": "Servicios",
+                          "desc": "Diun: te avisa por Telegram si hay imagen nueva (sin página)",
+                          "status": None})
+        if "sso" in profiles and env.get("SSO_DOMAIN"):
+            p_ = "" if port == "443" else f":{port}"
+            tools.append({"name": "Inicio de sesión único", "icon": "🔐", "url": f"https://auth.{env['SSO_DOMAIN']}{p_}",
+                          "group": "Servicios", "desc": f"Authelia · entra en panel.{env['SSO_DOMAIN']}",
+                          "check": f"{base}/" if base else None})
+        if mon.ups.enabled:
+            u = mon.ups.status()
+            tools.append({"name": "No-break", "icon": "🔌", "url": "#resumen", "group": "Servicios",
+                          "desc": (f"{u.get('status_text', '')}" + (f" · {round(u['charge'])}%" if u.get("charge") is not None else ""))
+                          if u.get("ok") else "sin conexión con NUT", "status": bool(u.get("ok"))})
+        for name, icon, desc, path in (("Cine en casa", "🍿", "Películas y series para la tele (en la PC)", "/"),
+                                       ("Jellyfin (administrar)", "🎬", "Biblioteca de video (en la PC)", "/health"),
+                                       ("Frigate (cámaras)", "🎥", "Grabación y detección de las cámaras (en la PC)", "/api/version")):
+            l = links_by_name.get(name)
+            if l and l.get("url", "").startswith("http"):
+                tools.append({"name": name, "icon": l.get("icon", icon), "url": l["url"], "group": "Servicios",
+                              "desc": desc, "check": l["url"].rstrip("/") + path})
         if any("controld.com" in u for u in mon.dns_upstream):
             tools.append({"name": "Control D", "icon": "🧭", "url": "https://controld.com/dashboard",
                           "group": "Servicios", "desc": "DNS de salida de AdGuard: " +
@@ -477,7 +510,7 @@ def build_app(mon: Monitor) -> Starlette:
 
     async def tools(_):
         import asyncio
-        items = tool_list()
+        items = await asyncio.to_thread(tool_list)
 
         async def one(t):
             if "status" not in t and t.get("check"):
@@ -826,8 +859,20 @@ def build_app(mon: Monitor) -> Starlette:
     async def services_status(_):
         import asyncio
         sv = cfg.get("services", {}) or {}
-        return JSONResponse(await asyncio.to_thread(kuma.status, sv.get("uptime_kuma_url", "http://127.0.0.1:3001"),
-                                                    sv.get("status_page", "homelab")))
+        kuma_task = asyncio.to_thread(kuma.status, sv.get("uptime_kuma_url", "http://127.0.0.1:3001"),
+                                      sv.get("status_page", "homelab"))
+        # Lo que el propio panel revisa (sin depender de Uptime Kuma)
+        items = [t for t in await asyncio.to_thread(tool_list) if t.get("group") == "Servicios"]
+
+        async def one(t):
+            if "status" not in t and t.get("check"):
+                t["status"] = await asyncio.to_thread(check_url, t["check"])
+            t.pop("check", None)
+            return t
+        res, builtin = await asyncio.gather(kuma_task, asyncio.gather(*(one(t) for t in items)))
+        res = dict(res)
+        res["homelab"] = list(builtin)
+        return JSONResponse(res)
 
     # ------------------------------------------------------------ sistema
     SYSTEM_ACTIONS = {"actualizar": "Actualizar desde GitHub", "revisar": "Revisar el homelab",

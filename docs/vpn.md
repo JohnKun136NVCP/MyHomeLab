@@ -29,6 +29,28 @@ No hace falta wg-easy. Con tu túnel (por ejemplo `wg-hoshimy`):
    quieres, un `ping_targets` al VPS. Reinicia: `docker compose ... up -d`.
 4. Prometheus corre en Docker en la Pi y sale por el túnel del host sin configurar nada más.
 
+### «El VPS sale abajo en Prometheus»
+
+node-exporter (las métricas del VPS) escucha **solo** en la IP del VPS dentro del túnel, en
+el 9100, para que nadie en internet las vea. La Prometheus de la Pi entra por el túnel. Se ve
+«abajo» si falla una de estas cosas: la IP de `hosts/vps/.env` no es la del túnel, el
+contenedor no corre, el firewall del VPS no deja pasar a la Pi, o la Pi apunta a otra IP
+(por ejemplo la pública).
+
+```bash
+./hl vps                                   # en la Pi: te dice el error exacto de Prometheus
+./hosts/vps/revisar-vps.sh --arreglar      # en el VPS: revisa y corrige (pregunta antes)
+./hl vps 10.66.0.1:9100                    # en la Pi: si homelab.yml tenía otra dirección
+```
+
+Cómo leer el error de Prometheus (Web → Prometheus → Targets):
+
+| Error | Qué pasa |
+|---|---|
+| `connection refused` | Llega al VPS, pero node-exporter no escucha en esa IP (casi siempre `VPN_VPS_IP` mal) |
+| `context deadline exceeded` | No contesta nadie: el UFW del VPS no deja entrar a la Pi al 9100 |
+| `no route to host` | El túnel no está arriba o no lleva esa red |
+
 ### CrowdSec (si ya lo tienes en el VPS)
 Sus métricas aparecen en Grafana/Prometheus y en `/vps` («IPs bloqueadas ahora»), con alerta
 si bloquea más de 25 IPs nuevas en 1 h:

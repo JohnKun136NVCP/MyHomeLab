@@ -19,6 +19,7 @@
 #    ./hl ca                   copia el certificado de Caddy para instalarlo
 #    ./hl contraseña           cambia la contraseña del usuario admin de la web
 #    ./hl probar-respaldo      descifra el último respaldo y revisa que sirve
+#    ./hl vps [IP:9100]        ¿por qué Prometheus ve el VPS abajo? (y lo agrega/corrige)
 #    ./hl nobreak              no-break por USB: avisos y apagado en orden (NUT)
 #    ./hl sso                  inicio de sesión único con Authelia (panel.casa.lan)
 #    ./hl migrar               pasa todo a la PC (desde cero o copiando de esta Pi)
@@ -40,7 +41,7 @@ if [[ ! -f .env && ! "$cmd" =~ ^(ayuda|help|-h|--help)$ ]]; then
 fi
 case "$cmd" in
   ayuda|help|-h|--help)
-    sed -n '3,27p' "$0" | sed 's/^# \{0,3\}//' ;;
+    sed -n '3,28p' "$0" | sed 's/^# \{0,3\}//' ;;
   estado|status)
     "${C[@]}" ps --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}' ;;
   actualizar|update)
@@ -71,6 +72,7 @@ case "$cmd" in
     ./scripts/gen-secrets.sh --web-password
     "${C[@]}" restart netwatch >/dev/null && echo "✅ Listo, ya puedes entrar con la contraseña nueva." ;;
   menu) exec ./scripts/menu.sh "$@" ;;
+  vps) exec ./scripts/revisar-vps.sh "$@" ;;
   fotos|immich)
     a="${1:-estado}"; shift || true
     case "$a" in -*) exec ./scripts/instalar-immich.sh "$a" "$@" ;; instalar) exec ./scripts/instalar-immich.sh "$@" ;;

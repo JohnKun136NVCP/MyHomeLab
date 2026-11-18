@@ -138,7 +138,8 @@ def test_panel_con_inicio_de_sesion_unico(tmp_path, monkeypatch):
     from netwatch.db import DB
     from netwatch.web import build_app
     env = tmp_path / ".env"
-    env.write_text("WEB_USER=john\nWEB_PASSWORD_HASH=$$2b$$12$$hash\n")
+    env.write_text("WEB_USER=john\nWEB_PASSWORD_HASH=$$2b$$12$$hash\nHOMELAB_HOST=127.0.0.1\n"
+                   "COMPOSE_PROFILES=speedtest,diun\n")
     monkeypatch.setattr(st, "ENV_PATH", env)
     monkeypatch.setattr(auth, "_secret", b"s" * 32)
     monkeypatch.setenv("SSO_SECRET", "s3cr3t")
@@ -147,7 +148,9 @@ def test_panel_con_inicio_de_sesion_unico(tmp_path, monkeypatch):
     db = DB(tmp_path / "n.db")
     db.x("INSERT INTO users (username, hash, role, created) VALUES ('mama', '$2b$12$m', 'familia', 0)")
     mon = M.Monitor({"network": {"networks": [{"name": "casa", "cidr": "192.168.1.0/24"}]},
-                     "wake_on_lan": [{"name": "PC", "mac": "aa:bb:cc:dd:ee:01"}]}, db, tmp_path)
+                     "wake_on_lan": [{"name": "PC", "mac": "aa:bb:cc:dd:ee:01"}],
+                     "links": [{"name": "Fotos (Immich)", "url": "http://127.0.0.1:9/", "icon": "📸"},
+                               {"name": "Cine en casa", "url": "http://127.0.0.1:9", "icon": "🍿"}]}, db, tmp_path)
     server = uvicorn.Server(uvicorn.Config(build_app(mon), host="127.0.0.1", port=0, log_level="error"))
     threading.Thread(target=server.run, daemon=True).start()
     while not server.started:
@@ -181,6 +184,15 @@ def test_panel_con_inicio_de_sesion_unico(tmp_path, monkeypatch):
     assert json.loads(b)["targets"][0]["name"] == "PC"
     code, _, b = req("POST", "/api/wol", {"Content-Type": "application/json"}, json.dumps({"mac": "nada"}))
     assert code == 400
+    # Immich, Speedtest, Diun y lo de la PC aparecen en el panel (Inicio y Servicios)
+    code, _, b = req("GET", "/api/tools")
+    tools = {t["name"]: t for t in json.loads(b)["tools"]}
+    assert tools["Fotos (Immich)"]["group"] == "Servicios" and tools["Fotos (Immich)"]["status"] is False
+    assert {"Velocidad del internet", "Avisos de versiones", "Cine en casa"} <= set(tools)
+    assert not any(t["group"] == "Tus enlaces" and t["name"] == "Fotos (Immich)" for t in tools.values())
+    code, _, b = req("GET", "/api/services")
+    names = [t["name"] for t in json.loads(b)["homelab"]]
+    assert "Fotos (Immich)" in names and "Velocidad del internet" in names
     server.should_exit = True
 
 

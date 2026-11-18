@@ -84,6 +84,7 @@ menu_estado() {
   3) Ver la bitácora de un servicio
   4) Reiniciar un servicio
   5) Diagnóstico de Immich (fotos)
+  6) ¿Por qué Prometheus ve el VPS abajo?
   0) Volver
 EOF
     case "$(ask "Elige")" in
@@ -93,6 +94,7 @@ EOF
          echo "${DIM}(Ctrl+C para salir)${N}"; run ./hl logs "$s"; pause ;;
       4) s="$(ask "¿Cuál? (vacío = todos)")"; run ./hl reiniciar $s; pause ;;
       5) run ./scripts/instalar-immich.sh --diagnostico; pause ;;
+      6) run ./hl vps; pause ;;
       0|"") return ;;
     esac
   done

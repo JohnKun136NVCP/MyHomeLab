@@ -61,10 +61,10 @@ objetivos)
   [[ "${1:-}" == --metasploitable ]] && prof=(--profile metasploitable)
   mkdir -p trabajo
   "${LAB[@]}" "${prof[@]}" up -d
-  ok "Objetivos arriba en la red aislada 10.66.0.0/24 (sin internet ni acceso a tu casa)"
+  ok "Objetivos arriba en la red aislada 10.250.66.0/24 (sin internet ni acceso a tu casa)"
   echo "  DVWA:        ${B}http://127.0.0.1:8181${N}  (admin / password → «Create / Reset Database»)"
   echo "  Juice Shop:  ${B}http://127.0.0.1:8182${N}"
-  [[ ${#prof[@]} -gt 0 ]] && echo "  Metasploitable 2: 10.66.0.12 (desde el atacante)"
+  [[ ${#prof[@]} -gt 0 ]] && echo "  Metasploitable 2: 10.250.66.12 (desde el atacante)"
   echo "  Atacante (Kali): ./lab/seguridad/instalar.sh atacar"
   ;;
 atacar)
@@ -78,7 +78,7 @@ atacar)
     "${D[@]}" network disconnect "$net" homelab-seclab-atacante-1
     ok "Herramientas instaladas; el atacante vuelve a estar aislado"
   fi
-  echo "Objetivos: dvwa 10.66.0.10 · juice-shop 10.66.0.11:3000 · metasploitable 10.66.0.12.  Archivos en lab/seguridad/trabajo/"
+  echo "Objetivos: dvwa 10.250.66.10 · juice-shop 10.250.66.11:3000 · metasploitable 10.250.66.12.  Archivos en lab/seguridad/trabajo/"
   exec "${LAB[@]}" exec atacante bash
   ;;
 estado)

@@ -8,24 +8,24 @@ networks:
   objetivos:
     internal: true          # sin salida: ni internet ni red de la casa
     ipam:
-      config: [{ subnet: 10.66.0.0/24 }]
+      config: [{ subnet: 10.250.66.0/24 }]   # lejos de 10.66.0.x (tu túnel) y de las redes de Docker
   salida:                   # solo para que «puerta» publique en 127.0.0.1
 
 services:
   dvwa:
     image: vulnerables/web-dvwa
-    networks: { objetivos: { ipv4_address: 10.66.0.10 } }
+    networks: { objetivos: { ipv4_address: 10.250.66.10 } }
     restart: "no"
 
   juice-shop:
     image: bkimminich/juice-shop
-    networks: { objetivos: { ipv4_address: 10.66.0.11 } }
+    networks: { objetivos: { ipv4_address: 10.250.66.11 } }
     restart: "no"
 
   metasploitable:
     image: tleemcjr/metasploitable2
     command: sh -c "/bin/services.sh && tail -f /dev/null"
-    networks: { objetivos: { ipv4_address: 10.66.0.12 } }
+    networks: { objetivos: { ipv4_address: 10.250.66.12 } }
     restart: "no"
     profiles: ["metasploitable"]     # pesado: ./instalar.sh objetivos --metasploitable
 
@@ -34,7 +34,7 @@ services:
     image: kalilinux/kali-rolling
     command: sleep infinity
     hostname: atacante
-    networks: { objetivos: { ipv4_address: 10.66.0.100 } }
+    networks: { objetivos: { ipv4_address: 10.250.66.100 } }
     volumes: [./trabajo:/root/trabajo]
     restart: "no"
 

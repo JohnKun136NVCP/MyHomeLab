@@ -21,14 +21,14 @@ Todo vive en `lab/seguridad/` y se maneja con un solo script:
 | Dashboard de Wazuh | `https://127.0.0.1:5602` (solo desde la PC) |
 | DVWA | `http://127.0.0.1:8181` (admin / password) |
 | Juice Shop | `http://127.0.0.1:8182` |
-| Red aislada | `10.66.0.0/24`: dvwa .10, juice-shop .11, metasploitable .12, atacante .100 |
+| Red aislada | `10.250.66.0/24`: dvwa .10, juice-shop .11, metasploitable .12, atacante .100 |
 | Tus archivos del atacante | `lab/seguridad/trabajo/` (montado en `/root/trabajo`) |
 
 ## Reglas del laboratorio
 
 - Las máquinas son vulnerables **a propósito**. No cambies `internal: true` de la red
   `objetivos` ni publiques sus puertos en la LAN.
-- Ataca solo lo que está en `10.66.0.0/24` y tus propios equipos. Escanear redes o equipos
+- Ataca solo lo que está en `10.250.66.0/24` y tus propios equipos. Escanear redes o equipos
   ajenos (la escuela, el trabajo, vecinos) sin permiso por escrito es ilegal.
 - Apaga los objetivos cuando no practiques: `./lab/seguridad/instalar.sh apagar`.
 
@@ -69,7 +69,7 @@ laptop del laboratorio y luego busca la huella en Wazuh, Suricata o el panel del
 
 | # | Ataque | Dónde mirar |
 |---|---|---|
-| 1 | Escaneo: `nmap -sV 10.66.0.0/24` desde el atacante | Qué servicios y versiones expone cada objetivo; compáralos con CVE conocidas |
+| 1 | Escaneo: `nmap -sV 10.250.66.0/24` desde el atacante | Qué servicios y versiones expone cada objetivo; compáralos con CVE conocidas |
 | 2 | Fuerza bruta de SSH a la Pi desde una laptop del lab (`hydra` con una lista corta) | Wazuh → reglas de autenticación fallida; el panel → «intentos bloqueados» de UFW; CrowdSec en el VPS |
 | 3 | DVWA en nivel *low*: inyección SQL a mano y luego con `sqlmap` | Logs de Apache del contenedor; repite en *medium* y *high* y explica qué cambió en el código («View Source») |
 | 4 | DVWA: XSS reflejado y almacenado | Por qué la cookie no tiene `HttpOnly`; compáralo con la cookie del panel del homelab (sí lo tiene) |

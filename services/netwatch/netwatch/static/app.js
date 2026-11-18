@@ -388,19 +388,26 @@ const views = {
 
   async servicios() {
     const v = await api("/api/services");
+    const hl = v.homelab || [];
+    const own = hl.length ? `<div class="card"><h3>Del homelab <span class="muted small">(lo revisa el panel)</span></h3>${hl.map((t) => `
+        <a class="svc" href="${esc(t.url)}" ${t.url.startsWith("#") ? "" : 'target="_blank" rel="noopener"'} style="color:inherit;text-decoration:none">
+          <span class="dot ${t.status === true ? "on" : t.status === false ? "off" : ""}"></span>
+          <div style="min-width:0"><b>${t.icon || ""} ${esc(t.name)}</b><div class="muted small ellipsis">${esc(t.desc || "")}</div></div>
+          <div class="muted small" style="text-align:right">${t.status === true ? "responde" : t.status === false ? "no responde" : ""}</div></a>`).join("")}</div>` : "";
     if (!v.ok) {
       view.innerHTML = `<div class="toolbar"><h2 class="grow">Servicios</h2></div>
-        <div class="card"><p>${esc(v.error)}</p>
+        <div class="grid2">${own}
+        <div class="card"><h3>Uptime Kuma</h3><p>${esc(v.error)}</p>
         <ol class="muted"><li>Abre Uptime Kuma (puerto 3001) → <b>Páginas de estado</b> → <b>Nueva página de estado</b>.</li>
         <li>Nombre «Homelab», slug <span class="mono">homelab</span>.</li>
-        <li>Agrega tus monitores y presiona <b>Guardar</b>.</li></ol></div>`;
+        <li>Agrega tus monitores y presiona <b>Guardar</b>.</li></ol></div></div>`;
       return;
     }
     const groups = {};
     v.monitors.forEach((m) => (groups[m.group || "Servicios"] ??= []).push(m));
-    view.innerHTML = `<div class="toolbar"><h2 class="grow">Servicios <span class="muted small">${v.up}/${v.monitors.length} arriba</span></h2>
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Servicios <span class="muted small">${v.up}/${v.monitors.length} arriba en Uptime Kuma</span></h2>
         <a href="${esc(v.url.replace("127.0.0.1", location.hostname))}" target="_blank" rel="noopener"><button>Abrir Uptime Kuma ↗</button></a></div>
-      <div class="grid2">${Object.entries(groups).map(([g, ms]) => `<div class="card"><h3>${esc(g)}</h3>${ms.map((m) => `
+      <div class="grid2">${own}${Object.entries(groups).map(([g, ms]) => `<div class="card"><h3>${esc(g)}</h3>${ms.map((m) => `
         <div class="svc"><span class="dot ${m.status === 1 ? "on" : m.status === 0 ? "off" : "warn"}"></span>
           <div style="min-width:0"><b>${esc(m.name)}</b><div class="muted small ellipsis">${esc(m.status_name)}${m.ping != null && m.status === 1 ? ` · ${m.ping} ms` : ""}${m.msg && m.status !== 1 ? ` · ${esc(m.msg)}` : ""}</div></div>
           <div style="text-align:right"><div class="beats">${m.history.map((h) => `<i class="s${h}"></i>`).join("")}</div>
