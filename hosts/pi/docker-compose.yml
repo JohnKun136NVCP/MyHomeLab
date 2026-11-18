@@ -93,6 +93,20 @@ services:
     extra_hosts: ["host.docker.internal:host-gateway"]
 
   # --- Métricas ----------------------------------------------------------
+  # Servidor local de la Bot API (archivos de hasta 2 GB). En la Raspberry ya tienes el tuyo
+  # (fuera de Docker); en una máquina nueva activa el perfil «botapi» (lo hace scripts/migrar.sh)
+  # y pon TELEGRAM_API_URL=http://telegram-bot-api:8081 en .env.
+  telegram-bot-api:
+    <<: *common
+    profiles: ["botapi"]
+    image: aiogram/telegram-bot-api:latest
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      TELEGRAM_LOCAL: "1"
+    volumes:
+      - ${TELEGRAM_API_DATA:-/var/lib/telegram-bot-api}:/var/lib/telegram-bot-api
+
   prometheus:
     <<: *common
     image: prom/prometheus:latest

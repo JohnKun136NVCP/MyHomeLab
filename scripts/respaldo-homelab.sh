@@ -42,6 +42,9 @@ UNIT
   echo "✅ Programado cada domingo a las 04:30.  Próximo: $(systemctl list-timers homelab-backup.timer --no-legend | awk '{print $1, $2, $3}')"
   exit 0
 fi
+COPIA_PARA=""
+if [[ "${1:-}" == "--copia-para" ]]; then COPIA_PARA="${2:?Falta el usuario}"; shift 2; fi
+
 if [[ "${1:-}" == "--quitar" ]]; then
   systemctl disable --now homelab-backup.timer 2>/dev/null || true
   rm -f /etc/systemd/system/homelab-backup.{service,timer}
@@ -154,6 +157,11 @@ if [[ -n "$VPS" ]]; then
   else echo "   ⚠ No pude copiarlo al VPS ($VPS)"; fi
 fi
 
+if [[ -n "$COPIA_PARA" ]]; then       # para migrar: una copia que ese usuario pueda bajar por SSH
+  H="$(getent passwd "$COPIA_PARA" | cut -d: -f6)"
+  install -m 600 -o "$COPIA_PARA" "$OUT" "$H/homelab-migracion.tar.gz.enc"
+  echo "   → copia para migrar: $H/homelab-migracion.tar.gz.enc"
+fi
 mkdir -p run
 python3 - "$STATUS" "$OUT" "$SIZE" "$SENT" <<'PY'
 import json, sys, time

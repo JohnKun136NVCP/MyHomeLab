@@ -726,6 +726,7 @@ const views = {
         <div class="card kpi"><div class="l">Internet</div><div class="v">${s.targets.internet ? (s.targets.internet.up ? "✅" : "❌") : "—"}</div><div class="muted small">${s.targets.internet?.latency != null ? (s.targets.internet.latency * 1000).toFixed(0) + " ms" : ""}</div></div>
         <div class="card kpi"><div class="l">Eventos 24 h</div><div class="v">${s.events_24h}</div><div class="muted small">${s.critical_24h} críticos</div></div>
         <div class="card kpi"><div class="l">Reglas ACL</div><div class="v">${s.acl_rules}</div><div class="muted small">${s.bridge_mode ? "aplicadas" : "solo aviso (sin modo puente)"}</div></div>
+        ${s.ups?.enabled ? `<div class="card kpi"><div class="l">No-break</div><div class="v" style="color:${!s.ups.ok || s.ups.on_battery ? "var(--warn)" : "inherit"}">${s.ups.ok ? (s.ups.charge != null ? Math.round(s.ups.charge) + "%" : "✅") : "—"}</div><div class="muted small">${s.ups.ok ? esc(s.ups.status_text) + (s.ups.runtime ? ` · ${Math.round(s.ups.runtime / 60)} min de batería` : "") : "sin conexión con NUT"}</div></div>` : ""}
         <div class="card kpi"><div class="l">Último escaneo</div><div class="v" style="font-size:20px;margin-top:10px">${ago(s.last_scan)}</div></div>
       </div><br>
       <div class="grid2">

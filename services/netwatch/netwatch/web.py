@@ -61,6 +61,7 @@ def build_app(mon: Monitor) -> Starlette:
             "last_scan": mon.last_scan, "scan_error": mon.scan_error,
             "bridge_mode": mon.bridge_mode, "interface": mon.iface,
             "acl_rules": len(db.acl()), "icons": ICONS,
+            "ups": mon.ups.status() if mon.ups.enabled else {"enabled": False},
             "roaming": mon.roaming, "current_network": mon.current, "home_network": mon.home,
             "hop_every": mon.hop_every, "last_hop": mon.last_hop,
             "networks": [{"name": n["name"], "cidr": n["cidr"], "ssid": n.get("ssid", ""),

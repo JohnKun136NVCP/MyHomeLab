@@ -2,7 +2,7 @@
 # ======================================================================
 #  (En la PC) Respaldo cifrado de la PC del homelab → bot de la Pi.
 #  Lo programa install-server.sh (domingo 05:00). A mano:  ./scripts/respaldo-server.sh
-#  Incluye: .env de la PC, config/frigate (cámaras), configuración de Jellyfin.
+#  Incluye: .env de la PC, config/frigate (cámaras), configuración de Jellyfin y la base de Immich.
 #  NO incluye grabaciones ni películas (son enormes; están en tus discos).
 # ======================================================================
 set -euo pipefail
@@ -23,6 +23,12 @@ if [[ -n "$V" ]]; then
   mp="$(sudo docker volume inspect -f '{{.Mountpoint}}' "$V")"
   sudo tar -C "$mp" --exclude=./cache --exclude=./metadata --exclude=./log --exclude=./transcodes -cf - . \
     | tar -C "$STAGE/data" --one-top-level=jellyfin -xf -
+fi
+# Immich: la copia más reciente de su base (las fotos ya están en tu disco grande; son enormes)
+UL="$(grep -E '^UPLOAD_LOCATION=' hosts/server/immich/.env 2>/dev/null | cut -d= -f2-)"
+if [[ -n "$UL" ]]; then
+  last="$(ls -1t "$UL"/backups/*.sql.gz 2>/dev/null | head -1)"
+  [[ -n "$last" ]] && mkdir -p "$STAGE/data/immich" && cp "$last" "$STAGE/data/immich/" && cp hosts/server/immich/.env "$STAGE/data/immich/immich.env"
 fi
 tar -C "$STAGE/data" -czf - . | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass fd:3 3<<<"$PASS" -out "$OUT"
 CA=(-k); [[ -f .homelab-ca.crt ]] && CA=(--cacert .homelab-ca.crt)

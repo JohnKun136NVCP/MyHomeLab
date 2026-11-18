@@ -101,6 +101,9 @@ ask MEDIA "Carpeta de películas/series para Jellyfin" "$(envget MEDIA_DIR || ec
 ask FMEDIA "Carpeta para grabaciones de cámaras (disco grande)" "$(envget FRIGATE_MEDIA || echo /srv/frigate)"
 mkdir -p "$MEDIA" 2>/dev/null || sudo mkdir -p "$MEDIA"
 sudo mkdir -p "$FMEDIA"; sudo chown "$USER" "$FMEDIA"
+if [[ -z "${HL_TODO_EN_UNO:-}" ]] && ! grep -q '^COMPOSE_PROFILES=.*pc-sola' .env; then
+  cur="$(envget COMPOSE_PROFILES)"; envset COMPOSE_PROFILES "${cur:+$cur,}pc-sola"
+fi
 envset HOMELAB_PI "$PI"; envset HOMELAB_PI_PORT "$PI_PORT"; envset SERVER_IP "$MY_IP"
 envset MEDIA_DIR "$MEDIA"; envset FRIGATE_MEDIA "$FMEDIA"; envset SERVER_GPU "$GPU"
 [[ -n "$(envget FRIGATE_RTSP_USER)" ]] || envset FRIGATE_RTSP_USER admin
@@ -142,6 +145,11 @@ CS+=(--env-file .env)
 "${CS[@]}" up -d
 "${CS[@]}" ps --format 'table {{.Service}}\t{{.Status}}'
 
+if [[ -z "${HL_TODO_EN_UNO:-}" ]]; then         # migrar.sh lo llama aparte
+  if ((YES)); then IM=s; else read -r -p "  ¿Instalo también Immich (respaldo automático de fotos de los celulares)? [S/n] " IM; fi
+  [[ "${IM:-s}" =~ ^[sSyY] ]] && ./scripts/instalar-immich.sh $( ((YES)) && echo --si ) || true
+fi
+
 # ---------------------------------------------------------------- 5. firewall
 step "5/7 Firewall"
 LAN="$(ip -4 route | awk -v ip="$MY_IP" '$0 ~ "src "ip && $1 ~ "/" {print $1; exit}')"; LAN="${LAN:-192.168.1.0/24}"
@@ -157,9 +165,13 @@ echo "  (Docker publica sus puertos por fuera de UFW; las reglas de arriba cubre
 
 # ---------------------------------------------------------------- 6. registrar en la Pi
 step "6/7 Registrar esta PC en la Pi"
-[[ -n "$PI_SSH" ]] || ask PI_SSH "Usuario SSH de la Pi (usuario@$PI, vacío = te doy los pasos)" "$(id -un)@$PI"
+[[ -n "$PI_SSH" || -n "${HL_TODO_EN_UNO:-}" ]] || ask PI_SSH "Usuario SSH de la Pi (usuario@$PI, vacío = te doy los pasos)" "$(id -un)@$PI"
 REG="./scripts/agregar-servidor.sh '$MY_IP' '$(hostname)'"
-if [[ -n "$PI_SSH" ]] && ssh -o BatchMode=yes -o ConnectTimeout=5 "$PI_SSH" true 2>/dev/null; then
+if [[ -n "${HL_TODO_EN_UNO:-}" ]]; then          # la «Pi» es esta misma máquina
+  out="$(eval "$REG")"; echo "$out" | sed 's/^/  /' | head -3
+  tok="$(echo "$out" | tail -1 | tr -d '[:space:]')"
+  [[ ${#tok} -ge 20 && -z "$(envget BACKUP_TOKEN)" ]] && envset BACKUP_TOKEN "$tok"
+elif [[ -n "$PI_SSH" ]] && ssh -o BatchMode=yes -o ConnectTimeout=5 "$PI_SSH" true 2>/dev/null; then
   if out="$(ssh "$PI_SSH" "cd ~/MyHomeLab 2>/dev/null || cd ~/myhomelab; $REG")"; then
     echo "$out" | sed 's/^/  /' | head -3
     tok="$(echo "$out" | tail -1 | tr -d '[:space:]')"

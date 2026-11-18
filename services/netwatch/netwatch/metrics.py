@@ -54,6 +54,13 @@ def render(mon: Monitor) -> str:
     metric("homelab_ids_alerts_total", "counter", "Alertas de Suricata por severidad", [
         (dict(severity=s), n) for s, n in mon.ids_alerts.items()])
     metric("homelab_last_scan_timestamp_seconds", "gauge", "Último escaneo", [({}, mon.last_scan)])
+    ups = mon.ups.status() if mon.ups.enabled else {}
+    if ups.get("ok"):
+        metric("homelab_ups_on_battery", "gauge", "1 si el no-break está usando batería", [({}, int(ups["on_battery"]))])
+        for k, help_ in (("charge", "Carga de la batería (%)"), ("runtime", "Segundos de batería que quedan"),
+                         ("load", "Carga conectada (%)"), ("input_voltage", "Voltaje de entrada")):
+            if k in ups:
+                metric(f"homelab_ups_{k}", "gauge", help_, [({}, ups[k])])
     from . import vpn
     s = vpn.status()
     rows_up, rows_hs, rows_rx, rows_tx = [], [], [], []

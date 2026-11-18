@@ -51,6 +51,8 @@ class Monitor:
         self.scan_error = ""
         self._acl_hash = ""
         self._eve_pos = 0
+        from .nut import Ups
+        self.ups = Ups()
         self._last_daily_scan = ""
         self._infra_mac: dict[str, str] = {}
         self.stop = threading.Event()
