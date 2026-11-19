@@ -62,6 +62,16 @@ if ((CHECK)); then
   done
   code="$(curl -sk -o /dev/null -w '%{http_code}' --resolve "auth.$DOM:$PORT:$HOST" "https://auth.$DOM:$PORT/api/health" || true)"
   [[ $code == 200 ]] && ok "El portal contesta (https://auth.$DOM$P)" || f "El portal no contesta bien (HTTP $code)"
+  # Lo mismo que pide el portal al abrir: si falla, el portal dice «Hubo un problema recuperando el estado actual del usuario»
+  stj="$(curl -sk --resolve "auth.$DOM:$PORT:$HOST" "https://auth.$DOM:$PORT/api/state" || true)"
+  if grep -q '"status":"OK"' <<<"$stj"; then ok "El portal puede leer la sesión (/api/state)"
+  else
+    f "El portal no puede leer la sesión (/api/state): ${stj:0:160}"
+    echo "      Lo que dice Authelia:"
+    ./hl logs --tail 200 --no-log-prefix authelia 2>/dev/null | grep -iE 'level=error|level=warn|error' | tail -5 | cut -c1-220 | sed 's/^/        /'
+    echo "      Casi siempre es entrar con una dirección distinta a la configurada: usa EXACTAMENTE"
+    echo "      https://auth.$DOM$P y https://panel.$DOM$P (no la IP, no casa.lan si cambiaste a sslip, ni al revés)."
+  fi
   loc="$(curl -sk -o /dev/null -w '%{redirect_url}' --resolve "panel.$DOM:$PORT:$HOST" "https://panel.$DOM:$PORT/" || true)"
   [[ $loc == "https://auth.$DOM$P/"* || $loc == "https://auth.$DOM:$PORT/"* ]] && ok "Sin sesión, el panel manda al portal: ${loc%%\?*}" \
     || f "Sin sesión, el panel debería mandar a https://auth.$DOM$P/ y manda a «${loc:-ningún lado}»"

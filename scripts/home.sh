@@ -127,7 +127,7 @@ link() {   # botón en el panel (en esta máquina si tiene el panel; si no, lo d
   local p="$1" act="$2" ip url; ip="$(envget HOME_HOST)"
   [[ -n ${PORT[$p]:-} ]] || return 0
   url="http://$ip:${PORT[$p]}"
-  if [[ $act == add ]]; then python3 scripts/lib/links.py add "${NAME[$p]}" "$url" "${ICON[$p]}" "${DESC[$p]#*: }" "$url${CHECK[$p]}"
+  if [[ $act == add ]]; then LINK_GROUP="En casa" python3 scripts/lib/links.py add "${NAME[$p]}" "$url" "${ICON[$p]}" "${DESC[$p]#*: }" "$url${CHECK[$p]}"
   else python3 scripts/lib/links.py remove "${NAME[$p]}"; fi
   [[ -f config/homelab.yml ]] || echo "  ${DIM}En la Pi:  ./hl link add \"${NAME[$p]}\" $url ${ICON[$p]}${N}"
 }

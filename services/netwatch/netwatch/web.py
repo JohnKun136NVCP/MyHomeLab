@@ -518,6 +518,13 @@ def build_app(mon: Monitor) -> Starlette:
                  "desc": "¿Están arriba tu página, el VPS y tus servicios?", "check": "http://127.0.0.1:3001"},
                 {"name": "Vaultwarden", "icon": "🔑", "url": "/vault/", "group": "Servicios",
                  "desc": "Tus contraseñas (apps de Bitwarden)", "check": f"{base}/vault/alive"}]
+        # --- Herramientas de la casa (./hl home): solo las que están corriendo en esta máquina
+        for name, icon, port, path, desc in HOME_TOOLS:
+            if port == 3002 and ("dns" in profiles or mon.adguard.reachable):
+                continue      # en esta máquina el 3002 es el AdGuard principal, no el de respaldo
+            if check_url(f"http://127.0.0.1:{port}{path}"):
+                tools.append({"name": name, "icon": icon, "url": f"http://{host}:{port}", "group": "En casa",
+                              "desc": desc, "check": f"http://127.0.0.1:{port}{path}"})
         # --- Servicios que agregan los scripts (Immich, Speedtest, Diun, Authelia, no-break, lo de la PC)
         links_by_name = {l.get("name"): l for l in cfg.get("links", []) or []}
         im = links_by_name.get("Fotos (Immich)")
@@ -571,16 +578,26 @@ def build_app(mon: Monitor) -> Starlette:
                               "desc": " · ".join(x for x in (ap.get("model"), ap.get("location"), ap.get("ip")) if x),
                               "status": mon.infra_status.get(ap["name"], {}).get("up")})
         seen = {t["url"] for t in tools}
+        names = {t["name"] for t in tools}
         known = {"/grafana/", "/prometheus/", "/vault/"}
         for link in cfg.get("links", []) or []:
-            if link.get("url") in seen or link.get("url") in known or \
-                    any(k in link.get("url", "") for k in (":3001", ":3002")):
+            if link.get("url") in seen or link.get("url") in known or link.get("name") in names or \
+                    (any(k in link.get("url", "") for k in (":3001", ":3002")) and link.get("group") != "En casa"):
                 continue
             # Los que agregan los scripts (home.sh, greenbone…) traen group: Servicios y su check
             tools.append({"name": link["name"], "icon": link.get("icon", "🔗"), "url": link["url"],
                           "group": link.get("group") or "Tus enlaces", "desc": link.get("desc", link["url"]),
                           "check": link.get("check") or (link["url"] if link["url"].startswith("http") else None)})
         return tools
+
+    HOME_TOOLS = [   # nombre, icono, puerto, ruta que responde, descripción (los mismos de scripts/home.sh)
+        ("Home Assistant", "🏠", 8123, "/manifest.json", "Focos, enchufes y cámaras con automatizaciones"),
+        ("Documentos (Paperless)", "📄", 8010, "/", "Documentos escaneados con búsqueda"),
+        ("Música (Navidrome)", "🎵", 4533, "/ping", "Tu música en streaming, con app en el celular"),
+        ("Syncthing", "🔄", 8384, "/rest/noauth/health", "Carpetas sincronizadas entre tus equipos"),
+        ("Visitas de la página (Umami)", "📊", 3007, "/api/heartbeat", "Visitas a tu página web, sin Google"),
+        ("DNS de respaldo", "🛡", 3002, "/", "Segundo AdGuard que copia al principal"),
+    ]
 
     def check_url(url: str) -> bool:
         import ssl

@@ -9,6 +9,7 @@
 #     sudo ./scripts/ups.sh --test           manda un aviso de prueba al bot
 #     sudo ./scripts/ups.sh --no-usb-alerts  ya no avisar por Telegram de «perdió contacto (cable USB)»
 #     sudo ./scripts/ups.sh --usb-alerts     volver a avisarlo
+#     sudo ./scripts/ups.sh --status         cómo está el no-break y qué avisos están activos
 #
 #   En la PC (enchufada al mismo no-break):
 #     sudo ./scripts/ups.sh --client 192.168.1.5
@@ -21,7 +22,7 @@ cd "$(dirname "$0")/.."
 REPO="$PWD"
 [[ $EUID -eq 0 ]] || exec sudo "$0" "$@"
 
-MODE=servidor; PI=""; ALLOW=(); AFTER=0; TEST=0; USBQ=""
+MODE=servidor; PI=""; ALLOW=(); AFTER=0; TEST=0; USBQ=""; STATUS=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --client) MODE=cliente; PI="${2:?falta la IP de la Pi}"; shift ;;
@@ -29,8 +30,9 @@ while [[ $# -gt 0 ]]; do
     --shutdown-after) AFTER="${2:?faltan los minutos}"; shift ;;
     --test) TEST=1 ;;
     --no-usb-alerts) USBQ=1 ;;
+    --status|--estado) STATUS=1 ;;
     --usb-alerts) USBQ=0 ;;
-    -h|--help) sed -n 2,18p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,19p "$0"; exit 0 ;;
     *) echo "Opción desconocida: $1"; exit 1 ;;
   esac; shift
 done
@@ -81,6 +83,23 @@ notify_test() {
     && ok "Aviso mandado. Revisa Telegram."
 }
 if ((TEST)); then notify_test; exit 0; fi
+if ((STATUS)); then
+  echo "${B}== No-break${N}"
+  if upsc ups@localhost >/tmp/ups.$$ 2>/dev/null; then
+    ok "$(grep -E '^(device.model|ups.model):' /tmp/ups.$$ | head -1 | cut -d' ' -f2-) · $(grep '^ups.status:' /tmp/ups.$$ | cut -d' ' -f2-) · batería $(grep '^battery.charge:' /tmp/ups.$$ | cut -d' ' -f2-)%"
+  else warn "No lo puedo leer ahora (upsc ups@localhost)"; fi
+  rm -f /tmp/ups.$$
+  echo "  Controlador: $(grep -E '^\s*driver' /etc/nut/ups.conf 2>/dev/null | head -1 | sed 's/.*= *//')"
+  if grep -q QUIET_USB /etc/nut/homelab-notify.sh 2>/dev/null; then ok "Script de avisos: versión nueva (los parpadeos del USB no se mandan)"
+  else warn "Script de avisos: versión VIEJA (manda cada parpadeo del USB) → sudo ./hl ups --no-usb-alerts"; fi
+  q="$(grep -h '^QUIET_USB=' /etc/nut/homelab-notify.env 2>/dev/null | cut -d= -f2)"
+  [[ $q == 1 ]] && ok "Aviso «sin contacto» por Telegram: apagado" || echo "  Aviso «sin contacto» por Telegram: encendido (máx. 1 al día)"
+  grep -q '^NOCOMMWARNTIME' /etc/nut/upsmon.conf 2>/dev/null && ok "Repetición del aviso: 1 vez al día" || warn "Repetición del aviso: cada 5 min (versión vieja)"
+  echo "  Últimos eventos:"; journalctl -t homelab-ups -n 8 --no-pager 2>/dev/null | sed 's/^/    /'
+  n="$(journalctl -t homelab-ups --since -24h --no-pager 2>/dev/null | grep -ciE 'COMMBAD|contacto' || true)"
+  ((n > 20)) && warn "El USB se desconectó $n veces en 24 h: cambia el cable o el puerto (USB 2.0 negro), o prueba otro controlador (sudo ./hl ups)"
+  exit 0
+fi
 if [[ -n $USBQ ]]; then
   [[ -f /etc/nut/homelab-notify.env ]] || die "Primero instala NUT (sudo ./hl ups)."
   sed -i '/^QUIET_USB=/d' /etc/nut/homelab-notify.env

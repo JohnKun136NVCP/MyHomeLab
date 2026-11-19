@@ -12,6 +12,7 @@
 - name: Botones en el panel del núcleo
   ansible.builtin.command: python3 scripts/lib/links.py add {{ item }}
   args: { chdir: "{{ repo_dir }}" }
+  environment: { LINK_GROUP: "En casa" }
   loop: "{{ links.stdout_lines }}"
   delegate_to: "{{ core_name }}"
   when: core_name and core_name != inventory_hostname

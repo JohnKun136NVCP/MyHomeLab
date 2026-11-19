@@ -20,7 +20,8 @@ def main(argv: list[str]) -> int:
     links = [l for l in c.get("links") or [] if l.get("name") != (argv[1] if len(argv) > 1 else None)]
     if argv[0] == "add":
         name, url, icon, desc = argv[1:5]
-        item = {"name": name, "url": url, "icon": icon, "desc": desc, "group": "Servicios"}
+        import os
+        item = {"name": name, "url": url, "icon": icon, "desc": desc, "group": os.environ.get("LINK_GROUP", "Servicios")}
         if len(argv) > 5 and argv[5]:
             item["check"] = argv[5]
         links.append(item)
