@@ -714,7 +714,7 @@ def build_app(mon: Monitor) -> Starlette:
         main_user, main_hash = auth.credentials()
         has_users = bool(db.q("SELECT 1 FROM users LIMIT 1"))
         if not main_hash and not has_users:
-            return await login_page(request, "No hay contraseña configurada: en la Pi corre ./hl contraseña", 503)
+            return await login_page(request, "No hay contraseña configurada: en la Pi corre ./hl password", 503)
         acc = auth.authenticate(form.get("user", "").strip(), form.get("password", ""))
         if acc:
             auth.clear_fails(ip)

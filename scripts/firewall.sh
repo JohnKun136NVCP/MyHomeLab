@@ -2,8 +2,8 @@
 # ======================================================================
 #  Firewall de la Pi (UFW) a partir de config/homelab.yml → firewall:
 #    ./hl firewall                 muestra el plan y pregunta antes de aplicar
-#    ./hl firewall --si            aplica sin preguntar
-#    ./hl firewall --solo-llave    además: SSH solo con llave (sin contraseña)
+#    ./hl firewall --yes            aplica sin preguntar
+#    ./hl firewall --key-only    además: SSH solo con llave (sin contraseña)
 #
 #  Qué hace (solo AGREGA reglas; las tuyas, como nginx o el 8090, se quedan):
 #   • Entrante bloqueado por defecto, saliente permitido.
@@ -12,17 +12,18 @@
 #     Quita las reglas «SSH desde cualquier lado» de ese puerto.
 #   • DNS (53) desde la casa, el laboratorio y los contenedores (Uptime Kuma).
 #   • Dashboard (HTTP_PORT/HTTPS_PORT) desde las redes de la casa.
-#   • Con --solo-llave: revisa que tu llave ya esté instalada ANTES de apagar contraseñas.
+#   • Con --key-only: revisa que tu llave ya esté instalada ANTES de apagar contraseñas.
 #  Nunca te deja fuera: si tu SSH actual no viene de un equipo permitido, se detiene.
 # ======================================================================
 set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/lib/flags.sh"; hl_flags "$@"; set -- "${HL_ARGS[@]}"   # opciones en inglés (acepta las de antes en español)
 cd "$(dirname "$0")/.."
 YES=0; KEYONLY=0; FORCE=0
 for a in "$@"; do
   case "$a" in
-    --si|-y) YES=1 ;;
-    --solo-llave) KEYONLY=1 ;;
-    --forzar) FORCE=1 ;;
+    --yes|-y) YES=1 ;;
+    --key-only) KEYONLY=1 ;;
+    --force) FORCE=1 ;;
     *) echo "Opción desconocida: $a"; exit 2 ;;
   esac
 done
@@ -149,7 +150,7 @@ if ((KEYONLY)); then
   Desde cada uno de tus 3 equipos del laboratorio corre:
      ssh-keygen -t ed25519            (si aún no tienes llave)
      ssh-copy-id -p ${SSH_PORTS[0]} $U@IP-de-la-Pi
-  y luego otra vez:  ./hl firewall --solo-llave
+  y luego otra vez:  ./hl firewall --key-only
 EOF
     exit 1
   fi
@@ -157,7 +158,7 @@ EOF
   echo "   $U tiene $n llave(s) autorizada(s):"
   awk '/^(ssh-|ecdsa-|sk-)/{print "     · " $1 " … " $NF}' "$AK"
   cat > /etc/ssh/sshd_config.d/10-homelab.conf <<EOF
-# MyHomeLab (scripts/firewall.sh --solo-llave): solo llaves, sin root
+# MyHomeLab (scripts/firewall.sh --key-only): solo llaves, sin root
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no

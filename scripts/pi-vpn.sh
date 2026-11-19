@@ -3,6 +3,7 @@
 #   1) En la web de wg-easy (VPS) crea un cliente "raspberry" y descarga su .conf
 #   2) sudo ./scripts/pi-vpn.sh raspberry.conf
 set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/lib/flags.sh"; hl_flags "$@"; set -- "${HL_ARGS[@]}"   # opciones en inglés (acepta las de antes en español)
 CONF="${1:?Uso: sudo $0 archivo.conf}"
 [[ $EUID -eq 0 ]] || { echo "Córrelo con sudo"; exit 1; }
 command -v wg-quick >/dev/null || apt-get install -y wireguard-tools

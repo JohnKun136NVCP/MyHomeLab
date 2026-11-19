@@ -2,7 +2,7 @@
 # ======================================================================
 #  Menú del homelab: todas las herramientas en un solo lugar.
 #    ./hl                 (en una terminal) abre este menú
-#    ./hl menu [sección]  secciones: estado servicios fotos respaldos seguridad nobreak lab equipos
+#    ./hl menu [section]  sections: status services photos backups security ups lab devices
 #  Cada opción muestra el comando que corre, para que lo aprendas y lo uses directo si quieres.
 # ======================================================================
 set -uo pipefail
@@ -88,12 +88,12 @@ menu_estado() {
   0) Volver
 EOF
     case "$(ask "Elige")" in
-      1) run ./hl estado; pause ;;
-      2) run ./hl revisar; pause ;;
+      1) run ./hl status; pause ;;
+      2) run ./hl check; pause ;;
       3) s="$(ask "¿Cuál? (netwatch, bot, caddy, adguard, uptime-kuma, speedtest, diun…)" netwatch)"
          echo "${DIM}(Ctrl+C para salir)${N}"; run ./hl logs "$s"; pause ;;
-      4) s="$(ask "¿Cuál? (vacío = todos)")"; run ./hl reiniciar $s; pause ;;
-      5) run ./scripts/instalar-immich.sh --diagnostico; pause ;;
+      4) s="$(ask "¿Cuál? (vacío = todos)")"; run ./hl restart $s; pause ;;
+      5) run ./scripts/immich.sh --diagnose; pause ;;
       6) run ./hl vps; pause ;;
       0|"") return ;;
     esac
@@ -118,7 +118,7 @@ menu_servicios() {
                echo "    En la Pi normalmente ya tienes tu propio telegram-bot-api: no lo enciendas aquí."; pause; continue
              fi
              toggle_profile "$p"; pause ;;
-      7) if has_profile sso; then yes_no "¿Apagar el inicio de sesión único?" && run ./hl sso --quitar
+      7) if has_profile sso; then yes_no "¿Apagar el inicio de sesión único?" && run ./hl sso --remove
          else run ./hl sso; fi; pause ;;
       0|"") return ;;
     esac
@@ -141,15 +141,15 @@ menu_fotos() {
   0) Volver
 EOF
     case "$(ask "Elige")" in
-      1) run ./scripts/instalar-immich.sh --estado; pause ;;
-      2) run ./scripts/instalar-immich.sh --diagnostico; pause ;;
-      3) run ./scripts/instalar-immich.sh --abrir-firewall; pause ;;
-      4) run ./scripts/instalar-immich.sh; pause ;;
-      5) run ./scripts/instalar-immich.sh --actualizar; pause ;;
-      6) u="$(ask "Dirección del reconocimiento en la PC" "http://IP-de-la-PC:3003")"; run ./scripts/instalar-immich.sh --ml-remoto "$u"; pause ;;
-      7) run ./scripts/instalar-immich.sh --ml-local; pause ;;
-      8) p="$(ask "IP de la Pi")"; run ./scripts/instalar-immich.sh --solo-ml "$p"; pause ;;
-      9) p="$(ask "usuario@IP de la Pi (agrega :PUERTO si tu SSH no es el 22)")"; run ./scripts/instalar-immich.sh --traer-de "$p"; pause ;;
+      1) run ./scripts/immich.sh --status; pause ;;
+      2) run ./scripts/immich.sh --diagnose; pause ;;
+      3) run ./scripts/immich.sh --open-firewall; pause ;;
+      4) run ./scripts/immich.sh; pause ;;
+      5) run ./scripts/immich.sh --update; pause ;;
+      6) u="$(ask "Dirección del reconocimiento en la PC" "http://IP-de-la-PC:3003")"; run ./scripts/immich.sh --ml-remote "$u"; pause ;;
+      7) run ./scripts/immich.sh --ml-local; pause ;;
+      8) p="$(ask "IP de la Pi")"; run ./scripts/immich.sh --ml-only "$p"; pause ;;
+      9) p="$(ask "usuario@IP de la Pi (agrega :PUERTO si tu SSH no es el 22)")"; run ./scripts/immich.sh --pull-from "$p"; pause ;;
       0|"") return ;;
     esac
   done
@@ -168,16 +168,16 @@ menu_respaldos() {
   0) Volver
 EOF
     case "$(ask "Elige")" in
-      1) run ./hl respaldo; pause ;;
-      2) run sudo ./hl probar-respaldo; pause ;;
-      3) run sudo ./hl probar-respaldo --instalar; pause ;;
-      4) run sudo ./scripts/respaldo-homelab.sh --instalar; pause ;;
+      1) run ./hl backup; pause ;;
+      2) run sudo ./hl test-backup; pause ;;
+      3) run sudo ./hl test-backup --install; pause ;;
+      4) run sudo ./scripts/backup.sh --install; pause ;;
       5) echo "  Respaldos encontrados:"
          ls -1t "$(envv BACKUPS_DIR)"/homelab/homelab-*.tar.gz.enc backups/homelab/homelab-*.tar.gz.enc 2>/dev/null | head -10 | nl -w4 -s') '
          f="$(ask "Ruta del archivo (copia y pega)")"
-         [[ -n $f ]] && yes_no "Esto reemplaza la configuración actual (lo de ahora se guarda aparte). ¿Seguro?" && run ./hl restaurar "$f"
+         [[ -n $f ]] && yes_no "Esto reemplaza la configuración actual (lo de ahora se guarda aparte). ¿Seguro?" && run ./hl restore "$f"
          pause ;;
-      6) run sudo ./scripts/respaldo-server.sh; pause ;;
+      6) run sudo ./scripts/backup-server.sh; pause ;;
       0|"") return ;;
     esac
   done
@@ -197,8 +197,8 @@ menu_seguridad() {
 EOF
     case "$(ask "Elige")" in
       1) run ./hl firewall; pause ;;
-      2) echo "  ${Y}No cierres esta sesión hasta probar entrar desde otra terminal.${N}"; run ./hl firewall --solo-llave; pause ;;
-      3) run ./hl contraseña; pause ;;
+      2) echo "  ${Y}No cierres esta sesión hasta probar entrar desde otra terminal.${N}"; run ./hl firewall --key-only; pause ;;
+      3) run ./hl password; pause ;;
       4) run ./hl ca; pause ;;
       5) run ./hl sso; pause ;;
       6) echo; (HL_REPO="$REPO"; . scripts/lib/ssh.sh; echo "  SSH escucha en: $(ssh_ports | paste -sd' ' -)"); pause ;;
@@ -219,11 +219,11 @@ menu_nobreak() {
   0) Volver
 EOF
     case "$(ask "Elige")" in
-      1) run sudo ./hl nobreak; pause ;;
-      2) run sudo ./hl nobreak --probar; pause ;;
+      1) run sudo ./hl ups; pause ;;
+      2) run sudo ./hl ups --test; pause ;;
       3) run upsc ups@localhost; pause ;;
-      4) p="$(ask "IP de la PC")"; [[ -n $p ]] && run sudo ./hl nobreak --permitir "$p"; pause ;;
-      5) m="$(ask "Minutos" 10)"; run sudo ./hl nobreak --apagar-en "$m"; pause ;;
+      4) p="$(ask "IP de la PC")"; [[ -n $p ]] && run sudo ./hl ups --allow "$p"; pause ;;
+      5) m="$(ask "Minutos" 10)"; run sudo ./hl ups --shutdown-after "$m"; pause ;;
       0|"") return ;;
     esac
   done
@@ -244,12 +244,12 @@ menu_lab() {
   0) Volver
 EOF
     case "$(ask "Elige")" in
-      1) run ./lab/seguridad/instalar.sh wazuh; pause ;;
-      2) yes_no "¿Con Metasploitable también? (más pesado)" && run ./lab/seguridad/instalar.sh objetivos --metasploitable || run ./lab/seguridad/instalar.sh objetivos; pause ;;
-      3) ./lab/seguridad/instalar.sh atacar; pause ;;
-      4) run ./lab/seguridad/instalar.sh estado; pause ;;
-      5) run ./lab/seguridad/instalar.sh apagar; pause ;;
-      6) m="$(ask "IP de la PC con Wazuh")"; [[ -n $m ]] && run sudo ./lab/seguridad/agente-wazuh.sh "$m"; pause ;;
+      1) run ./lab/security/lab.sh wazuh; pause ;;
+      2) yes_no "¿Con Metasploitable también? (más pesado)" && run ./lab/security/lab.sh targets --metasploitable || run ./lab/security/lab.sh targets; pause ;;
+      3) ./lab/security/lab.sh attack; pause ;;
+      4) run ./lab/security/lab.sh status; pause ;;
+      5) run ./lab/security/lab.sh stop; pause ;;
+      6) m="$(ask "IP de la PC con Wazuh")"; [[ -n $m ]] && run sudo ./lab/security/wazuh-agent.sh "$m"; pause ;;
       7) ${PAGER:-less} docs/laboratorio-seguridad.md ;;
       0|"") return ;;
     esac
@@ -275,10 +275,10 @@ EOF
          [[ -n $m ]] && curl -fsS -m 5 -X POST -H 'Content-Type: application/json' -d "{\"mac\":\"$m\"}" http://172.17.0.1:8000/api/wol >/dev/null && echo "  ${G}✔${N} Señal enviada"
          pause ;;
       2) p="$(ask "IP de la Pi")"; run ./scripts/install-server.sh ${p:+--pi "$p"}; pause ;;
-      3) run ./hl migrar; pause ;;
-      4) run sudo ./hl limpiar --plan; pause ;;
+      3) run ./hl migrate; pause ;;
+      4) run sudo ./hl clean --plan; pause ;;
       5) echo "  ${Y}Antes: si AdGuard de la Pi es el DNS de la casa, cámbialo en el módem.${N}"
-         run sudo ./hl limpiar; pause ;;
+         run sudo ./hl clean; pause ;;
       0|"") return ;;
     esac
   done
@@ -302,7 +302,7 @@ menu_principal() {
 EOF
     case "$(ask "Elige")" in
       1) menu_estado ;;
-      2) run ./hl actualizar; ./scripts/gen-secrets.sh >/dev/null 2>&1 || true
+      2) run ./hl update; ./scripts/gen-secrets.sh >/dev/null 2>&1 || true
          echo "  Sugerencia: corre el diagnóstico (1 → 2)."; pause ;;
       3) menu_servicios ;;
       4) menu_fotos ;;
@@ -311,7 +311,7 @@ EOF
       7) menu_nobreak ;;
       8) menu_lab ;;
       9) menu_equipos ;;
-      a|A) ./hl ayuda; pause ;;
+      a|A) ./hl help; pause ;;
       0|q|"") echo; exit 0 ;;
     esac
   done
@@ -319,8 +319,8 @@ EOF
 
 [[ -f .env ]] || { echo "Falta .env: corre ./scripts/gen-secrets.sh"; exit 1; }
 case "${1:-}" in
-  estado) menu_estado ;; servicios) menu_servicios ;; fotos|immich) menu_fotos ;;
-  respaldos) menu_respaldos ;; seguridad) menu_seguridad ;; nobreak|ups) menu_nobreak ;;
-  lab|laboratorio) menu_lab ;; equipos) menu_equipos ;;
+  status|estado) menu_estado ;; services|servicios) menu_servicios ;; photos|fotos|immich) menu_fotos ;;
+  backups|respaldos) menu_respaldos ;; security|seguridad) menu_seguridad ;; ups|nobreak) menu_nobreak ;;
+  lab|laboratorio) menu_lab ;; devices|equipos) menu_equipos ;;
   *) menu_principal ;;
 esac

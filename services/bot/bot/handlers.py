@@ -329,7 +329,7 @@ class Handlers:
         targets = http_json(f"{base}/api/wol").get("targets", [])
         if not targets:
             return self.reply(chat, "No hay equipos para encender. Agrégalos en homelab.yml → wake_on_lan "
-                                    "(agregar-servidor.sh pone la PC sola).")
+                                    "(add-server.sh pone la PC sola).")
         if not arg and len(targets) > 1:
             return self.reply(chat, "¿Cuál? " + " · ".join(f"/encender {esc(t['name'])}" for t in targets))
         t = targets[0] if not arg else next((t for t in targets if t["name"].lower() == arg.lower()), None)

@@ -8,7 +8,7 @@
 | **Familia** | solo **Mis respaldos**, Cámaras, Servicios y Accesos. Recibe únicamente los avisos de sus propios respaldos ([respaldos de la familia](respaldos-familia.md)) |
 
 - La cuenta **principal** es la del `.env` (`WEB_USER`, normalmente `admin`). Su contraseña
-  se cambia en **Mi cuenta** (clic en tu nombre abajo a la izquierda) o con `./hl contraseña`.
+  se cambia en **Mi cuenta** (clic en tu nombre abajo a la izquierda) o con `./hl password`.
 - Crea una cuenta por persona: **Cuentas → Nueva cuenta**. Cada quien cambia la suya en Mi cuenta.
 - Cambiar la contraseña de alguien, o borrar su cuenta, **cierra sus sesiones** al instante.
 - Los permisos se revisan en el servidor en cada petición (Caddy pregunta a netwatch),
@@ -43,15 +43,15 @@ ssh TU_USUARIO@192.168.100.X          # debe entrar SIN pedir contraseña
 ### Paso 2: aplica el firewall (desde uno de esos equipos)
 ```bash
 ./hl firewall               # te muestra el plan y pregunta
-./hl firewall --solo-llave  # además apaga el acceso con contraseña
+./hl firewall --key-only  # además apaga el acceso con contraseña
 ```
 - Solo **agrega** reglas; las tuyas (nginx 80/443, 8090…) se quedan. Quita las reglas
   «SSH desde cualquier lado».
 - Usa el puerto en el que **de verdad** escucha tu SSH (lo detecta con `sshd -T`, o el socket
   en Ubuntu reciente). Si quieres fijarlo: `firewall.ssh.port: 2222` en `homelab.yml`.
-  `./hl revisar` te avisa si UFW no tiene regla para ese puerto.
+  `./hl check` te avisa si UFW no tiene regla para ese puerto.
 - Si estás conectado desde un equipo que no está en la lista, **se detiene** para no dejarte fuera.
-- `--solo-llave` revisa primero que tu usuario tenga llaves en `~/.ssh/authorized_keys`; si no,
+- `--key-only` revisa primero que tu usuario tenga llaves en `~/.ssh/authorized_keys`; si no,
   no cambia nada. Escribe `/etc/ssh/sshd_config.d/10-homelab.conf` (sin contraseña, sin root).
   **No cierres la sesión**: abre otra terminal y prueba entrar. Para deshacer:
   `sudo rm /etc/ssh/sshd_config.d/10-homelab.conf && sudo systemctl reload ssh`.
@@ -85,5 +85,5 @@ Ver [servicios](servicios.md#cuentas-para-la-familia-cada-quien-su-bóveda): reg
 cada quien por invitación, y una Organización «Casa» para compartir contraseñas.
 
 ## Revisión rápida
-`./hl revisar` (o dashboard → Sistema) te dice si SSH acepta contraseña, si UFW está
+`./hl check` (o dashboard → Sistema) te dice si SSH acepta contraseña, si UFW está
 apagado, si Vaultwarden deja registrarse a cualquiera y cuándo fue el último respaldo.

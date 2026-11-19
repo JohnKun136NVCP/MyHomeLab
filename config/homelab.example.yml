@@ -151,7 +151,7 @@ social:
   instagram_user_id: ""         # ID de la cuenta Business ligada a esa página
   telegram_channel: ""          # @tu_canal o -100xxxxxxxxxx (el bot debe ser admin)
 
-# Firewall de la Pi:  ./hl firewall   (y ./hl firewall --solo-llave para SSH sin contraseña)
+# Firewall de la Pi:  ./hl firewall   (y ./hl firewall --key-only para SSH sin contraseña)
 firewall:
   lan_networks: [192.168.1.0/24, 192.168.100.0/24]   # quién abre el dashboard y usa el DNS
   ssh:
@@ -163,7 +163,7 @@ firewall:
       - {ip: 192.168.100.12, nombre: tablet}
   extra: []                     # reglas tuyas, ej. ["allow 8090/tcp comment nginx"]
 
-# Respaldo cifrado del homelab:  ./hl respaldo   (programado: sudo ./scripts/respaldo-homelab.sh --instalar)
+# Respaldo cifrado del homelab:  ./hl backup   (programado: sudo ./scripts/backup.sh --install)
 homelab_backup:
   dir: ""                       # vacío = BACKUPS_DIR/homelab (tu SSD)
   keep: 8                       # cuántos guardar (uno por semana = 2 meses)

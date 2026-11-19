@@ -19,12 +19,12 @@ películas, carpeta de grabaciones (pon un disco grande) y la contraseña RTSP d
 | 3 | Crea el `.env` de la PC (ver `hosts/server/.env.example`) y `config/frigate/config.yml` |
 | 4 | Levanta Frigate (`:5000`), Jellyfin (`:8096`) y node-exporter |
 | 5 | UFW: servicios solo para la casa, métricas solo para la Pi, SSH solo desde el laboratorio |
-| 6 | Entra a la Pi por SSH (con tu llave) y corre `./scripts/agregar-servidor.sh`: Grafana y alertas la monitorean, el dashboard usa su Frigate y aparecen sus enlaces en Inicio |
+| 6 | Entra a la Pi por SSH (con tu llave) y corre `./scripts/add-server.sh`: Grafana y alertas la monitorean, el dashboard usa su Frigate y aparecen sus enlaces en Inicio |
 | 7 | Respaldo semanal cifrado (domingo 05:00) de su configuración → bot del homelab |
 
 Puedes correrlo otra vez cuando quieras: no borra nada.
 
-Opciones: `--pi 192.168.1.5 --puerto 8443 --pi-ssh usuario@192.168.1.5 --si` (sin preguntas).
+Opciones: `--pi 192.168.1.5 --port 8443 --pi-ssh usuario@192.168.1.5 --yes` (sin preguntas).
 
 **Antes:** ponle IP fija a la PC (reserva DHCP en el módem) y, si quieres que se registre sola,
 copia tu llave a la Pi (`ssh-copy-id usuario@IP-de-la-Pi`).

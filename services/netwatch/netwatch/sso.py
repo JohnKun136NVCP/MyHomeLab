@@ -1,4 +1,4 @@
-"""Inicio de sesión único (Authelia) — opcional, `./scripts/instalar-sso.sh`.
+"""Inicio de sesión único (Authelia) — opcional, `./scripts/sso.sh`.
 
 - Las cuentas siguen viviendo en el panel (Ajustes → Cuentas). Aquí se copian a
   config/authelia/users.yml (mismo hash bcrypt) y Authelia las relee sola.

@@ -16,14 +16,15 @@
 #  Se puede volver a correr cuando quieras: no borra nada.
 # ======================================================================
 set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/lib/flags.sh"; hl_flags "$@"; set -- "${HL_ARGS[@]}"   # opciones en inglés (acepta las de antes en español)
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 YES=0; PI=""; PI_PORT=""; PI_SSH=""
 while (($#)); do
   case "$1" in
-    --si|-y) YES=1 ;;
+    --yes|-y) YES=1 ;;
     --pi) PI="$2"; shift ;;
-    --puerto) PI_PORT="$2"; shift ;;
+    --port) PI_PORT="$2"; shift ;;
     --pi-ssh) PI_SSH="$2"; shift ;;
     *) echo "Opción desconocida: $1"; exit 2 ;;
   esac
@@ -145,7 +146,7 @@ CS+=(--env-file .env)
 "${CS[@]}" up -d
 "${CS[@]}" ps --format 'table {{.Service}}\t{{.Status}}'
 
-if [[ -z "${HL_TODO_EN_UNO:-}" ]]; then         # migrar.sh lo llama aparte
+if [[ -z "${HL_TODO_EN_UNO:-}" ]]; then         # migrate.sh lo llama aparte
   if curl -fsS -m 4 "http://$PI:2283/api/server/ping" 2>/dev/null | grep -q pong; then
     echo "  La Raspberry ya tiene Immich. ¿Qué hago con él?"
     echo "    1) Que esta PC haga el reconocimiento de caras para la Pi (las fotos se quedan en la Pi)"
@@ -153,13 +154,13 @@ if [[ -z "${HL_TODO_EN_UNO:-}" ]]; then         # migrar.sh lo llama aparte
     echo "    3) Nada por ahora"
     if ((YES)); then IM=1; else read -r -p "  Elige [1]: " IM; fi
     case "${IM:-1}" in
-      1) ./scripts/instalar-immich.sh --solo-ml "$PI" && echo "  En la Pi corre:  ./scripts/instalar-immich.sh --ml-remoto http://$MY_IP:3003" || true ;;
+      1) ./scripts/immich.sh --ml-only "$PI" && echo "  En la Pi corre:  ./scripts/immich.sh --ml-remote http://$MY_IP:3003" || true ;;
       2) read -r -p "  Usuario SSH de la Pi (usuario@$PI o usuario@$PI:PUERTO) [$(id -un)@$PI]: " PU
-         ./scripts/instalar-immich.sh --traer-de "${PU:-$(id -un)@$PI}" || true ;;
+         ./scripts/immich.sh --pull-from "${PU:-$(id -un)@$PI}" || true ;;
     esac
   else
     if ((YES)); then IM=s; else read -r -p "  ¿Instalo también Immich (respaldo automático de fotos de los celulares)? [S/n] " IM; fi
-    [[ "${IM:-s}" =~ ^[sSyY] ]] && ./scripts/instalar-immich.sh $( ((YES)) && echo --si ) || true
+    [[ "${IM:-s}" =~ ^[sSyY] ]] && ./scripts/immich.sh $( ((YES)) && echo --yes ) || true
   fi
 fi
 
@@ -194,7 +195,7 @@ if [[ -z "${HL_TODO_EN_UNO:-}" ]]; then
     command -v ethtool >/dev/null && sudo ethtool -s "$ifc" wol g 2>/dev/null || true
   fi
 fi
-REG="./scripts/agregar-servidor.sh '$MY_IP' '$(hostname)' '$MY_MAC'"
+REG="./scripts/add-server.sh '$MY_IP' '$(hostname)' '$MY_MAC'"
 if [[ -n "${HL_TODO_EN_UNO:-}" ]]; then          # la «Pi» es esta misma máquina
   out="$(eval "$REG")"; echo "$out" | sed 's/^/  /' | head -3
   tok="$(echo "$out" | tail -1 | tr -d '[:space:]')"
@@ -227,7 +228,7 @@ Description=MyHomeLab: respaldo de la PC del homelab
 After=docker.service network-online.target
 [Service]
 Type=oneshot
-ExecStart=$REPO/scripts/respaldo-server.sh
+ExecStart=$REPO/scripts/backup-server.sh
 UNIT
 sudo tee /etc/systemd/system/homelab-server-backup.timer >/dev/null <<UNIT
 [Unit]

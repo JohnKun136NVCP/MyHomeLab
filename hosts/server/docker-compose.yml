@@ -62,7 +62,7 @@ services:
       - ../../config/cine/nginx.conf:/etc/nginx/conf.d/default.conf:ro
 
   # Métricas de la PC para la Pi. Si la PC también corre el stack de la Pi (todo en uno,
-  # scripts/migrar.sh), ese ya trae su node-exporter: por eso va en el perfil «pc-sola».
+  # scripts/migrate.sh), ese ya trae su node-exporter: por eso va en el perfil «pc-sola».
   node-exporter:
     <<: *common
     profiles: ["pc-sola"]

@@ -424,9 +424,9 @@ const views = {
       <div class="grid2">
         <div class="card"><h3>Acciones</h3>
           <div class="frow"><label>Actualizar</label><div><button class="primary" data-act="actualizar">⬇ Actualizar desde GitHub</button>
-            <div class="muted small">git pull + reconstruye y reinicia lo que cambió. Igual que <span class="mono">./hl actualizar</span>.</div></div></div>
+            <div class="muted small">git pull + reconstruye y reinicia lo que cambió. Igual que <span class="mono">./hl update</span>.</div></div></div>
           <div class="frow"><label>Revisar</label><div><button data-act="revisar">🩺 Revisar el homelab</button>
-            <div class="muted small">Contenedores, firewall, SSH, disco, temperatura, bot… (<span class="mono">./hl revisar</span>)</div></div></div>
+            <div class="muted small">Contenedores, firewall, SSH, disco, temperatura, bot… (<span class="mono">./hl check</span>)</div></div></div>
           <div class="frow"><label>Respaldo</label><div><button data-act="respaldo">🗄 Respaldar ahora</button>
             <div class="muted small">Cifrado; queda en tu SSD y te llega por Telegram. Cada domingo se hace solo.</div></div></div>
           <div class="frow"><label>Certificado</label><div>${sy.ca ? '<a href="/ca.crt"><button>⬇ Descargar certificado del homelab</button></a>' : '<span class="muted">Corre <span class="mono">./hl ca</span> en la Pi para poder descargarlo aquí.</span>'}
@@ -439,7 +439,7 @@ const views = {
             ${bk.file ? `<tr><td>Archivo</td><td class="mono small" style="overflow-wrap:anywhere">${esc(bk.file)}</td></tr>` : ""}
             <tr><td>Copias</td><td>SSD ${(bk.sent || []).map((x) => "· " + esc(x)).join(" ")}</td></tr></table>`
             : '<p class="muted">Nunca se ha respaldado. Presiona «Respaldar ahora».</p>'}
-          <p class="muted small">Restaurar en una Pi nueva: <span class="mono">./hl restaurar ARCHIVO</span></p></div>
+          <p class="muted small">Restaurar en una Pi nueva: <span class="mono">./hl restore ARCHIVO</span></p></div>
       </div>
       <div class="card"><h3>🩺 Revisión ${r.ts ? `<span class="muted small">${ago(r.ts)}</span> <span class="pill ok">✔ ${r.ok}</span> <span class="pill warn">⚠ ${r.warn}</span> <span class="pill bad">✘ ${r.bad}</span>` : ""}</h3>
         ${r.ts ? `<div class="checks">${[...(r.items || [])].sort((a, b) => "bwo".indexOf(a.st[0]) - "bwo".indexOf(b.st[0])).map((i) => `<div class="row"><span>${icon[i.st]}</span>

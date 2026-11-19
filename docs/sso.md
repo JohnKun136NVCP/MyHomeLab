@@ -5,8 +5,8 @@ Uptime Kuma y AdGuard. Los administradores además confirman con un código de 6
 
 ```bash
 ./hl sso                     # pregunta el dominio (casa.lan)
-./hl sso --sin-2fa           # sin código para administradores (no recomendado)
-./hl sso --quitar            # regresa a como estaba
+./hl sso --no-2fa           # sin código para administradores (no recomendado)
+./hl sso --remove            # regresa a como estaba
 ```
 
 | Dirección | Qué es | Quién entra |
@@ -41,7 +41,7 @@ La primera vez que un administrador entra, Authelia pide registrar un dispositiv
 
 ## Cómo está armado
 
-- `instalar-sso.sh` genera `config/authelia/configuration.yml` y `config/caddy/sso/sso.caddy`
+- `sso.sh` genera `config/authelia/configuration.yml` y `config/caddy/sso/sso.caddy`
   (los dos fuera de git), los secretos en `.env` y el perfil `sso`.
 - Caddy pregunta a Authelia (`forward_auth`) antes de cada página. Si Authelia aprueba, Caddy
   le pasa al panel `Remote-User` y una cabecera secreta (`SSO_SECRET`); sin esa cabecera el

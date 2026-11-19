@@ -48,18 +48,18 @@ flowchart LR
 | VPN | Reutiliza tu túnel WireGuard Pi ↔ VPS; wg-easy opcional para teléfono/laptop | [VPN](docs/vpn.md) |
 | Cuentas para toda la casa | Web → **Cuentas**: administrador, «ve registros» (lo das tú) y familia (solo sus respaldos); aviso si alguien entra desde un equipo nuevo | [seguridad](docs/seguridad.md) |
 | Respaldos de la familia sin saber de computadoras | Web → **Mis respaldos**: instalador ya configurado (Windows doble clic, Linux/Mac un comando), subir fotos desde el celular, Telegram opcional; cada quien recibe solo sus avisos | [respaldos de la familia](docs/respaldos-familia.md) |
-| Firewall y SSH con llave | `./hl firewall --solo-llave`: SSH solo desde tus 3 equipos del laboratorio y solo con llave | [seguridad](docs/seguridad.md) |
-| Respaldo del propio homelab | `./hl respaldo` cifrado (cada domingo): SSD + Telegram (+ VPS); `./hl restaurar` en una Pi nueva | [respaldos](docs/respaldos.md#respaldo-del-homelab) |
-| Diagnóstico y actualizar | `./hl revisar` / `./hl actualizar`, o Web → **Sistema** | [hl](#el-comando-hl) |
+| Firewall y SSH con llave | `./hl firewall --key-only`: SSH solo desde tus 3 equipos del laboratorio y solo con llave | [seguridad](docs/seguridad.md) |
+| Respaldo del propio homelab | `./hl backup` cifrado (cada domingo): SSD + Telegram (+ VPS); `./hl restore` en una Pi nueva | [respaldos](docs/respaldos.md#respaldo-del-homelab) |
+| Diagnóstico y actualizar | `./hl check` / `./hl update`, o Web → **Sistema** | [hl](#el-comando-hl) |
 | Estado de servicios y resumen diario | Web → **Servicios** (Uptime Kuma), resumen por Telegram a tu hora, horario de silencio | [servicios](docs/servicios.md) |
 | Cámaras genéricas (foco 360°) | Web → Cámaras → «Detectar cámara genérica» (iCSee, V380, Yoosee, CamHi) | [cámaras](docs/camaras.md#cámaras-genéricas-foco-360) |
 | Fotos de la familia | **Immich** en la Pi o la PC (`:2283`): la app del celular sube las fotos sola; cada quien su cuenta; se muda a la PC con un comando | [fotos](docs/fotos.md) |
-| No-break | `./hl nobreak`: aviso por Telegram si se va la luz, apagado en orden de PC y Pi, tarjeta en Inicio | [no-break](docs/no-break.md) |
+| No-break | `./hl ups`: aviso por Telegram si se va la luz, apagado en orden de PC y Pi, tarjeta en Inicio | [no-break](docs/no-break.md) |
 | Inicio de sesión único | `./hl sso`: Authelia en `panel.casa.lan`, 2FA para administradores, mismas cuentas del panel | [sso](docs/sso.md) |
 | Laboratorio de seguridad | Wazuh (SIEM) + DVWA, Juice Shop y Metasploitable en una red aislada, Kali y prácticas | [laboratorio de seguridad](docs/laboratorio-seguridad.md) |
 | Velocidad del internet, imágenes nuevas, encender la PC | Speedtest Tracker, Diun, Wake-on-LAN (`/encender`) | [servicios](docs/servicios.md#speedtest-tracker--httpip-de-la-pi8765) |
-| Prueba de restauración | `./hl probar-respaldo` (cada mes): descifra y revisa el último respaldo | [servicios](docs/servicios.md#prueba-mensual-del-respaldo) |
-| Mudarse a la PC / limpiar la Pi | `./hl migrar` (desde cero o copiando de la Pi por SSH con llave) y `./hl limpiar` | [migrar](docs/migrar.md) |
+| Prueba de restauración | `./hl test-backup` (cada mes): descifra y revisa el último respaldo | [servicios](docs/servicios.md#prueba-mensual-del-respaldo) |
+| Mudarse a la PC / limpiar la Pi | `./hl migrate` (desde cero o copiando de la Pi por SSH con llave) y `./hl clean` | [migrar](docs/migrar.md) |
 
 ## Instalación
 
@@ -74,12 +74,15 @@ Antes de terminar edita:
 - `config/homelab.yml`: tu red (`cidr`, `gateway`), las IP de tus 2 AP Tenda y del módem,
   tus dispositivos de respaldo y las redes sociales.
 
-Luego `./hl actualizar` (o `./hl up -d`) cada vez que cambies algo a mano; desde la web, Ajustes → «Guardar y aplicar».
+Luego `./hl update` (o `./hl up -d`) cada vez que cambies algo a mano; desde la web, Ajustes → «Guardar y aplicar».
 
 Entra a **https://IP-de-la-Pi:PUERTO** con usuario `admin` y la contraseña que pusiste. Grafana está en `/grafana/`.
 
 #### El comando `hl`
 Atajo dentro del repo (siempre con `--env-file .env`, sin avisos `WARN`):
+
+Los comandos y opciones están en inglés (`./hl status`, `--yes`, `--install`…). Los nombres de
+antes en español (`./hl estado`, `--si`, `scripts/migrar.sh`…) siguen funcionando.
 
 **`./hl` solo abre un menú** con todo (estado, servicios opcionales, fotos, respaldos, seguridad,
 no-break, laboratorio, mudanza). Cada opción te muestra el comando que corre, por si luego lo
@@ -88,15 +91,15 @@ quieres usar directo.
 | Comando | Qué hace |
 |---|---|
 | `./hl` | menú con todas las herramientas |
-| `./hl servicios encender speedtest` | enciende/apaga opcionales: dns, servicios, ids, speedtest, diun |
-| `./hl fotos diagnostico` | Immich: `estado`, `diagnostico`, `abrir-firewall`, `actualizar` |
-| `./hl estado` | contenedores y si están sanos |
-| `./hl revisar` | diagnóstico completo con el arreglo de cada problema |
-| `./hl actualizar` | `git pull` + reconstruye + levanta |
-| `./hl reiniciar [svc]` / `./hl logs [svc]` | reiniciar / ver bitácora |
-| `./hl firewall [--solo-llave]` | reglas de UFW y SSH solo con llave |
-| `./hl respaldo` / `./hl restaurar ARCHIVO` | respaldo cifrado del homelab |
-| `./hl contraseña` | nueva contraseña del admin de la web |
+| `./hl services enable speedtest` | enciende/apaga opcionales: dns, servicios, ids, speedtest, diun |
+| `./hl photos diagnose` | Immich: `estado`, `diagnostico`, `abrir-firewall`, `actualizar` |
+| `./hl status` | contenedores y si están sanos |
+| `./hl check` | diagnóstico completo con el arreglo de cada problema |
+| `./hl update` | `git pull` + reconstruye + levanta |
+| `./hl restart [svc]` / `./hl logs [svc]` | reiniciar / ver bitácora |
+| `./hl firewall [--key-only]` | reglas de UFW y SSH solo con llave |
+| `./hl backup` / `./hl restore ARCHIVO` | respaldo cifrado del homelab |
+| `./hl password` | nueva contraseña del admin de la web |
 | `./hl ca` | certificado de Caddy para instalar en tus equipos |
 | `./hl <lo que sea>` | se pasa a `docker compose` (`ps`, `exec`, `pull`…) |
 

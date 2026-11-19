@@ -220,7 +220,7 @@ def test_puerto_ssh_fijo_en_homelab_yml(tmp_path):
 def test_reglas_ufw_de_la_pi_se_adaptan(tmp_path):
     import re
     import subprocess
-    src = (ROOT / "scripts" / "migrar.sh").read_text()
+    src = (ROOT / "scripts" / "migrate.sh").read_text()
     py = re.search(r"<<'PY'\n(import re, sys\nf, old, new, casa, lab, sshp.*?)\nPY\n", src, re.S).group(1)
     rules = tmp_path / "ufw.txt"
     rules.write_text("Added user rules:\n"

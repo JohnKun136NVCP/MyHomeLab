@@ -2,9 +2,9 @@
 # ======================================================================
 #  Respaldo fácil a MyHomeLab para Linux y Mac (lo instala «Mis respaldos»).
 #    respaldo-facil.sh                respalda ahora (Documentos, Escritorio e Imágenes)
-#    respaldo-facil.sh --instalar URL  configura con el enlace del dashboard y programa
+#    respaldo-facil.sh --install URL  configura con el enlace del dashboard y programa
 #    respaldo-facil.sh --programado    lo usa el temporizador (solo si ya toca)
-#    respaldo-facil.sh --quitar        deja de respaldar automáticamente
+#    respaldo-facil.sh --remove        deja de respaldar automáticamente
 #  Cifrado con tu contraseña de respaldo (la ves en el dashboard → Mis respaldos).
 #  Restaurar:  openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in ARCHIVO | tar xz
 #  (si son varias partes: cat ARCHIVO.part-* | openssl enc -d … | tar xz)
@@ -107,12 +107,12 @@ respaldar() {
 }
 
 case "${1:-}" in
-  --instalar) instalar "${2:?Falta el enlace de Mis respaldos}" ;;
+  --install|--instalar) instalar "${2:?Falta el enlace de Mis respaldos}" ;;
   --programado)
     # shellcheck disable=SC1090
     . "$CONF"; last="$(cat "$STAMP" 2>/dev/null || echo 0)"
     (( $(date +%s) - last >= SEMANAS * 7 * 86400 - 43200 )) && respaldar || true ;;
-  --quitar)
+  --remove|--quitar)
     if ((MAC)); then launchctl unload "$HOME/Library/LaunchAgents/mx.myhomelab.respaldo.plist" 2>/dev/null; rm -f "$HOME/Library/LaunchAgents/mx.myhomelab.respaldo.plist"
     else systemctl --user disable --now myhomelab-respaldo.timer 2>/dev/null || true; (crontab -l 2>/dev/null | grep -v myhomelab) | crontab - 2>/dev/null || true; fi
     echo "Ya no se respalda automáticamente." ;;

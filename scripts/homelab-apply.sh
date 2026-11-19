@@ -37,9 +37,9 @@ start=$(date +%s)
   echo "== $(date '+%F %T') ${action}: servicios=${services} recrear=${force:-ninguno}"
   case "$action" in
     revisar)
-      ./scripts/revisar.sh; exit 0 ;;
+      ./scripts/check.sh; exit 0 ;;
     respaldo)
-      ./scripts/respaldo-homelab.sh; exit $? ;;
+      ./scripts/backup.sh; exit $? ;;
     actualizar)
       echo "   git pull (como $owner)"
       sudo -u "$owner" git pull --ff-only || exit 1

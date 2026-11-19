@@ -39,7 +39,7 @@ contenedor no corre, el firewall del VPS no deja pasar a la Pi, o la Pi apunta a
 
 ```bash
 ./hl vps                                   # en la Pi: te dice el error exacto de Prometheus
-./hosts/vps/revisar-vps.sh --arreglar      # en el VPS: revisa y corrige (pregunta antes)
+./hosts/vps/check.sh --fix      # en el VPS: revisa y corrige (pregunta antes)
 ./hl vps 10.66.0.1:9100                    # en la Pi: si homelab.yml tenía otra dirección
 ```
 

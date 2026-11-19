@@ -21,14 +21,14 @@ config/frigate/*.bak
 hosts/server/docker-compose.override.yml
 .homelab-ca.crt
 config/frigate/config.yml
-# Immich (lo baja scripts/instalar-immich.sh de su versión oficial)
+# Immich (lo baja scripts/immich.sh de su versión oficial)
 hosts/server/immich/
 # Authelia: lo que genera en marcha
 config/authelia/users.yml
 config/authelia/db.sqlite3
 config/authelia/notification.txt
 # Laboratorio de seguridad
-lab/seguridad/wazuh-docker/
+lab/security/wazuh-docker/
 config/caddy/sso/*.caddy
 config/authelia/configuration.yml
-lab/seguridad/trabajo/
+lab/security/trabajo/

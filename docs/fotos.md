@@ -10,13 +10,13 @@ y pasarse de una a otra cuando quieras.
 | Web | `http://IP:2283` (botón «📸 Fotos (Immich)» en Inicio del panel) |
 | Fotos en disco | la carpeta que elegiste al instalar (por defecto `/srv/fotos`; en la Pi, ponla en el SSD) |
 | Base de datos | `hosts/server/immich/postgres` (si el repo está en la microSD, junto a las fotos) |
-| Estado | `./scripts/instalar-immich.sh --estado` |
-| Actualizar | `./scripts/instalar-immich.sh --actualizar` |
+| Estado | `./scripts/immich.sh --status` |
+| Actualizar | `./scripts/immich.sh --update` |
 
 ## Instalarlo
 
 ```bash
-./scripts/instalar-immich.sh
+./scripts/immich.sh
 ```
 
 Funciona igual en la Pi y en la PC. Te pregunta en qué carpeta guardar las fotos, baja la versión
@@ -28,7 +28,7 @@ lento: la primera vez que procesa muchas fotos puede tardar horas (luego, solo l
 fotos se suben y se ven al instante; lo lento es lo de «quién sale en la foto».
 
 La copia diaria de la base que hace Immich entra en el respaldo cifrado del homelab
-(`./hl respaldo`), estés en la Pi o en la PC. Las fotos, por su tamaño, no: ya están en el SSD.
+(`./hl backup`), estés en la Pi o en la PC. Las fotos, por su tamaño, no: ya están en el SSD.
 
 ## Cuando tengas la PC: dos caminos
 
@@ -38,22 +38,22 @@ La Pi sigue recibiendo fotos las 24 horas; la PC hace el trabajo pesado del reco
 
 ```bash
 # En la PC
-./scripts/instalar-immich.sh --solo-ml 192.168.1.69          # IP de la Pi
+./scripts/immich.sh --ml-only 192.168.1.69          # IP de la Pi
 # En la Pi
-./scripts/instalar-immich.sh --ml-remoto http://IP-de-la-PC:3003
+./scripts/immich.sh --ml-remote http://IP-de-la-PC:3003
 ```
 
 El segundo comando te dice el último paso, en la web de Immich: **Administración →
 Configuración → Aprendizaje automático → URL**, pon primero la de la PC y después
 `http://immich-machine-learning:3003` (la de la Pi). Si la PC está apagada, Immich usa la de la
 Pi y nada se detiene. La PC instala la **misma versión** que la Pi; si actualizas Immich en la
-Pi, vuelve a correr `--solo-ml` en la PC. Para regresar todo a la Pi: `--ml-local`.
+Pi, vuelve a correr `--ml-only` en la PC. Para regresar todo a la Pi: `--ml-local`.
 
 ### B. Mudar Immich completo a la PC
 
 ```bash
 # En la PC
-./scripts/instalar-immich.sh --traer-de pi@192.168.1.69         # o pi@IP:2222 si tu SSH usa otro puerto
+./scripts/immich.sh --pull-from pi@192.168.1.69         # o pi@IP:2222 si tu SSH usa otro puerto
 ```
 
 Qué hace:
@@ -69,11 +69,11 @@ caras y fotos quedan iguales. En cada celular solo cambias la dirección del ser
 sesión → `http://IP-de-la-PC:2283` → entrar); lo que ya se subió no se sube otra vez.
 
 Las fotos siguen en el SSD de la Pi hasta que tú las borres: revisa primero que en la PC esté
-todo. `./hl migrar` hace esta mudanza sola si la Pi tiene Immich, y `install-server.sh` te
+todo. `./hl migrate` hace esta mudanza sola si la Pi tiene Immich, y `install-server.sh` te
 ofrece los dos caminos.
 
 Para copiar fotos que son de root, la Pi da un permiso temporal a `rsync` en
-`/etc/sudoers.d/90-homelab-immich-mudanza`; se quita al terminar (y `./hl limpiar` lo quita si
+`/etc/sudoers.d/90-homelab-immich-mudanza`; se quita al terminar (y `./hl clean` lo quita si
 se quedó).
 
 ## Primera vez (el administrador)
@@ -82,7 +82,7 @@ se quedó).
 2. **Administración → Usuarios → Crear usuario** para cada persona de la casa (correo puede
    ser inventado, p. ej. `mama@casa`; lo que importa es la contraseña).
 3. **Administración → Ajustes → Copia de la base de datos**: déjala diaria (viene así).
-   `respaldo-server.sh` mete la copia más reciente en el respaldo cifrado de la PC.
+   `backup-server.sh` mete la copia más reciente en el respaldo cifrado de la PC.
 4. Opcional: en **Almacenamiento** activa la «plantilla de almacenamiento» para que las
    fotos queden por año/mes en el disco.
 
@@ -115,7 +115,7 @@ No abras el puerto 2283 en el módem.
 ```bash
 cd hosts/server/immich && docker compose ps          # ¿todos «running»?
 docker compose logs --tail 50 immich-server
-./scripts/instalar-immich.sh --actualizar             # baja la versión nueva y reinicia
+./scripts/immich.sh --update             # baja la versión nueva y reinicia
 ```
 
 Para actualizar, lee antes las notas de la versión en GitHub (Immich avisa cuando un cambio

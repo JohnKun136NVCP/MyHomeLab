@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # Laboratorio de seguridad en la PC: Wazuh (SIEM) + máquinas vulnerables aisladas.
 #
-#   ./lab/seguridad/instalar.sh wazuh           instala y levanta Wazuh (manager, indexer, dashboard)
-#   ./lab/seguridad/instalar.sh objetivos       DVWA + Juice Shop (+ --metasploitable)
-#   ./lab/seguridad/instalar.sh atacar          abre una terminal de Kali dentro de la red aislada
-#   ./lab/seguridad/instalar.sh estado          qué está prendido y dónde entrar
-#   ./lab/seguridad/instalar.sh apagar          apaga todo el laboratorio (no borra nada)
-#   ./lab/seguridad/instalar.sh quitar          borra contenedores, volúmenes y la copia de wazuh-docker
+#   ./lab/security/lab.sh wazuh           instala y levanta Wazuh (manager, indexer, dashboard)
+#   ./lab/security/lab.sh targets       DVWA + Juice Shop (+ --metasploitable)
+#   ./lab/security/lab.sh attack          abre una terminal de Kali dentro de la red aislada
+#   ./lab/security/lab.sh status          qué está prendido y dónde entrar
+#   ./lab/security/lab.sh stop          apaga todo el laboratorio (no borra nada)
+#   ./lab/security/lab.sh remove          borra contenedores, volúmenes y la copia de wazuh-docker
 #
-# Agentes de Wazuh en la Pi / el VPS:  ./lab/seguridad/agente-wazuh.sh IP-de-la-PC   (en ese equipo)
+# Agentes de Wazuh en la Pi / el VPS:  ./lab/security/wazuh-agent.sh IP-de-la-PC   (en ese equipo)
 # Guía de prácticas: docs/laboratorio-seguridad.md
 set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$(dirname "$(readlink -f "$0")")/../../scripts/lib/flags.sh"; hl_flags "$@"; set -- "${HL_ARGS[@]}"   # opciones en inglés (acepta las de antes en español)
+SELF="$(readlink -f "$0")"
+HERE="$(dirname "$SELF")"
 cd "$HERE"
 WAZUH_VERSION="${WAZUH_VERSION:-v4.14.6}"
 WZ="$HERE/wazuh-docker/single-node"
@@ -21,7 +23,7 @@ if docker info >/dev/null 2>&1; then D=(docker); else D=(sudo docker); fi
 LAB=("${D[@]}" compose -f "$HERE/docker-compose.yml")
 WZC=("${D[@]}" compose -f "$WZ/docker-compose.yml" -p homelab-wazuh)
 
-cmd="${1:-ayuda}"; shift || true
+cmd="${1:-help}"; shift || true
 case "$cmd" in
 wazuh)
   [[ "$(uname -m)" == x86_64 ]] || die "Wazuh en Docker necesita una PC x86_64 (en la Pi instala solo el agente)."
@@ -54,9 +56,9 @@ wazuh)
   echo
   ok "Wazuh arrancando (tarda 1–3 min la primera vez)."
   echo "  Dashboard: ${B}https://127.0.0.1:5602${N}  usuario admin / SecretPassword (cámbiala: docs/laboratorio-seguridad.md)"
-  echo "  Agentes:   en la Pi o el VPS corre  ./lab/seguridad/agente-wazuh.sh $(hostname -I | awk '{print $1}')"
+  echo "  Agentes:   en la Pi o el VPS corre  ./lab/security/wazuh-agent.sh $(hostname -I | awk '{print $1}')"
   ;;
-objetivos)
+targets|objetivos)
   prof=()
   [[ "${1:-}" == --metasploitable ]] && prof=(--profile metasploitable)
   mkdir -p trabajo
@@ -65,32 +67,32 @@ objetivos)
   echo "  DVWA:        ${B}http://127.0.0.1:8181${N}  (admin / password → «Create / Reset Database»)"
   echo "  Juice Shop:  ${B}http://127.0.0.1:8182${N}"
   [[ ${#prof[@]} -gt 0 ]] && echo "  Metasploitable 2: 10.250.66.12 (desde el atacante)"
-  echo "  Atacante (Kali): ./lab/seguridad/instalar.sh atacar"
+  echo "  Atacante (Kali): ./lab/security/lab.sh attack"
   ;;
-atacar)
-  "${LAB[@]}" up -d atacante >/dev/null
-  if ! "${LAB[@]}" exec atacante test -x /usr/bin/nmap 2>/dev/null; then
+attack|atacar)
+  "${LAB[@]}" up -d attacker >/dev/null
+  if ! "${LAB[@]}" exec attacker test -x /usr/bin/nmap 2>/dev/null; then
     warn "La red aislada no tiene internet: conecto el atacante un momento para instalar herramientas…"
-    net="$("${D[@]}" network ls --format '{{.Name}}' | grep -E '^homelab-seclab_salida$')"
-    "${D[@]}" network connect "$net" homelab-seclab-atacante-1
-    "${LAB[@]}" exec atacante bash -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nmap sqlmap nikto hydra curl netcat-traditional metasploit-framework >/dev/null' \
+    net="$("${D[@]}" network ls --format '{{.Name}}' | grep -E '^homelab-seclab_egress$')"
+    "${D[@]}" network connect "$net" homelab-seclab-attacker-1
+    "${LAB[@]}" exec attacker bash -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nmap sqlmap nikto hydra curl netcat-traditional metasploit-framework >/dev/null' \
       || warn "No se instalaron todas las herramientas"
-    "${D[@]}" network disconnect "$net" homelab-seclab-atacante-1
+    "${D[@]}" network disconnect "$net" homelab-seclab-attacker-1
     ok "Herramientas instaladas; el atacante vuelve a estar aislado"
   fi
-  echo "Objetivos: dvwa 10.250.66.10 · juice-shop 10.250.66.11:3000 · metasploitable 10.250.66.12.  Archivos en lab/seguridad/trabajo/"
-  exec "${LAB[@]}" exec atacante bash
+  echo "Objetivos: dvwa 10.250.66.10 · juice-shop 10.250.66.11:3000 · metasploitable 10.250.66.12.  Archivos en lab/security/trabajo/"
+  exec "${LAB[@]}" exec attacker bash
   ;;
-estado)
+status|estado)
   "${LAB[@]}" --profile metasploitable ps --format 'table {{.Service}}\t{{.Status}}' 2>/dev/null || true
   [[ -d "$WZ" ]] && "${WZC[@]}" ps --format 'table {{.Service}}\t{{.Status}}' 2>/dev/null || echo "Wazuh: no instalado"
   ;;
-apagar)
+stop|apagar)
   "${LAB[@]}" --profile metasploitable stop
   [[ -d "$WZ" ]] && "${WZC[@]}" stop
   ok "Laboratorio apagado (los datos se quedan)"
   ;;
-quitar)
+remove|quitar)
   read -rp "Esto borra Wazuh (alertas incluidas) y los objetivos. Escribe QUITAR: " a
   [[ $a == QUITAR ]] || die "Cancelado"
   "${LAB[@]}" --profile metasploitable down -v --remove-orphans
@@ -102,5 +104,5 @@ quitar)
       yes | sudo ufw delete "$n" >/dev/null; done
   ok "Laboratorio quitado"
   ;;
-*) sed -n 2,13p "$0" | sed 's/^# \{0,1\}//' ;;
+*) sed -n 2,13p "$SELF" | sed 's/^# \{0,1\}//' ;;
 esac

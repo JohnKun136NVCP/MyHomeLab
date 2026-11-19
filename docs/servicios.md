@@ -72,7 +72,7 @@ aviso por Telegram si baja de cierta velocidad. Cambia la frecuencia con `SPEEDT
 ## Diun — avisos de imágenes nuevas
 
 Perfil `diun`. Cada día revisa si hay versión nueva de las imágenes de Docker que usas y te
-manda un mensaje sin sonido. No actualiza nada solo: tú decides con `./hl actualizar`
+manda un mensaje sin sonido. No actualiza nada solo: tú decides con `./hl update`
 (o `./hl pull && ./hl up -d`). Antes de actualizar Immich o Authelia lee sus notas de versión.
 
 ## Encender la PC a distancia (Wake-on-LAN)
@@ -91,7 +91,7 @@ Activa «Wake on LAN» / «Power on by PCI-E» en el BIOS. Solo funciona por cab
 
 ## Prueba mensual del respaldo
 
-`sudo ./hl probar-respaldo --instalar` programa una prueba el día 1 de cada mes: descifra el
+`sudo ./hl test-backup --install` programa una prueba el día 1 de cada mes: descifra el
 respaldo más reciente del homelab en una carpeta temporal, revisa que trae `.env`,
 `homelab.yml` y los datos, que las bases SQLite estén íntegras y que no tenga más de 9 días.
-Te llega ✅ (sin sonido) o ⚠/❌ con lo que falló. `sudo ./hl probar-respaldo` la corre ya.
+Te llega ✅ (sin sonido) o ⚠/❌ con lo que falló. `sudo ./hl test-backup` la corre ya.

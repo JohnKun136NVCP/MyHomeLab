@@ -2,22 +2,22 @@
 
 Dos scripts para cuando quieras que todo viva en tu PC Linux (o en un servidor más potente).
 
-## `./hl migrar` — instalar todo en la PC
+## `./hl migrate` — instalar todo en la PC
 
 Córrelo **en la PC nueva**, dentro del repo clonado:
 
 ```bash
 git clone https://github.com/JohnKun136NVCP/MyHomeLab && cd MyHomeLab
-./scripts/migrar.sh --desde-pi pi@192.168.1.5     # copia tu configuración de la Pi
-./scripts/migrar.sh --desde-pi pi@192.168.1.5:2222   # si el SSH de la Pi está en otro puerto
-./scripts/migrar.sh --desde-cero                  # instalación nueva
+./scripts/migrate.sh --from-pi pi@192.168.1.5     # copia tu configuración de la Pi
+./scripts/migrate.sh --from-pi pi@192.168.1.5:2222   # si el SSH de la Pi está en otro puerto
+./scripts/migrate.sh --from-scratch                  # instalación nueva
 ```
 
-También sirve un alias de `~/.ssh/config` (`--desde-pi mipi`) o `--puerto-ssh 2222`. Si el
+También sirve un alias de `~/.ssh/config` (`--from-pi mipi`) o `--ssh-port 2222`. Si el
 puerto no contesta, te lo pregunta. Usa una sola conexión SSH para todo el proceso.
 
-Opciones: `--con-respaldos` (trae también los respaldos de los equipos), `--con-tunel` (mueve
-el WireGuard de la Pi a la PC), `--sin-pc` (no instala Frigate/Jellyfin/Immich), `--limpiar-pi`
+Opciones: `--with-backups` (trae también los respaldos de los equipos), `--with-tunnel` (mueve
+el WireGuard de la Pi a la PC), `--no-pc` (no instala Frigate/Jellyfin/Immich), `--clean-pi`
 (al final deja la Pi limpia).
 
 Qué hace:
@@ -40,16 +40,16 @@ Qué hace:
    - Copia **tus** reglas de UFW de la Pi (nginx, 8090, iperf…): cambia la IP de la Pi por la de
      esta máquina y `eth0`/`wlan0` por las tarjetas que elegiste, te las muestra y pregunta antes
      de agregarlas. No copia las del homelab ni las de SSH (ya están hechas para aquí).
-     `--sin-firewall-pi` lo salta.
+     `--no-pi-firewall` lo salta.
 6. Te dice qué falta a mano: el DNS del módem si usabas AdGuard en la Pi, revisar Uptime Kuma.
 
-## `./hl limpiar` — dejar la Pi como estaba
+## `./hl clean` — dejar la Pi como estaba
 
 Córrelo **en la Pi**:
 
 ```bash
-sudo ./scripts/limpiar-pi.sh --plan          # solo muestra qué quitaría
-sudo ./scripts/limpiar-pi.sh                 # quita todo lo del homelab
+sudo ./scripts/clean-pi.sh --plan          # solo muestra qué quitaría
+sudo ./scripts/clean-pi.sh                 # quita todo lo del homelab
 ```
 
 Quita: contenedores, volúmenes e imágenes del homelab (Pi, PC, Immich, laboratorio; las
@@ -59,9 +59,9 @@ llave, NUT (regresa la configuración original), el agente de Wazuh y `wg0` si l
 `pi-vpn.sh`. Antes hace un último respaldo cifrado (`/root/homelab-respaldo-final`) y te pide
 escribir `LIMPIAR`.
 
-Opciones: `--borrar-datos` (también `.env`, `homelab.yml`, respaldos y Vaultwarden),
+Opciones: `--delete-data` (también `.env`, `homelab.yml`, respaldos y Vaultwarden),
 `--ssh` (quita también las reglas de SSH solo para el laboratorio; antes deja entrar desde la
-LAN), `--quitar-docker` (desinstala Docker), `--sin-respaldo`, `--si` (sin preguntas).
+LAN), `--remove-docker` (desinstala Docker), `--no-backup`, `--yes` (sin preguntas).
 
 **Nunca toca**: tu nginx (80/443 y 8090), el túnel `wg-hoshimy` ni tu `telegram-bot-api`.
 

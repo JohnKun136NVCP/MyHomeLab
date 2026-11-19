@@ -4,7 +4,7 @@ Equipos en homelab.yml:
     wake_on_lan:
       - name: PC
         mac: aa:bb:cc:dd:ee:ff
-`agregar-servidor.sh` agrega la PC sola. netwatch usa la red del host, así que el
+`add-server.sh` agrega la PC sola. netwatch usa la red del host, así que el
 «paquete mágico» sale por la red de la casa.
 """
 from __future__ import annotations

@@ -60,7 +60,7 @@ FIELDS: list[dict] = [
     {"group": "Respaldos", "key": "BACKUPS_DIR", "label": "Carpeta de respaldos",
      "help": "Una carpeta en tu SSD, p. ej. /srv/respaldos.", "restart": ["bot"]},
     {"group": "Respaldos", "key": "HOMELAB_BACKUP_PASSWORD", "label": "Contraseña del respaldo del homelab",
-     "kind": "secret", "help": "Cifra ./hl respaldo. Guárdala fuera de la Pi: sin ella no se restaura.",
+     "kind": "secret", "help": "Cifra ./hl backup. Guárdala fuera de la Pi: sin ella no se restaura.",
      "restart": []},
     {"group": "Redes sociales", "key": "META_PAGE_TOKEN", "label": "Token de página de Meta", "kind": "secret",
      "help": "docs/redes-sociales.md", "restart": ["bot"]},

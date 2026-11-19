@@ -7,13 +7,13 @@ Dos partes que se usan juntas:
 - **Objetivos vulnerables**: DVWA, Juice Shop y (opcional) Metasploitable 2, en una red de
   Docker **sin salida** a internet ni a tu casa, más un contenedor Kali para atacarlos.
 
-Todo vive en `lab/seguridad/` y se maneja con un solo script:
+Todo vive en `lab/security/` y se maneja con un solo script:
 
 ```bash
-./lab/seguridad/instalar.sh wazuh                    # SIEM (x86_64, 4 núcleos, ~8 GB RAM)
-./lab/seguridad/instalar.sh objetivos [--metasploitable]
-./lab/seguridad/instalar.sh atacar                   # terminal de Kali dentro de la red aislada
-./lab/seguridad/instalar.sh estado | apagar | quitar
+./lab/security/lab.sh wazuh                    # SIEM (x86_64, 4 núcleos, ~8 GB RAM)
+./lab/security/lab.sh targets [--metasploitable]
+./lab/security/lab.sh attack                   # terminal de Kali dentro de la red aislada
+./lab/security/lab.sh status | apagar | quitar
 ```
 
 | Qué | Dónde |
@@ -22,7 +22,7 @@ Todo vive en `lab/seguridad/` y se maneja con un solo script:
 | DVWA | `http://127.0.0.1:8181` (admin / password) |
 | Juice Shop | `http://127.0.0.1:8182` |
 | Red aislada | `10.250.66.0/24`: dvwa .10, juice-shop .11, metasploitable .12, atacante .100 |
-| Tus archivos del atacante | `lab/seguridad/trabajo/` (montado en `/root/trabajo`) |
+| Tus archivos del atacante | `lab/security/trabajo/` (montado en `/root/trabajo`) |
 
 ## Reglas del laboratorio
 
@@ -30,13 +30,13 @@ Todo vive en `lab/seguridad/` y se maneja con un solo script:
   `objetivos` ni publiques sus puertos en la LAN.
 - Ataca solo lo que está en `10.250.66.0/24` y tus propios equipos. Escanear redes o equipos
   ajenos (la escuela, el trabajo, vecinos) sin permiso por escrito es ilegal.
-- Apaga los objetivos cuando no practiques: `./lab/seguridad/instalar.sh apagar`.
+- Apaga los objetivos cuando no practiques: `./lab/security/lab.sh stop`.
 
 ## Wazuh
 
 ### Primera vez
 
-1. `./lab/seguridad/instalar.sh wazuh`. Descarga `wazuh-docker` (versión fija), genera los
+1. `./lab/security/lab.sh wazuh`. Descarga `wazuh-docker` (versión fija), genera los
    certificados internos y levanta manager, indexer y dashboard. Tarda unos minutos.
 2. Entra a `https://127.0.0.1:5602` con `admin` / `SecretPassword`.
 3. **Cambia esa contraseña** antes de abrir el dashboard a la red. El procedimiento oficial
@@ -44,7 +44,7 @@ Todo vive en `lab/seguridad/` y se maneja con un solo script:
    generar el hash con la herramienta `hash.sh` del contenedor del indexer, ponerlo en
    `config/wazuh_indexer/internal_users.yml`, cambiar `INDEXER_PASSWORD` en
    `docker-compose.yml` y aplicar con `securityadmin.sh`. Todo dentro de
-   `lab/seguridad/wazuh-docker/single-node/`.
+   `lab/security/wazuh-docker/single-node/`.
 4. Si quieres verlo desde tu laptop del laboratorio, cambia en ese `docker-compose.yml`
    `127.0.0.1:5602:5601` por `5602:5601` y abre el puerto solo para esa IP:
    `sudo ufw allow from IP-laptop to any port 5602 proto tcp comment 'homelab wazuh dashboard'`.
@@ -54,13 +54,13 @@ Todo vive en `lab/seguridad/` y se maneja con un solo script:
 En la Pi (y en el VPS, usando la IP de la PC dentro del túnel WireGuard):
 
 ```bash
-sudo ./lab/seguridad/agente-wazuh.sh 192.168.1.50
+sudo ./lab/security/wazuh-agent.sh 192.168.1.50
 ```
 
 Instala el agente (misma versión que el manager, retenido con `apt-mark hold`) y además le
 dice que lea el `eve.json` de Suricata del homelab y el log de UFW. En el dashboard aparecen
-en **Agents**. Para quitarlo: `sudo ./lab/seguridad/agente-wazuh.sh --quitar`
-(`limpiar-pi.sh` también lo quita).
+en **Agents**. Para quitarlo: `sudo ./lab/security/wazuh-agent.sh --remove`
+(`clean-pi.sh` también lo quita).
 
 ## Prácticas sugeridas
 

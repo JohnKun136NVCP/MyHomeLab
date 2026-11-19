@@ -8,7 +8,7 @@
 	default_sni {$HOMELAB_HOST}
 }
 
-# Inicio de sesión único (Authelia, opcional): ./scripts/instalar-sso.sh crea sso/sso.caddy
+# Inicio de sesión único (Authelia, opcional): ./scripts/sso.sh crea sso/sso.caddy
 # con panel.casa.lan, auth.casa.lan… Sin ese archivo no se importa nada.
 import /etc/caddy/sso/*.caddy
 

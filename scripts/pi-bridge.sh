@@ -17,6 +17,7 @@
 #    sudo ./scripts/pi-bridge.sh estado
 # ======================================================================
 set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/lib/flags.sh"; hl_flags "$@"; set -- "${HL_ARGS[@]}"   # opciones en inglés (acepta las de antes en español)
 ACTION="${1:-estado}"; UP="${2:-eth0}"; DOWN="${3:-eth1}"
 [[ $EUID -eq 0 ]] || { echo "Córrelo con sudo"; exit 1; }
 command -v nmcli >/dev/null || { echo "Este script usa NetworkManager (Raspberry Pi OS Bookworm lo trae)."; exit 1; }

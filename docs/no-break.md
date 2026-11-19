@@ -5,9 +5,9 @@ batería se acaba apaga todo **en orden** (primero la PC, luego la Pi) para que 
 bases de datos no se dañen.
 
 ```bash
-sudo ./hl nobreak                       # detecta el no-break y lo configura
-sudo ./hl nobreak --apagar-en 10        # además: apágate si en 10 min no regresa la luz
-sudo ./hl nobreak --probar              # manda un aviso de prueba al bot
+sudo ./hl ups                       # detecta el no-break y lo configura
+sudo ./hl ups --shutdown-after 10        # además: apágate si en 10 min no regresa la luz
+sudo ./hl ups --test              # manda un aviso de prueba al bot
 ```
 
 | Qué pasa | Aviso |
@@ -27,16 +27,16 @@ Prometheus guarda `homelab_ups_*` para graficarlo en Grafana.
   casa funcionan con `usbhid-ups`; si el tuyo no, prueba `driver = nutdrv_qx`).
 - `upsd` escucha solo en la propia Pi (`127.0.0.1:3493`), salvo que permitas una PC.
 - `upsmon` llama a `/etc/nut/homelab-notify.sh` en cada cambio; ese script le avisa al bot.
-- Los archivos originales de `/etc/nut` quedan como `*.homelab-orig`; `./hl limpiar` los regresa.
+- Los archivos originales de `/etc/nut` quedan como `*.homelab-orig`; `./hl clean` los regresa.
 
 ## La PC en el mismo no-break
 
 ```bash
 # En la Pi: deja que la PC lea el no-break (abre 3493 solo para ella)
-sudo ./hl nobreak --permitir 192.168.1.50
+sudo ./hl ups --allow 192.168.1.50
 sudo cat /etc/nut/.homelab-pass           # contraseña que pide la PC
 # En la PC:
-sudo ./scripts/instalar-nut.sh --cliente 192.168.1.5
+sudo ./scripts/ups.sh --client 192.168.1.5
 ```
 
 Cuando la batería llega a «baja», la Pi le ordena a la PC apagarse, espera y luego se apaga

@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Agente de Wazuh para la Pi o el VPS: manda sus registros (SSH, sudo, UFW, Suricata…) a la PC.
-#   sudo ./lab/seguridad/agente-wazuh.sh 192.168.1.50          (IP de la PC; por VPN usa la IP del túnel)
-#   sudo ./lab/seguridad/agente-wazuh.sh --quitar
+#   sudo ./lab/security/wazuh-agent.sh 192.168.1.50          (IP de la PC; por VPN usa la IP del túnel)
+#   sudo ./lab/security/wazuh-agent.sh --remove
 # Debe ser la misma versión (o menor) que el manager de la PC.
 set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/../../scripts/lib/flags.sh"; hl_flags "$@"; set -- "${HL_ARGS[@]}"   # opciones en inglés (acepta las de antes en español)
 [[ $EUID -eq 0 ]] || exec sudo "$0" "$@"
 VER="${WAZUH_AGENT_VERSION:-4.14.6-1}"
 G=$'\e[32m'; Y=$'\e[33m'; N=$'\e[0m'
 
-if [[ "${1:-}" == --quitar ]]; then
+if [[ "${1:-}" == --remove ]]; then
   systemctl disable --now wazuh-agent 2>/dev/null || true
   apt-get purge -y -qq wazuh-agent >/dev/null 2>&1 || true
   rm -f /etc/apt/sources.list.d/wazuh.list /usr/share/keyrings/wazuh.gpg

@@ -1,6 +1,6 @@
 """Lee el no-break (UPS) desde NUT (upsd, puerto 3493) sin dependencias.
 
-`./scripts/instalar-nut.sh` instala NUT en la Pi y escribe en .env:
+`./scripts/ups.sh` instala NUT en la Pi y escribe en .env:
     NUT_HOST=127.0.0.1   NUT_UPS=ups
 netwatch usa la red del host, así que 127.0.0.1:3493 es el upsd de la Pi.
 """

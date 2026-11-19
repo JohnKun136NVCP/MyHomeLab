@@ -24,8 +24,8 @@ Cada equipo solo necesita su script (no el repo completo). Una vez configurado:
 |---|---|---|
 | Linux | `clients/linux-guardian/install.sh` | «Linux Guardian» en el menú y el comando `linux-guardian` |
 | Windows | `.\Respaldo-Homelab.ps1 -Instalar` | «Respaldo MyHomeLab» en Inicio y en el Escritorio (y uno «(configurar)») |
-| macOS | `./respaldo-homelab.sh --instalar` | comando `respaldo-homelab` e icono en el Escritorio |
-| Android | `bash respaldo-termux.sh --instalar` | comando `respaldo-homelab` y botón en la pantalla de inicio con Termux:Widget |
+| macOS | `./respaldo-homelab.sh --install` | comando `respaldo-homelab` e icono en el Escritorio |
+| Android | `bash respaldo-termux.sh --install` | comando `respaldo-homelab` y botón en la pantalla de inicio con Termux:Widget |
 
 ## Agregar un dispositivo
 1. En `config/homelab.yml` → `backups.devices`: `- {name: laptop-trabajo, os: windows}`
@@ -47,8 +47,8 @@ mueren, lo restauras en minutos):
 | `.env`, `config/`, Vaultwarden, cuentas y dispositivos del dashboard, bot (publicaciones programadas), AdGuard, Uptime Kuma, Grafana, certificado de Caddy | los respaldos de tus equipos (ya son respaldos), historial de Prometheus, multimedia ya publicada |
 
 ```bash
-./hl respaldo                                   # ahora (o dashboard → Sistema → Respaldar ahora)
-sudo ./scripts/respaldo-homelab.sh --instalar   # cada domingo 04:30
+./hl backup                                   # ahora (o dashboard → Sistema → Respaldar ahora)
+sudo ./scripts/backup.sh --install   # cada domingo 04:30
 ```
 - Va **cifrado** (AES-256) con `HOMELAB_BACKUP_PASSWORD` del `.env`; `gen-secrets.sh` la
   genera y te la muestra una vez. **Guárdala en Vaultwarden y en papel**: sin ella no se abre.
@@ -60,7 +60,7 @@ sudo ./scripts/respaldo-homelab.sh --instalar   # cada domingo 04:30
 ```bash
 git clone https://github.com/JohnKun136NVCP/MyHomeLab && cd MyHomeLab
 ./scripts/install-pi.sh         # o solo instala Docker
-./hl restaurar ~/homelab-raspberrypi-20261122-0430.tar.gz.enc
+./hl restore ~/homelab-raspberrypi-20261122-0430.tar.gz.enc
 ```
 Antes de pisar algo guarda lo actual en `run/antes-de-restaurar-FECHA/`.
 
