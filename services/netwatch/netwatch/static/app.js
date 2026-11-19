@@ -274,7 +274,7 @@ const views = {
       <p class="small muted">${d.count ? `${d.count} archivo(s) · ${bytes(d.size)}` : "Todavía no llega nada."}
         ${d.clave && !["web", "telegram"].includes(d.os) ? ` · contraseña para restaurar: <span class="mono" data-clave="${esc(d.clave)}">••••••</span> <a href="#" data-show>ver</a>` : ""}</p>
       ${d.setup ? setupBox(d) : ""}
-      ${d.files?.length && j.telegram && !d.legacy ? `<div class="toolbar" style="margin:6px 0"><button data-sendall>📲 Mandarme ${d.files.length > 1 ? `los ${d.files.length} respaldos` : "el respaldo"} por Telegram</button></div>` : ""}
+      ${d.files?.length && j.telegram && !d.legacy ? `<div class="toolbar" style="margin:6px 0"><button data-sendall>📲 Mandarme ${d.files.length > 1 ? `los ${d.files.length} respaldos en .zip` : "el respaldo"} por Telegram</button></div>` : ""}
       ${d.files?.length ? `<details><summary class="small">Archivos (${d.files.length})</summary><div class="table-wrap"><table>
         ${d.files.map((f) => `<tr><td class="small muted nowrap">n.º ${f.id}</td><td class="small ellipsis" style="max-width:300px" title="${esc(f.name)}">${esc(f.name)}</td><td class="small nowrap">${bytes(f.size)}</td>
           <td class="small nowrap">${ago(f.ts)}</td><td class="nowrap">${d.legacy ? "" : `${j.telegram ? `<button title="Mandármelo por Telegram" data-sendfile="${f.id}">📲</button>` : ""}
@@ -363,11 +363,13 @@ const views = {
       catch (e) { toast(e.message); }
     });
     view.querySelectorAll("[data-sendall]").forEach((b) => b.onclick = async () => {
-      const c = b.closest(".dev"), ids = [...c.querySelectorAll("[data-sendfile]")].map((x) => x.dataset.sendfile);
-      if (!confirm(`¿Mandarte ${ids.length} respaldo(s) por Telegram?` + ($("#pf-del")?.checked ? "\n\nComo tienes «Borrarlo de la Pi», se irán borrando de la Pi conforme te lleguen." : ""))) return;
-      b.disabled = true; let ok = 0;
-      for (const id of ids) { try { await sendFile(c.dataset.dev, id); ok++; } catch (e) { toast(e.message); break; } }
-      toast(`Enviando ${ok} respaldo(s): te van llegando a Telegram`);
+      const c = b.closest(".dev"), n = c.querySelectorAll("[data-sendfile]").length;
+      if (!confirm(`¿Mandarte ${n} respaldo(s) por Telegram empacados en .zip?\n\nSi pasan de 2 GB llegan varios .zip; cada uno se abre por separado.`
+        + ($("#pf-del")?.checked ? "\n\nComo tienes «Borrarlo de la Pi», se borran de la Pi cuando te lleguen." : ""))) return;
+      b.disabled = true;
+      try { const r = await api(`/api/my/devices/${encodeURIComponent(c.dataset.dev)}/send-zip`, { method: "POST", body: "{}" });
+        toast(`Empacando ${r.files} respaldo(s) (${bytes(r.size)}) en ${r.zips > 1 ? r.zips + " .zip" : "un .zip"}: revisa Telegram`); }
+      catch (e) { toast(e.message); b.disabled = false; }
     });
     view.querySelectorAll("[data-rmfile]").forEach((b) => b.onclick = async () => {
       const name = b.closest(".dev").dataset.dev;

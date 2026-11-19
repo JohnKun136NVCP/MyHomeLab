@@ -359,3 +359,34 @@ def test_preferencias_de_respaldo_por_defecto(tmp_path, monkeypatch):
     assert prefs("john") == {"send_telegram": True, "delete_after": False}     # admin principal: no borra
     db.x("INSERT INTO backup_prefs (username, send_telegram, delete_after) VALUES ('mama', 0, 0)")
     assert prefs("mama") == {"send_telegram": False, "delete_after": False}
+
+
+def test_respaldos_en_varios_zip(tmp_path):
+    import zipfile
+    from types import SimpleNamespace
+    from bot import app as botapp
+    App = botapp.BotApp
+    sent, told = [], []
+
+    class TG:
+        limit = 64 * 1024 * 1024
+
+    fake = SimpleNamespace(tg=TG(), tell=lambda c, t: told.append(t))
+    fake.send_big = lambda chat, p, cap: sent.append((p.name, zipfile.ZipFile(p).namelist(), p.stat().st_size))
+    files = []
+    for i, mb in enumerate([10, 10, 10, 20]):
+        f = tmp_path / f"2026-11-1{i}_100000" / f"r{i}.enc"
+        f.parent.mkdir()
+        f.write_bytes(b"x" * (mb * 1024 * 1024))
+        files.append(f)
+    work = tmp_path / "w"
+    work.mkdir()
+    orig = botapp.time.sleep
+    botapp.time.sleep = lambda s: None
+    try:
+        n = App.send_zips(fake, 5, files, work, "mama-laptop", "Respaldos")
+    finally:
+        botapp.time.sleep = orig
+    assert n == 2 and all(s[2] <= TG.limit for s in sent)
+    assert "parte1de2" in sent[0][0] and sum(len(s[1]) for s in sent) == 4
+    assert list(work.iterdir()) == [] and "se abre por separado" in told[-1]

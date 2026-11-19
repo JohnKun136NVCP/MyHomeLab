@@ -67,12 +67,13 @@ En **Mis respaldos → «Cuando llega un respaldo»** cada quien elige (viene as
 
 - **Mandármelo por Telegram** (si vinculó su Telegram): llega cada respaldo; si pesa más de 2 GB,
   en partes `.001`, `.002`… que se juntan abriendo la `.001` con 7-Zip (Windows) o ZArchiver
-  (Android). Las subidas desde el navegador llegan una por una o, si son más de 10, en un `.zip`.
+  (Android). Las subidas desde el navegador llegan en un `.zip` (o varios, si pasan de 2 GB).
 - **Borrarlo de la Pi cuando ya lo tenga**: en cuanto llega a Telegram (o, sin Telegram, cuando
   lo descarga completo con ⬇), se borra de la Pi para ahorrar espacio. También hay 🗑 por archivo.
 
 Para un respaldo que **ya estaba** en la Pi: en su equipo, botón **📲** junto a cada archivo (con
-su número, n.º) o **«📲 Mandarme los respaldos por Telegram»** para todos. Se mandan uno tras otro.
+su número, n.º) o **«📲 Mandarme los respaldos en .zip por Telegram»** para todos: se empacan en un `.zip`; si
+pasan de 2 GB, en varios `.zip` que se abren cada uno por separado (no hay que juntarlos).
 
 Ojo: con las dos opciones, **la copia queda en Telegram**: que no borren ese chat. Para el admin
 principal el borrado viene apagado.

@@ -388,6 +388,39 @@ class BotApp:
                         f"<code>cat {esc(path.name)}.0* &gt; {esc(path.name)}</code>")
         return n
 
+    def send_zips(self, chat, files: list[Path], workdir: Path, base: str, caption: str) -> int:
+        """Empaca en .zip (sin comprimir: fotos y videos ya vienen comprimidos) y los manda.
+        Si no cabe en uno, hace varios .zip que se abren cada uno por separado; un archivo que
+        él solo pase del límite va en partes .001/.002. Regresa cuántos .zip mandó."""
+        import zipfile
+        room = self.tg.limit - 32 * 1024 * 1024
+        groups, cur, size = [], [], 0
+        for f in sorted(files):
+            fs = f.stat().st_size
+            if cur and size + fs > room:
+                groups.append(cur)
+                cur, size = [], 0
+            cur.append(f)
+            size += fs
+        if cur:
+            groups.append(cur)
+        n = len(groups)
+        stamp = dt.datetime.now().strftime("%Y-%m-%d")
+        for i, g in enumerate(groups, 1):
+            name = f"{base}-{stamp}" + (f"-parte{i}de{n}" if n > 1 else "") + ".zip"
+            z = workdir / name
+            with zipfile.ZipFile(z, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
+                for f in g:
+                    zf.write(f, f"{f.parent.name}/{f.name}" if len({x.parent for x in files}) > 1 else f.name)
+            try:
+                self.send_big(chat, z, (caption + "\n" if i == 1 else "") + (f"📦 .zip {i} de {n} · {len(g)} archivo(s)"))
+            finally:
+                z.unlink(missing_ok=True)
+            time.sleep(1)
+        if n > 1:
+            self.tell(chat, f"✅ Te mandé {n} archivos .zip. Cada uno se abre por separado (no hay que juntarlos).")
+        return n
+
     def drop_backup(self, bid: int, path: Path) -> None:
         """Borra un respaldo de la Pi (ya lo tiene su dueño) y su carpeta si quedó vacía."""
         path.unlink(missing_ok=True)
@@ -469,20 +502,10 @@ class BotApp:
     def _send_batch(self, chat, d: Path, files: list[Path], device: str) -> None:
         """Pocos archivos: uno por uno. Muchos (o muy grandes juntos): un .zip sin comprimir
         (las fotos y videos ya vienen comprimidos), en partes si pasa del límite."""
-        if len(files) <= 10:
-            for f in sorted(files):
-                self.send_big(chat, f, f"📎 {esc(f.name)}")
-                time.sleep(1)
+        if len(files) == 1:
+            self.send_big(chat, files[0], f"📎 {esc(files[0].name)}")
             return
-        import zipfile
-        z = d / f"{device}-{d.name}.zip"
-        with zipfile.ZipFile(z, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
-            for f in sorted(files):
-                zf.write(f, f.name)
-        try:
-            self.send_big(chat, z, f"🗜 {len(files)} archivos en un .zip")
-        finally:
-            z.unlink(missing_ok=True)
+        self.send_zips(chat, files, d, device, f"🗜 {len(files)} archivos que subiste")
 
     # ------------------------------------------------- API interna (netwatch)
     async def i_info(self, request: Request):
@@ -535,6 +558,52 @@ class BotApp:
         asyncio.create_task(one_at_a_time())
         return JSONResponse({"ok": True, "parts": -(-(r[0]["size"] or 0) // self.tg.limit) or 1})
 
+    async def i_backups_send_zip(self, request: Request):
+        """«Mandarme los respaldos por Telegram»: todos (o los elegidos) en .zip."""
+        if not self._internal_ok(request):
+            return JSONResponse({"error": "no autorizado"}, 401)
+        b = await request.json()
+        device, chat, prefs, owner = b.get("device", ""), b.get("chat"), b.get("prefs") or {}, b.get("owner", "")
+        if not chat:
+            return JSONResponse({"error": "primero vincula tu Telegram"}, 400)
+        ids = {int(i) for i in b.get("ids") or []}
+        rows = [r for r in self.store.backups_of(device) if Path(r["path"]).exists() and (not ids or r["id"] in ids)]
+        if not rows:
+            return JSONResponse({"error": "no hay respaldos en la Pi"}, 404)
+        total = sum(r["size"] or 0 for r in rows)
+        if not hasattr(self, "_send_lock"):
+            self._send_lock = asyncio.Lock()
+
+        async def job():
+            async with self._send_lock:
+                import tempfile           # fuera de la carpeta de respaldos (la limpieza diaria no lo toca)
+                work = Path(tempfile.mkdtemp(prefix="envio-", dir=self.backups.root.parent))
+                try:
+                    await asyncio.to_thread(self.tell, chat, f"🗜 Empacando {len(rows)} respaldo(s) de <b>{esc(device)}</b> "
+                                                             f"({human_bytes(total)}) en .zip…")
+                    await asyncio.to_thread(self.send_zips, chat, [Path(r["path"]) for r in rows], work, device,
+                                            f"📦 Respaldos de <b>{esc(device)}</b>")
+                except (TelegramError, OSError) as e:
+                    await asyncio.to_thread(self.tell, chat, f"⚠ No pude mandártelos: {esc(e)}. Siguen en la Pi.")
+                    return
+                finally:
+                    with contextlib.suppress(OSError):
+                        for f in work.iterdir():
+                            f.unlink()
+                        work.rmdir()
+                for r in rows:
+                    self.store.x("UPDATE backups SET forwarded=1 WHERE id=?", (r["id"],))
+                if prefs.get("delete_after"):
+                    for r in rows:
+                        await asyncio.to_thread(self.drop_backup, r["id"], Path(r["path"]))
+                    await asyncio.to_thread(self.tell, chat, "🧹 Ya los tienes aquí en Telegram; los borré de la Pi.")
+                    if owner:
+                        await asyncio.to_thread(self.notice, owner, f"📲 {len(rows)} respaldo(s) de {device} se te "
+                                                                    "mandaron por Telegram y se borraron de la Pi.", "ok")
+        asyncio.create_task(job())
+        zips = -(-total // (self.tg.limit - 32 * 1024 * 1024)) or 1
+        return JSONResponse({"ok": True, "files": len(rows), "size": total, "zips": zips})
+
     async def i_backup_file(self, request: Request):
         if not self._internal_ok(request):
             return JSONResponse({"error": "no autorizado"}, 401)
@@ -582,4 +651,5 @@ class BotApp:
             Route("/internal/backups", self.i_backups),
             Route("/internal/backup-file/{bid:int}", self.i_backup_file, methods=["GET", "DELETE"]),
             Route("/internal/backup-file/{bid:int}/send", self.i_backup_send, methods=["POST"]),
+            Route("/internal/backups/send-zip", self.i_backups_send_zip, methods=["POST"]),
         ], lifespan=lifespan)
