@@ -54,6 +54,12 @@ ejemplo tu bóveda de Obsidian.
    - Cloudflare → **Zero Trust → Networks → Tunnels → Create a tunnel** → copia el token.
    - En «Public hostname»: `visitas.tudominio.com` → servicio `http://umami:3000`.
    - `./hl home enable cloudflared` y pega el token.
+   - Cloudflare te muestra un comando para «instalar el conector» (`cloudflared service install …`
+     o `cloudflared tunnel run --token …`). **No hace falta correrlo**: el túnel ya corre en Docker.
+     Solo copia el token (el texto largo que empieza con `eyJ`). Si lo corres a mano se «queda
+     ahí»: es normal, es el túnel funcionando; al cerrarlo, el túnel se cae.
+   - Revisa con `./hl home logs cloudflared`: debe decir *Registered tunnel connection* y en
+     Cloudflare el túnel pasa a **HEALTHY**; entonces te deja seguir al «Public hostname».
 4. Pega en tu página el `<script>` cambiando la dirección por `https://visitas.tudominio.com`.
 
 Umami no usa cookies ni guarda datos personales: no necesitas aviso de cookies por él. El túnel

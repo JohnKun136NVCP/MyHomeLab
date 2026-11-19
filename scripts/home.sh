@@ -5,6 +5,7 @@
 #    ./hl home enable NAME          enciende una (crea carpetas, contraseñas, firewall y botón)
 #    ./hl home disable NAME         la apaga (sus datos se quedan)
 #    ./hl home status               contenedores
+#    ./hl home logs NAME            últimas líneas de su bitácora (p. ej. cloudflared)
 #  NAME: homeassistant paperless navidrome syncthing umami cloudflared dns-backup
 #  Datos en HOME_DATA (por defecto /srv/homelab-home). Configuración: hosts/home/.env
 # ======================================================================
@@ -91,7 +92,8 @@ prepare() {   # lo que necesita cada herramienta antes de encenderla
         read -r -s -p "  Pega el token (no se muestra): " t; echo; [[ -n $t ]] || die "Sin token"
         putv CLOUDFLARE_TUNNEL_TOKEN "$t"
       fi
-      profiles | grep -qx umami || warn "El túnel es para Umami: enciéndelo también (./hl home enable umami)" ;;
+      profiles | grep -qx umami || warn "El túnel es para Umami: enciéndelo también (./hl home enable umami)"
+      echo "  (El comando que te muestra Cloudflare NO hace falta correrlo: el túnel corre aquí, en Docker.)" ;;
     dns-backup)
       if grep -qs '^COMPOSE_PROFILES=.*\bdns\b' .env; then
         die "Esta máquina ya tiene el AdGuard principal; el de respaldo va en OTRA (./hl roles lo pone solo)."
@@ -160,6 +162,12 @@ case "$cmd" in
                  echo "     Escanea a la carpeta $(envget HOME_DATA)/paperless/consume y aparecen solos." ;;
       umami) echo "     Entra con admin / umami y CAMBIA la contraseña. Luego: Sitios → Agregar → copia el <script> a tu página."
              echo "     Para que lleguen visitas de internet: ./hl home enable cloudflared (guía: docs/casa.md)" ;;
+      cloudflared) sleep 6
+                   if "${C[@]}" logs --no-color --tail 40 cloudflared 2>/dev/null | grep -q "Registered tunnel connection"; then
+                     ok "Túnel conectado: en Cloudflare debe decir HEALTHY. Ahí sigue con «Public hostname» → http://umami:3000"
+                   else
+                     warn "Aún no conecta. Mira:  ./hl home logs cloudflared   (token mal copiado = «Unauthorized»)"
+                   fi ;;
       homeassistant) echo "     La primera vez tarda ~2 min. Crea tu usuario y agrega dispositivos." ;;
       syncthing) echo "     Ponle usuario y contraseña a la web (Acciones → Ajustes → GUI) y conecta tus otros equipos." ;;
       dns-backup) echo "     En el módem/AP pon como DNS: 1° la Pi, 2° $(envget HOME_HOST). Se sincroniza cada 10 min." ;;
@@ -177,6 +185,9 @@ case "$cmd" in
       [[ -n ${PORT[$p]:-} ]] || continue
       printf '"%s" "%s" "%s" "%s" "%s"\n' "${NAME[$p]}" "http://$ip:${PORT[$p]}" "${ICON[$p]}" "${DESC[$p]#*: }" "http://$ip:${PORT[$p]}${CHECK[$p]}"
     done ;;
+  logs)   # bitácora de una herramienta (sin quedarse esperando)
+    p="${1:?Falta el nombre}"
+    "${C[@]}" --profile "$p" logs --no-color --tail "${2:-40}" "$p" ;;
   status|estado) "${C[@]}" ps --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}' ;;
   *) sed -n 2,10p "$(readlink -f "$0")" | sed -E 's/^# ?//' ;;
 esac
