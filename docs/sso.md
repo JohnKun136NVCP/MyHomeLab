@@ -64,7 +64,7 @@ La primera vez que un administrador entra, Authelia pide registrar un dispositiv
 | **Archivo hosts** | En cada computadora agrega `192.168.1.69 auth.casa.lan panel.casa.lan grafana.casa.lan kuma.casa.lan adguard.casa.lan` | No necesita internet; no sirve en celulares |
 | **Por IP** | `https://192.168.1.69:8443` | Siempre funciona, con el inicio de sesión propio del panel (sin Authelia) |
 
-Al cambiar de dominio vuelve a entrar una vez a `https://auth.NUEVO` y registra otra vez el 2FA.
+Al cambiar de dominio solo tienes que iniciar sesión otra vez; tu código 2FA sigue sirviendo.
 
 ## Si algo falla
 
