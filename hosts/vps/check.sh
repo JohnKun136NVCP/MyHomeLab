@@ -30,6 +30,13 @@ putv() {
     "$ENVF" > "$tmp"; cat "$tmp" > "$ENVF"; rm -f "$tmp"
 }
 
+# ¿Lo están corriendo en la Pi por error? (la Pi tiene el .env del homelab y su panel)
+if grep -qs '^HOMELAB_HOST=' .env || docker ps --format '{{.Names}}' 2>/dev/null | grep -q netwatch; then
+  echo "${R}✘ Esta máquina parece la Raspberry (tiene el panel del homelab), no el VPS.${N}"
+  echo "  Este script va EN EL VPS. En la Pi usa:  ./hl vps"
+  echo "  Si de verdad es el VPS, córrelo con:  HL_IS_VPS=1 $0 $*"
+  [[ ${HL_IS_VPS:-0} == 1 ]] || exit 1
+fi
 echo "${B}== 1. ¿Qué IP tiene el VPS dentro del túnel?${N}"
 # Interfaces de WireGuard y sus IPs
 mapfile -t WGIF < <(sudo wg show interfaces 2>/dev/null | tr ' ' '\n' | grep -v '^$')

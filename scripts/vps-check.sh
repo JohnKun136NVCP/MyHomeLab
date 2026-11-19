@@ -52,6 +52,10 @@ if [[ -z ${TARGET:-} ]]; then
 fi
 ok "$NAME → $TARGET"
 IP="${TARGET%:*}"; PORT="${TARGET##*:}"
+if ip -4 -o addr 2>/dev/null | awk '{print $4}' | grep -q "^$IP/"; then
+  bad "$IP es la IP de ESTA máquina (la Pi), no la del VPS"
+  tip "Pon la IP del VPS dentro del túnel:  ./hl vps IP-DEL-VPS:9100   (ver: sudo wg show → endpoint/allowed ips del peer)"
+fi
 case "$IP" in
   10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|192.168.*|100.*) ;;
   *) bad "$IP parece la IP PÚBLICA del VPS"; tip "Usa la IP del VPS DENTRO del túnel (en el VPS: sudo wg show / ip -4 addr). node-exporter no escucha en la pública." ;;
