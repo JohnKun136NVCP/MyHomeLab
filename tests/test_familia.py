@@ -160,6 +160,21 @@ def test_familia_de_punta_a_punta(lab):
     assert wait(lambda: any("Respaldo de <b>mama</b>" in t for k, t in to_chat(ADMIN_CHAT)[before_admin:] if k == "msg"))
     assert not any(k == "doc" for k, _ in to_chat(ADMIN_CHAT))
     assert req(lab["bot"], "PUT", "/api/backup/mama-laptop/x.enc", b"x", {"Authorization": "Bearer malo"})[0] == 401
+    # Por defecto, ya que le llegó a Telegram, se borra de la Pi
+    assert wait(lambda: any("lo borré de la Pi" in t for k, t in to_chat(MAMA_CHAT) if k == "msg"))
+    _, _, b = req(lab["nw"], "GET", "/api/my/backups", headers=mama)
+    assert json.loads(b)["prefs"] == {"send_telegram": True, "delete_after": True}
+    assert next(d for d in json.loads(b)["devices"] if d["name"] == "mama-laptop")["count"] == 0
+    # Prefiere conservarlo también en la Pi
+    c, _, b = req(lab["nw"], "POST", "/api/my/prefs", json.dumps({"delete_after": False}), mama)
+    assert c == 200 and json.loads(b)["prefs"]["delete_after"] is False
+    time.sleep(0.1)
+    lab["app"]._auth_cache.clear()      # la preferencia se lee al autenticar (caché de 5 min)
+    docs_before = sum(1 for k, _ in to_chat(MAMA_CHAT) if k == "doc")
+    c, _, _ = req(lab["bot"], "PUT", "/api/backup/mama-laptop/respaldo.tar.gz.enc", b"x" * 2048,
+                  {"Authorization": f"Bearer {token}", "Content-Length": "2048"})
+    assert c == 200
+    assert wait(lambda: sum(1 for k, _ in to_chat(MAMA_CHAT) if k == "doc") > docs_before)
 
     # 4. Ve su respaldo y su aviso en el dashboard, y lo puede descargar (otro no)
     _, _, b = req(lab["nw"], "GET", "/api/my/backups", headers=mama)
