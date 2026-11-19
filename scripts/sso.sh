@@ -5,6 +5,7 @@
 #   ./scripts/sso.sh                 dominio casa.lan (te lo pregunta)
 #   ./scripts/sso.sh --domain casa.lan --no-2fa
 #   ./scripts/sso.sh --remove        lo apaga y regresa al inicio de sesión de siempre
+#   ./scripts/sso.sh --sslip         sin DNS propio: panel.192-168-1-69.sslip.io (funciona en todos los equipos)
 #   ./scripts/sso.sh --check         revisa todo (DNS, Authelia, Caddy) si no te deja entrar
 #
 # Las cuentas son las mismas del panel (Ajustes → Cuentas): el panel las copia a Authelia.
@@ -17,13 +18,14 @@ B=$'\e[1m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'
 ok() { echo "${G}✔${N} $*"; }; warn() { echo "${Y}⚠${N} $*"; }; die() { echo "${R}✘${N} $*"; exit 1; }
 [[ -f .env ]] || die "Falta .env: corre ./scripts/gen-secrets.sh"
 
-DOM=""; TWOFA=1; REMOVE=0; CHECK=0
+DOM=""; TWOFA=1; REMOVE=0; CHECK=0; SSLIP=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) DOM="${2:?}"; shift ;;
     --no-2fa) TWOFA=0 ;;
     --remove) REMOVE=1 ;;
     --check|--revisar) CHECK=1 ;;
+    --sslip) SSLIP=1 ;;
     -h|--help) sed -n 2,10p "$0"; exit 0 ;;
     *) die "Opción desconocida: $1" ;;
   esac; shift
@@ -87,6 +89,9 @@ fi
 HOST="$(envget HOMELAB_HOST)"; PORT="$(envget HTTPS_PORT)"; PORT="${PORT:-443}"
 [[ -n $HOST ]] || die "Falta HOMELAB_HOST en .env"
 [[ $PORT == 443 ]] && P="" || P=":$PORT"
+# Sin DNS propio: sslip.io responde desde internet con la IP que va en el nombre
+# (panel.192-168-1-69.sslip.io → 192.168.1.69). Sirve en cualquier equipo, sin AdGuard ni archivo hosts.
+((SSLIP)) && DOM="${HOST//./-}.sslip.io"
 if [[ -z $DOM ]]; then
   read -rp "Dominio para la casa [casa.lan]: " DOM; DOM="${DOM:-casa.lan}"
 fi
@@ -289,7 +294,8 @@ else warn "Authelia no arrancó; mira:  ./hl logs authelia"; fi
 NAMES=(auth panel grafana kuma adguard)
 AGU="$(envget ADGUARD_USER)"; AGP="$(envget ADGUARD_PASSWORD)"
 dns_ok=0
-if [[ ",$(envget COMPOSE_PROFILES)," == *,dns,* && -n $AGU ]]; then
+if ((SSLIP)); then dns_ok=1; echo "  ✔ DNS: sslip.io resuelve *.$DOM a $HOST desde internet (no hace falta AdGuard)"; fi
+if ((!dns_ok)) && [[ ",$(envget COMPOSE_PROFILES)," == *,dns,* && -n $AGU ]]; then
   cur="$(curl -s -m 5 -u "$AGU:$AGP" http://127.0.0.1:3002/control/rewrite/list || true)"
   if [[ $cur == *"\"*.$DOM\""* ]]; then dns_ok=1
   elif curl -s -m 5 -u "$AGU:$AGP" -H 'Content-Type: application/json' \

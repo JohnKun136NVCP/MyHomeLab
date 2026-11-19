@@ -53,6 +53,19 @@ La primera vez que un administrador entra, Authelia pide registrar un dispositiv
   agrégalo tú en AdGuard o en el archivo `hosts` de cada equipo.
 - El certificado es la misma CA de Caddy (`./hl ca`): ya instalada, sirve para los subdominios.
 
+## ¿No entra con casa.lan? Alternativas
+
+`casa.lan` solo funciona en equipos que usan la Pi (AdGuard) como DNS. Si no te deja entrar:
+
+| Opción | Cómo | Ventaja / límite |
+|---|---|---|
+| **sslip.io** (la más fácil) | `./hl sso --sslip` → `https://panel.192-168-1-69.sslip.io:8443` | Funciona en todos los equipos sin configurar DNS. Necesita internet para resolver el nombre; algunos módems bloquean respuestas con IPs de la casa («DNS rebinding») |
+| **Tu propio dominio** | En el DNS de tu dominio crea `*.casa.tudominio.com` → `192.168.1.69` y corre `./hl sso --domain casa.tudominio.com` | Lo más profesional y estable; igual el aviso de rebinding en algunos módems |
+| **Archivo hosts** | En cada computadora agrega `192.168.1.69 auth.casa.lan panel.casa.lan grafana.casa.lan kuma.casa.lan adguard.casa.lan` | No necesita internet; no sirve en celulares |
+| **Por IP** | `https://192.168.1.69:8443` | Siempre funciona, con el inicio de sesión propio del panel (sin Authelia) |
+
+Al cambiar de dominio vuelve a entrar una vez a `https://auth.NUEVO` y registra otra vez el 2FA.
+
 ## Si algo falla
 
 `./hl sso --check` revisa el DNS de `auth.` y `panel.`, que Authelia y Caddy estén bien y que el
