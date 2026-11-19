@@ -44,6 +44,36 @@ putv() {   # igual que gen-secrets: mismo archivo (mismo inodo)
     "$REPO/.env" > "$tmp"; cat "$tmp" > "$REPO/.env"; rm -f "$tmp"
 }
 
+# El script que llama upsmon en cada cambio. Se reescribe al instalar y con --no-usb-alerts/--usb-alerts,
+# así una versión vieja (que avisaba cada parpadeo del USB) se reemplaza sin reinstalar.
+write_notify_script() {
+  cat > /etc/nut/homelab-notify.sh <<'EOF'
+#!/bin/sh
+# Lo llama upsmon (NOTIFYCMD) en cada cambio del no-break. Manda el aviso al bot del homelab.
+. /etc/nut/homelab-notify.env
+case "$NOTIFYTYPE" in
+  ONBATT)   t="⚡ Se fue la luz en casa: $HOST_NAME está usando el no-break." ;;
+  ONLINE)   t="🔌 Regresó la luz: $HOST_NAME ya está conectado a la corriente." ;;
+  LOWBATT)  t="🪫 Batería baja del no-break: $HOST_NAME se va a apagar en orden." ;;
+  FSD)      t="⏻ Apagado forzado del no-break: $HOST_NAME se está apagando." ;;
+  SHUTDOWN) t="⏻ $HOST_NAME se apaga ahora para proteger los discos." ;;
+  COMMBAD|COMMOK)   # parpadeos del USB: muchos no-break baratos se desconectan segundos; solo al registro
+            logger -t homelab-ups "$NOTIFYTYPE: $*"; exit 0 ;;
+  NOCOMM)   [ "${QUIET_USB:-0}" = 1 ] && { logger -t homelab-ups "NOCOMM (aviso apagado)"; exit 0; }
+            t="⚠ $HOST_NAME lleva rato sin ver el no-break (¿cable USB o controlador?). Para no recibir esto: sudo ./hl ups --no-usb-alerts" ;;
+  REPLBATT) t="🔋 El no-break pide cambio de batería." ;;
+  *)        t="$*" ;;
+esac
+logger -t homelab-ups "$t"
+# Una sola línea JSON; las comillas del texto no deben romperla
+j=$(printf '%s' "$t" | sed 's/\\/\\\\/g; s/"/\\"/g')
+silent=false; [ "$NOTIFYTYPE" = NOCOMM ] && silent=true
+curl -s -m 8 -X POST "$BOT_URL/notify" -H "Authorization: Bearer $INTERNAL_TOKEN" \
+  -H 'Content-Type: application/json' -d "{\"text\":\"$j\",\"silent\":$silent}" >/dev/null 2>&1 || true
+EOF
+  chmod 755 /etc/nut/homelab-notify.sh
+}
+
 # ------------------------------------------------------------ aviso de prueba
 notify_test() {
   [[ -x /etc/nut/homelab-notify.sh ]] || die "Primero instala NUT (sin --test)."
@@ -55,6 +85,11 @@ if [[ -n $USBQ ]]; then
   [[ -f /etc/nut/homelab-notify.env ]] || die "Primero instala NUT (sudo ./hl ups)."
   sed -i '/^QUIET_USB=/d' /etc/nut/homelab-notify.env
   echo "QUIET_USB=$USBQ" >> /etc/nut/homelab-notify.env
+  write_notify_script                                  # por si era la versión vieja que avisaba todo
+  if [[ -f /etc/nut/upsmon.conf ]] && ! grep -q '^NOCOMMWARNTIME' /etc/nut/upsmon.conf; then
+    echo "NOCOMMWARNTIME 86400" >> /etc/nut/upsmon.conf     # el aviso de «sin contacto» era cada 5 min
+  fi
+  systemctl restart nut-monitor >/dev/null 2>&1 || systemctl restart nut-client >/dev/null 2>&1 || true
   ((USBQ)) && ok "Listo: ya no te llega el aviso del cable USB (queda en el registro: journalctl -t homelab-ups)" \
            || ok "Listo: el aviso del cable USB vuelve a llegar por Telegram"
   exit 0
@@ -90,37 +125,16 @@ fi
 write_notify() {
   local url="$1" tok="$2"
   umask 027
+  [[ -f /etc/nut/homelab-notify.env ]] && cp -p /etc/nut/homelab-notify.env /etc/nut/homelab-notify.env.bak
   cat > /etc/nut/homelab-notify.env <<EOF
 BOT_URL=$url
 INTERNAL_TOKEN=$tok
 HOST_NAME=$(hostname)
 EOF
   chgrp "$NUTGRP" /etc/nut/homelab-notify.env; chmod 640 /etc/nut/homelab-notify.env
-  cat > /etc/nut/homelab-notify.sh <<'EOF'
-#!/bin/sh
-# Lo llama upsmon (NOTIFYCMD) en cada cambio del no-break. Manda el aviso al bot del homelab.
-. /etc/nut/homelab-notify.env
-case "$NOTIFYTYPE" in
-  ONBATT)   t="⚡ Se fue la luz en casa: $HOST_NAME está usando el no-break." ;;
-  ONLINE)   t="🔌 Regresó la luz: $HOST_NAME ya está conectado a la corriente." ;;
-  LOWBATT)  t="🪫 Batería baja del no-break: $HOST_NAME se va a apagar en orden." ;;
-  FSD)      t="⏻ Apagado forzado del no-break: $HOST_NAME se está apagando." ;;
-  SHUTDOWN) t="⏻ $HOST_NAME se apaga ahora para proteger los discos." ;;
-  COMMBAD|COMMOK)   # parpadeos del USB: muchos no-break baratos se desconectan segundos; solo al registro
-            logger -t homelab-ups "$NOTIFYTYPE: $*"; exit 0 ;;
-  NOCOMM)   [ "${QUIET_USB:-0}" = 1 ] && { logger -t homelab-ups "NOCOMM (aviso apagado)"; exit 0; }
-            t="⚠ $HOST_NAME lleva rato sin ver el no-break (¿cable USB o controlador?). Para no recibir esto: sudo ./hl ups --no-usb-alerts" ;;
-  REPLBATT) t="🔋 El no-break pide cambio de batería." ;;
-  *)        t="$*" ;;
-esac
-logger -t homelab-ups "$t"
-# Una sola línea JSON; las comillas del texto no deben romperla
-j=$(printf '%s' "$t" | sed 's/\\/\\\\/g; s/"/\\"/g')
-silent=false; [ "$NOTIFYTYPE" = NOCOMM ] && silent=true
-curl -s -m 8 -X POST "$BOT_URL/notify" -H "Authorization: Bearer $INTERNAL_TOKEN" \
-  -H 'Content-Type: application/json' -d "{\"text\":\"$j\",\"silent\":$silent}" >/dev/null 2>&1 || true
-EOF
-  chmod 755 /etc/nut/homelab-notify.sh
+  q="$(grep -h '^QUIET_USB=' /etc/nut/homelab-notify.env.bak 2>/dev/null || true)"
+  [[ -n $q ]] && echo "$q" >> /etc/nut/homelab-notify.env
+  write_notify_script
 }
 
 TOKEN="$(envget INTERNAL_TOKEN)"
