@@ -42,6 +42,8 @@ class BotApp:
         self.tg = Telegram(os.environ.get("TELEGRAM_BOT_TOKEN", ""),
                            os.environ.get("TELEGRAM_API_URL", "https://api.telegram.org"))
         self.store = Store(self.data / "bot.db")
+        from .reminders import Reminders
+        self.reminders = Reminders(self.store)
         self.backups = Backups(self.cfg, self.store)
         self.social = Social(self.cfg, self.tg)
         self.handlers = Handlers(self)
@@ -166,6 +168,12 @@ class BotApp:
         report_at = (self.cfg.get("reports", {}) or {}).get("daily_time", "09:00")
         while True:
             try:
+                for r in self.reminders.due(time.time()):
+                    try:
+                        await asyncio.to_thread(self.tg.send_message, r["chat"], f"⏰ <b>Recordatorio</b>\n{esc(r['text'])}")
+                    except TelegramError as e:
+                        log.warning("Recordatorio %s: %s", r["id"], e)
+                    self.reminders.done(r, tz)
                 for p in self.store.due_posts(time.time()):
                     res = await asyncio.to_thread(self.social.publish, p["networks"], p["text"],
                                                   p["media"], p["media_kind"])

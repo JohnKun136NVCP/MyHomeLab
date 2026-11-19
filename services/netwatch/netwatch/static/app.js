@@ -1095,6 +1095,127 @@ const views = {
        <div class="muted small">${esc(l.detail || l.url)}</div></div></a>`).join("")}</div><br>`).join("");
   },
 
+  async inventario() {
+    const j = await api("/api/inventory");
+    const sc = j.scan || {};
+    const sev = (c) => c >= 9 ? "bad" : c >= 7 ? "warn" : c > 0 ? "" : "ok";
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Inventario de servicios</h2>
+        <a href="/api/inventory/export"><button>Exportar CSV</button></a>
+        ${ADMIN ? `<button class="primary" id="iscan" ${sc.running ? "disabled" : ""}>${sc.running ? "Escaneando…" : "🔍 Escanear ahora"}</button>` : ""}</div>
+      <p class="muted">Qué programas y versiones tiene abiertos cada equipo y si tienen vulnerabilidades conocidas (CVE).
+        Se revisa solo cada ${j.every_days} días de madrugada.
+        ${sc.running ? `<b>En curso: ${esc(sc.progress || "")}</b>` : sc.ts ? `Último escaneo ${ago(sc.ts)}: ${sc.hosts} equipos, ${sc.services} servicios, ${sc.vulnerable} con CVE altas.` : "Todavía no se escanea."}</p>
+      ${j.devices.length ? j.devices.map((d) => `<div class="card" style="margin-bottom:var(--gap)">
+        <h3>${esc(d.name)} <span class="muted small mono">${esc(d.ip || "")}</span>
+          ${d.max_cvss ? `<span class="pill ${sev(d.max_cvss)}">CVSS ${d.max_cvss.toFixed(1)}</span>` : '<span class="pill ok">sin CVE conocidas</span>'}</h3>
+        <table><tr><th>Puerto</th><th>Servicio</th><th>Versión</th><th>CVE</th></tr>
+        ${d.services.map((s) => `<tr><td class="mono">${s.port}/${s.proto}</td><td>${esc(s.product || s.service || "?")}</td>
+          <td class="mono small">${esc(s.version || "—")}</td>
+          <td>${s.cves.length ? s.cves.slice(0, 5).map((c) => `<a href="https://nvd.nist.gov/vuln/detail/${esc(c.id)}" target="_blank" rel="noopener"
+              class="pill ${sev(c.cvss)}">${esc(c.id)} · ${c.cvss}</a>`).join(" ") + (s.cves.length > 5 ? ` <span class="muted small">+${s.cves.length - 5}</span>` : "")
+            : '<span class="muted">—</span>'}</td></tr>`).join("")}</table></div>`).join("")
+        : '<div class="card"><p class="muted">Aún no hay datos. Pulsa «Escanear ahora» (tarda unos minutos).</p></div>'}
+      <p class="muted small">Para un análisis más profundo (credenciales por defecto, configuraciones inseguras) usa Greenbone del laboratorio de seguridad.</p>`;
+    $("#iscan")?.addEventListener("click", async () => {
+      try { const r = await api("/api/inventory/scan", { method: "POST" }); toast(r.msg); route(); } catch (e) { toast(e.message); }
+    });
+    if (sc.running) setTimeout(() => location.hash === "#inventario" && route(), 15000);
+  },
+
+  async wifi() {
+    const [j, d] = await Promise.all([api("/api/wifi"), ADMIN ? api("/api/devices") : Promise.resolve({ devices: [] })]);
+    const bar = (s) => `<span class="pill ${s >= 60 ? "ok" : s >= 35 ? "warn" : "bad"}">${s}%</span>`;
+    const ssids = j.networks.map((n) => n.ssid);
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Mapa de Wi-Fi</h2><button id="wre">🔄 Volver a buscar</button></div>
+      ${j.error ? `<div class="banner">${esc(j.error)}</div>` : ""}
+      ${j.mine_configured ? "" : `<p class="muted small">Tus redes se adivinaron por los aparatos a los que está conectada la Pi.
+        Si falta alguna, ponlas en Ajustes → YAML: <span class="mono">wifi: {ssids: ["Casa", "Casa-Arriba"]}</span>.</p>`}
+      ${j.tips.length ? `<div class="card" style="margin-bottom:var(--gap)"><h3>💡 Sugerencias</h3>${j.tips.map((t) => `<div class="small" style="margin:4px 0">${esc(t)}</div>`).join("")}</div>` : ""}
+      <div class="grid2">${j.networks.map((n) => `<div class="card"><h3>📶 ${esc(n.ssid)} <span class="muted small">${n.bands.join(" + ")}</span></h3>
+        <table><tr><th>Punto de acceso</th><th>Banda</th><th>Canal</th><th>Señal</th><th>Seguridad</th></tr>
+        ${n.aps.map((a) => `<tr><td class="mono small">${esc(a.bssid)}${a.connected ? " ⭐" : ""}<br><span class="muted">${esc(a.vendor || "")}</span></td>
+          <td>${a.band}</td><td>${a.channel}</td><td>${bar(a.signal)}</td><td class="small">${esc(a.security || "abierta")}</td></tr>`).join("")}</table>
+        <p class="small" style="margin-top:8px"><b>${n.devices.length}</b> equipo(s) asignados:
+          ${n.devices.map((x) => `<span class="pill ${x.online ? "ok" : ""}">${esc(x.name)}</span>`).join(" ") || '<span class="muted">ninguno</span>'}</p></div>`).join("")
+        || '<div class="card"><p class="muted">No encontré tus redes. ¿La Pi tiene Wi-Fi? (en Pi 4 sí, aunque esté por cable).</p></div>'}</div>
+      <div class="card" style="margin-top:var(--gap)"><h3>Canales ocupados</h3><p class="muted small">${j.others} redes vecinas a la vista. Lo tuyo va en verde.</p>
+        ${Object.entries(j.channels).map(([b, cs]) => `<p><b>${b}</b><br>${Object.entries(cs).map(([c, v]) =>
+          `<span class="pill ${v.some((x) => x.mine) ? "ok" : v.length >= 4 ? "warn" : ""}" title="${esc(v.map((x) => x.ssid || "(oculta)").join(", "))}">canal ${c}: ${v.length}</span>`).join(" ")}</p>`).join("")}</div>
+      ${ADMIN && ssids.length ? `<div class="card" style="margin-top:var(--gap)"><h3>¿A qué red se conecta cada equipo?</h3>
+        <p class="muted small">El router no le cuenta a la Pi a qué red va cada equipo; dilo aquí una vez (${j.unassigned} en línea sin asignar).</p>
+        <table>${d.devices.filter((x) => x.online).map((x) => `<tr><td>${esc(x.display_name)}</td><td><select data-wmac="${x.mac}">
+          <option value="">—</option>${ssids.map((s) => `<option ${x.wifi === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></td></tr>`).join("")}</table></div>` : ""}`;
+    $("#wre").onclick = async () => { $("#wre").disabled = true; await api("/api/wifi?rescan=1").catch(() => {}); route(); };
+    view.querySelectorAll("select[data-wmac]").forEach((s) => s.onchange = async () => {
+      try { await api(`/api/devices/${s.dataset.wmac}/wifi`, { method: "POST", body: JSON.stringify({ ssid: s.value }) }); toast("Guardado"); }
+      catch (e) { toast(e.message); }
+    });
+  },
+
+  async parental() {
+    const j = await api("/api/parental");
+    const DAYS = [["mon", "Lun"], ["tue", "Mar"], ["wed", "Mié"], ["thu", "Jue"], ["fri", "Vie"], ["sat", "Sáb"], ["sun", "Dom"]];
+    const POP = ["youtube", "tiktok", "instagram", "facebook", "whatsapp", "roblox", "fortnite", "discord", "twitch", "netflix", "snapchat", "steam"];
+    const svcs = [...j.services].sort((a, b) => (POP.indexOf(b.id) >= 0) - (POP.indexOf(a.id) >= 0) || a.name.localeCompare(b.name));
+    const sname = Object.fromEntries(j.services.map((s) => [s.id, s.name]));
+    const dname = Object.fromEntries(j.devices.map((d) => [d.mac, d.name]));
+    const edit = globalThis.HL_PAR || null;
+    const r = edit || { name: "", macs: [], services: [], allow: {}, safe_search: 1, adult: 1, enabled: 1 };
+    view.innerHTML = `<h2>Control parental</h2>
+      ${j.error ? `<div class="banner">${esc(j.error)}</div>` : ""}
+      <p class="muted">Bloquea apps y sitios por equipo, con horario. Funciona en los equipos que usan la Pi como DNS
+        (el que da el router). Si el navegador tiene «DNS seguro» propio, apágalo en ese equipo.</p>
+      <div class="grid2"><div class="card"><h3>${edit ? "Editar" : "Nueva"} regla</h3>
+        <input id="pn" placeholder="Nombre, ej. Tablet de Sofi" value="${esc(r.name)}" style="width:100%">
+        <p class="small"><b>Equipos</b></p><div style="max-height:160px;overflow:auto">${j.devices.map((d) =>
+          `<label class="small" style="display:block"><input type="checkbox" class="pm" value="${d.mac}" ${r.macs.includes(d.mac) ? "checked" : ""}>
+            ${esc(d.name)} <span class="muted mono">${esc(d.ip || "")}</span></label>`).join("")}</div>
+        <p class="small"><b>Bloquear</b> <input id="pf" placeholder="buscar…" style="width:8em"></p>
+        <div style="max-height:180px;overflow:auto" id="psv">${svcs.map((s) =>
+          `<label class="small" style="display:inline-block;min-width:9em" data-n="${esc(s.name.toLowerCase())}">
+            <input type="checkbox" class="ps" value="${esc(s.id)}" ${r.services.includes(s.id) ? "checked" : ""}> ${esc(s.name)}</label>`).join("")}</div>
+        <p class="small"><b>Horas en que SÍ se permite</b> <span class="muted">(vacío = bloqueado todo el día)</span></p>
+        <table>${DAYS.map(([k, t]) => `<tr><td>${t}</td><td><input type="time" data-d="${k}" data-i="0" value="${(r.allow[k] || [])[0] || ""}">
+          a <input type="time" data-d="${k}" data-i="1" value="${(r.allow[k] || [])[1] || ""}"></td></tr>`).join("")}</table>
+        <button id="pcopy" class="small">Copiar el lunes a toda la semana</button>
+        <p><label><input type="checkbox" id="pss" ${r.safe_search ? "checked" : ""}> Búsqueda segura (Google, Bing, YouTube restringido)</label><br>
+          <label><input type="checkbox" id="pad" ${r.adult ? "checked" : ""}> Bloquear sitios para adultos</label><br>
+          <label><input type="checkbox" id="pen" ${r.enabled ? "checked" : ""}> Regla activa</label></p>
+        <div class="toolbar"><button class="primary" id="psave">Guardar</button>${edit ? '<button id="pcancel">Cancelar</button>' : ""}</div></div>
+      <div class="card"><h3>Reglas</h3>${j.rules.map((x) => `<div class="svc" style="margin-bottom:10px"><span>${x.enabled ? "🛡" : "⏸"}</span>
+        <div style="min-width:0;flex:1"><b>${esc(x.name)}</b><div class="small muted">${x.macs.map((m) => esc(dname[m] || m)).join(", ")}</div>
+        <div class="small">${x.services.map((s) => esc(sname[s] || s)).join(", ") || "sin apps bloqueadas"}
+          ${Object.keys(x.allow).length ? " · permitido " + DAYS.filter(([k]) => x.allow[k]).map(([k, t]) => `${t} ${x.allow[k].join("–")}`).join(", ") : ""}
+          ${x.adult ? " · sin adultos" : ""}${x.safe_search ? " · búsqueda segura" : ""}</div></div>
+        <button data-pe="${x.id}">Editar</button><button class="danger" data-pd="${x.id}">Quitar</button></div>`).join("")
+        || '<p class="muted">Sin reglas todavía.</p>'}</div></div>`;
+    $("#pf").oninput = () => { const q = $("#pf").value.toLowerCase(); $("#psv").querySelectorAll("label").forEach((l) => l.hidden = q && !l.dataset.n.includes(q)); };
+    $("#pcopy").onclick = () => {
+      const a = $('input[data-d="mon"][data-i="0"]').value, b = $('input[data-d="mon"][data-i="1"]').value;
+      view.querySelectorAll('input[data-i="0"]').forEach((i) => i.value = a);
+      view.querySelectorAll('input[data-i="1"]').forEach((i) => i.value = b);
+    };
+    $("#pcancel")?.addEventListener("click", () => { globalThis.HL_PAR = null; route(); });
+    $("#psave").onclick = async () => {
+      const allow = {};
+      for (const [k] of DAYS) {
+        const a = $(`input[data-d="${k}"][data-i="0"]`).value, b = $(`input[data-d="${k}"][data-i="1"]`).value;
+        if (a && b) allow[k] = [a, b];
+      }
+      const body = { id: edit?.id, name: $("#pn").value, allow,
+        macs: [...view.querySelectorAll(".pm:checked")].map((i) => i.value),
+        services: [...view.querySelectorAll(".ps:checked")].map((i) => i.value),
+        safe_search: $("#pss").checked, adult: $("#pad").checked, enabled: $("#pen").checked };
+      try { await api("/api/parental", { method: "POST", body: JSON.stringify(body) }); globalThis.HL_PAR = null; toast("Guardado en AdGuard"); route(); }
+      catch (e) { toast(e.message); }
+    };
+    view.querySelectorAll("[data-pe]").forEach((b) => b.onclick = () => { globalThis.HL_PAR = j.rules.find((x) => x.id == b.dataset.pe); route(); });
+    view.querySelectorAll("[data-pd]").forEach((b) => b.onclick = async () => {
+      if (!confirm("¿Quitar esta regla?")) return;
+      await api(`/api/parental/${b.dataset.pd}`, { method: "DELETE" }); route();
+    });
+  },
+
   async acl() {
     const [j, d] = await Promise.all([api("/api/acl"), api("/api/devices")]);
     view.innerHTML = `<h2>Control de acceso (ACL)</h2>
@@ -1182,7 +1303,7 @@ const views = {
 
 const EV_ICON = { new_device: "🆕", arp_spoof: "🕵", ports_changed: "🚪", ids: "🚨", blocked_seen: "⛔",
   quarantine: "🧪", acl: "🔒", honeypot: "🍯", dns_danger: "☣", roam_failed: "📶", login_failed: "🔑",
-  login_new_ip: "👤", camera_found: "📷", wol: "⏻", log_cleared: "🧹" };
+  login_new_ip: "👤", camera_found: "📷", wol: "⏻", log_cleared: "🧹", vulnerable: "🧬", crowdsec: "🛑" };
 function evList(evs, actions = false) {
   if (!evs.length) return '<p class="muted">Sin eventos. Todo tranquilo.</p>';
   return evs.map((e) => `<div class="ev${e.fp ? " fp" : ""}"><span>${EV_ICON[e.kind] || "•"}</span>
@@ -1234,9 +1355,10 @@ let ADMIN = true, LOGS = true, ME = null;
 const TITLES = { inicio: "Inicio", resumen: "Resumen", dispositivos: "Dispositivos", trafico: "Tráfico",
   conexiones: "Conexiones", ap: "Por AP", mapa: "Mapa", camaras: "Cámaras", servicios: "Servicios",
   accesos: "Accesos", eventos: "Eventos", acl: "ACL", vpn: "VPN", sistema: "Sistema", cuentas: "Cuentas",
-  ajustes: "Ajustes", cuenta: "Mi cuenta", respaldos: "Mis respaldos" };
-const ADMIN_ONLY = ["acl", "vpn", "sistema", "cuentas", "ajustes"];
-const LOGS_ONLY = ["resumen", "dispositivos", "trafico", "conexiones", "ap", "mapa", "eventos"];
+  ajustes: "Ajustes", cuenta: "Mi cuenta", respaldos: "Mis respaldos", inventario: "Inventario", wifi: "Wi-Fi",
+  parental: "Control parental" };
+const ADMIN_ONLY = ["acl", "vpn", "sistema", "cuentas", "ajustes", "parental"];
+const LOGS_ONLY = ["resumen", "dispositivos", "trafico", "conexiones", "ap", "mapa", "eventos", "inventario", "wifi"];
 const setNav = (open) => {
   document.body.classList.toggle("nav-open", open);
   $("#scrim").hidden = !open;

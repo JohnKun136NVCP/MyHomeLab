@@ -6,7 +6,7 @@
 #    ./hl home disable NAME         la apaga (sus datos se quedan)
 #    ./hl home status               contenedores
 #    ./hl home logs NAME            últimas líneas de su bitácora (p. ej. cloudflared)
-#  NAME: homeassistant paperless navidrome syncthing umami cloudflared dns-backup
+#  NAME: homeassistant paperless navidrome mealie jellyseerr syncthing umami cloudflared dns-backup
 #  Datos en HOME_DATA (por defecto /srv/homelab-home). Configuración: hosts/home/.env
 # ======================================================================
 set -euo pipefail
@@ -20,21 +20,24 @@ if docker info >/dev/null 2>&1; then D=(docker); else D=(sudo docker); fi
 C=("${D[@]}" compose -f hosts/home/docker-compose.yml --env-file "$ENVF")
 YES=0; for a in "$@"; do [[ $a == --yes ]] && YES=1; done
 
-ALL=(homeassistant paperless navidrome syncthing umami cloudflared dns-backup)
+ALL=(homeassistant paperless navidrome mealie jellyseerr syncthing umami cloudflared dns-backup)
 declare -A DESC=(
   [homeassistant]="Home Assistant: focos, enchufes y cámaras con automatizaciones"
   [paperless]="Paperless-ngx: documentos escaneados con búsqueda (OCR en español)"
   [navidrome]="Navidrome: tu música en streaming, con app en el celular"
+  [mealie]="Mealie: recetas de la familia y lista del súper compartida"
+  [jellyseerr]="Jellyseerr: la familia pide películas o series para Cine en casa"
   [syncthing]="Syncthing: carpetas sincronizadas entre tus equipos (p. ej. apuntes de Obsidian)"
   [umami]="Umami: visitas a tu página web, sin Google Analytics"
   [cloudflared]="Túnel de Cloudflare: publica Umami a internet sin abrir puertos"
   [dns-backup]="DNS de respaldo: segundo AdGuard que copia la configuración del principal"
 )
-declare -A PORT=([homeassistant]=8123 [paperless]=8010 [navidrome]=4533 [syncthing]=8384 [umami]=3007 [dns-backup]=3002)
-declare -A ICON=([homeassistant]="🏠" [paperless]="📄" [navidrome]="🎵" [syncthing]="🔄" [umami]="📊" [dns-backup]="🛡")
+declare -A PORT=([homeassistant]=8123 [paperless]=8010 [navidrome]=4533 [mealie]=9925 [jellyseerr]=5055 [syncthing]=8384 [umami]=3007 [dns-backup]=3002)
+declare -A ICON=([homeassistant]="🏠" [paperless]="📄" [navidrome]="🎵" [mealie]="🍲" [jellyseerr]="🎟" [syncthing]="🔄" [umami]="📊" [dns-backup]="🛡")
 declare -A NAME=([homeassistant]="Home Assistant" [paperless]="Documentos (Paperless)" [navidrome]="Música (Navidrome)"
+  [mealie]="Recetas y súper (Mealie)" [jellyseerr]="Pedir películas (Jellyseerr)"
   [syncthing]="Syncthing" [umami]="Visitas de la página (Umami)" [dns-backup]="DNS de respaldo")
-declare -A CHECK=([homeassistant]=/manifest.json [paperless]=/ [navidrome]=/ping [syncthing]=/rest/noauth/health [umami]=/api/heartbeat [dns-backup]=/)
+declare -A CHECK=([homeassistant]=/manifest.json [paperless]=/ [navidrome]=/ping [mealie]=/api/app/about [jellyseerr]=/api/v1/status [syncthing]=/rest/noauth/health [umami]=/api/heartbeat [dns-backup]=/)
 
 envget() { grep -E "^$1=" "$ENVF" 2>/dev/null | tail -1 | cut -d= -f2- || true; }
 putv() {
@@ -83,6 +86,10 @@ prepare() {   # lo que necesita cada herramienta antes de encenderla
       fi
       sudo mkdir -p "$m" "$data/navidrome"; sudo chown 1000:1000 "$data/navidrome" ;;
     syncthing) sudo mkdir -p "$data/syncthing"; sudo chown 1000:1000 "$data/syncthing" ;;
+    mealie) sudo mkdir -p "$data/mealie"
+      echo "  Primera entrada en http://IP:9925 con changeme@example.com / MyPassword: cámbiala al entrar." ;;
+    jellyseerr) sudo mkdir -p "$data/jellyseerr"
+      echo "  Al abrirlo elige «Jellyfin» y pon la dirección de tu Jellyfin (http://IP-de-la-PC:8096)." ;;
     umami) setdef UMAMI_DB_PASSWORD "$(rand)"; setdef UMAMI_APP_SECRET "$(rand)$(rand)" ;;
     cloudflared)
       if [[ -z "$(envget CLOUDFLARE_TUNNEL_TOKEN)" ]]; then

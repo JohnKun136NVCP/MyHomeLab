@@ -48,3 +48,21 @@ desde el dashboard (Mis respaldos → «Vincular mi Telegram», o `/vincular 123
 
 Nadie más que tú puede bloquear, programar publicaciones ni cambiar nada. Un chat que no está
 vinculado sigue sin recibir respuesta (y a ti te llega «🚫 Alguien intentó usar tu bot»).
+
+## Recordatorios
+
+Tú y cada cuenta vinculada de la casa:
+
+```
+/recordar mañana 9:00 pagar la luz
+/recordar 15/12 18:00 cita con el dentista      (sin hora: 9:00)
+/recordar en 2h sacar la ropa                    (m, min, h, d)
+/recordar cada lunes 7:30 sacar la basura
+/recordar cada mes 5 pagar el internet           (31 = último día del mes)
+/recordar cada año 15/03 cumpleaños de mamá
+/recordatorios                                   los tuyos, con su número
+/olvidar 3                                       borra el #3
+```
+
+Cada chat ve y borra solo los suyos. La hora es la de `social.timezone` en `homelab.yml`
+(por defecto Ciudad de México). Se guardan en la base del bot, así que van en el respaldo.

@@ -61,7 +61,12 @@ flowchart LR
 | Prueba de restauración | `./hl test-backup` (cada mes): descifra y revisa el último respaldo | [servicios](docs/servicios.md#prueba-mensual-del-respaldo) |
 | Mudarse a la PC / limpiar la Pi | `./hl migrate` (desde cero o copiando de la Pi por SSH con llave) y `./hl clean` | [migrar](docs/migrar.md) |
 | Reparto entre máquinas | `./hl roles`: la Pi y tus PCs/laptops con roles (core, media, photos, home, lab, dns_backup), con Ansible | [reparto](docs/redistribucion.md) |
-| Herramientas para la casa | `./hl home enable …`: Home Assistant, Paperless, Navidrome, Syncthing, DNS de respaldo | [casa](docs/casa.md) |
+| Herramientas para la casa | `./hl home enable …`: Home Assistant, Paperless, Navidrome, Mealie (recetas y súper), Jellyseerr (pedir películas), Syncthing, DNS de respaldo | [casa](docs/casa.md) |
+| Recordatorios de la casa | Bot: `/recordar mañana 9:00 pagar la luz`, `cada mes 5 …`, `cada año 15/03 …` | [casa](docs/casa.md) |
+| CrowdSec | `sudo ./hl crowdsec`: bloquea en el firewall a quien ataca SSH o el panel | [seguridad](docs/seguridad.md#crowdsec-bloquea-a-quien-ataca) |
+| Inventario y CVE | Panel → Inventario: versiones abiertas de cada equipo y vulnerabilidades conocidas | [seguridad](docs/seguridad.md) |
+| Control parental | Panel → Control parental: apps bloqueadas y horarios por equipo (AdGuard) | [seguridad](docs/seguridad.md) |
+| Mapa de Wi-Fi | Panel → Wi-Fi: tus SSID, AP, canales y vecinos | [redes múltiples](docs/redes-multiples.md) |
 | Analítica de tu página | Umami (sin Google ni cookies) + túnel de Cloudflare, sin tocar el VPS | [casa](docs/casa.md#analítica-de-tu-página-umami) |
 | Más seguridad | Greenbone (vulnerabilidades) y ntopng (tráfico por equipo) | [laboratorio](docs/laboratorio-seguridad.md#greenbone-escáner-de-vulnerabilidades) |
 

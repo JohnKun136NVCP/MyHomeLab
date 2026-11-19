@@ -49,7 +49,7 @@ ROLES = {"admin": "Administrador", "registros": "Ve registros y alertas (sin cam
          "familia": "Familia (sus respaldos)"}
 # «registros»: ve todo en modo lectura y recibe las alertas del bot, menos esto
 REG_DENY = ("/api/settings", "/api/apply", "/api/vpn", "/api/acl", "/api/users", "/api/system",
-            "/api/lookup", "/api/cameras/probe", "/prometheus", "/metrics", "/vault/admin", "/internal")
+            "/api/lookup", "/api/cameras/probe", "/api/parental", "/prometheus", "/metrics", "/vault/admin", "/internal")
 # «familia»: solo sus respaldos, cámaras, servicios y enlaces (allowlist)
 FAMILY_ALLOW = ("/api/me", "/api/my/", "/api/services", "/api/cameras", "/api/links")
 FAMILY_DENY = REG_DENY + ("/api/inbound",)     # compatibilidad (pruebas y otros módulos)

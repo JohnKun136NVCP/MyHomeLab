@@ -58,3 +58,19 @@ hace ping a su infraestructura y regresa. Fuera de casa está unos 30–60 s.
 ## Limitaciones
 - Entre visitas no sabes qué pasa en el laboratorio (hasta 30 min de retraso).
 - Por Wi-Fi no hay modo puente: sin tráfico por dispositivo ni bloqueos reales.
+
+## Mapa de Wi-Fi (Red → Wi-Fi)
+
+La Pi usa su Wi-Fi (aunque esté conectada por cable) para ver tus redes y las de los vecinos:
+por cada SSID, sus puntos de acceso (BSSID y fabricante), banda, canal, señal y seguridad;
+cuántas redes hay en cada canal y sugerencias («usa 1, 6 u 11 en 2.4 GHz», «ese canal lo
+comparten 3 vecinos fuertes»). Si no dices cuáles son las tuyas, las adivina por los aparatos a
+los que está conectada la Pi; para fijarlas:
+
+```yaml
+wifi:
+  ssids: ["Casa", "Casa-Arriba"]
+```
+
+El router no le dice a la Pi a qué red se conecta cada equipo, así que al final de la página
+eliges una vez a qué SSID va cada uno y queda en su tarjeta.

@@ -40,6 +40,10 @@ HELP = """🛡 <b>MyHomeLab</b>
 <b>Cámaras</b>
 /camaras – lista · /foto NOMBRE – foto actual
 
+<b>Recordatorios</b>
+/recordar mañana 9:00 pagar la luz · /recordar cada mes 5 pagar el internet
+/recordatorios – los tuyos · /olvidar N
+
 <b>Respaldos</b>
 /respaldos – último respaldo de cada dispositivo
 Mándame cualquier archivo, foto o video y lo guardo como respaldo del teléfono.
@@ -58,6 +62,8 @@ MEMBER_HELP = """🛡 <b>MyHomeLab</b> · hola, {user}
 
 /misrespaldos – tus equipos y su último respaldo
 Mándame cualquier archivo, foto o video y lo guardo en tu respaldo.
+/recordar mañana 9:00 pagar la luz – también <code>cada mes 5 …</code>, <code>cada año 15/03 …</code>, <code>en 2h …</code>
+/recordatorios – los tuyos · /olvidar N – borrar uno
 /desvincular – dejar de recibir avisos aquí
 {extra}
 Todo lo demás está en el dashboard → <b>Mis respaldos</b>."""
@@ -127,6 +133,8 @@ class Handlers:
         text = msg.get("text") or msg.get("caption") or ""
         if text.startswith("/programar"):
             return self.cmd_programar(chat, text, msg)
+        if text.lower().startswith("/recordar") and not text.lower().startswith("/recordatorios"):
+            return self.cmd_recordar(chat, text)
         if any(k in msg for k in ("document", "photo", "video", "audio", "voice")):
             return self.save_phone_file(chat, msg, text)
         if not text.startswith("/"):
@@ -166,6 +174,8 @@ class Handlers:
                                                        extra=LOGS_HELP if role in ("admin", "registros") else ""))
         if cmd == "/misrespaldos":
             return self.my_backups(chat, name)
+        if cmd in ("/recordar", "/recordatorios", "/olvidar"):
+            return getattr(self, "cmd_" + cmd[1:])(chat, text if cmd == "/recordar" else arg.strip())
         if cmd == "/desvincular":
             try:
                 self.a.nw("/internal/telegram/unlink", {"chat_id": chat})
@@ -459,3 +469,34 @@ class Handlers:
             return self.reply(chat, "No encontré esa publicación pendiente.")
         self.a.store.x("UPDATE posts SET run_at=? WHERE id=?", (time.time() - 1, p["id"]))
         self.reply(chat, f"⏩ La publico en menos de un minuto (#{p['id']}).")
+
+    # ------------------------------------------------------- recordatorios
+    def cmd_recordar(self, chat, text):
+        from .reminders import describe, parse
+        try:
+            when, rep, hhmm, what = parse(text if text.startswith("/") else "/recordar " + text, self.tz)
+        except ValueError as e:
+            return self.reply(chat, f"⚠ {e}")
+        rid = self.a.reminders.add(chat, when, rep, hhmm, what)
+        extra = f" y luego {describe(rep, hhmm)}" if rep else ""
+        self.reply(chat, f"⏰ Listo (#{rid}): te aviso el {when.strftime('%d/%m/%Y a las %H:%M')}{extra}.\n"
+                         f"«{esc(what)}»")
+
+    def cmd_recordatorios(self, chat, _):
+        from .reminders import describe
+        rs = self.a.reminders.of(chat)
+        if not rs:
+            return self.reply(chat, "No tienes recordatorios. Ej.: <code>/recordar mañana 9:00 pagar la luz</code>")
+        lines = []
+        for r in rs:
+            when = dt.datetime.fromtimestamp(r["run_at"], self.tz).strftime("%d/%m %H:%M")
+            rep = f" <i>({describe(r['rep'], r['hhmm'])})</i>" if r["rep"] else ""
+            lines.append(f"#{r['id']} · {when} · {esc(r['text'])}{rep}")
+        self.reply(chat, "⏰ <b>Tus recordatorios</b>\n" + "\n".join(lines) + "\n\nBorra uno con /olvidar N")
+
+    def cmd_olvidar(self, chat, arg):
+        m = re.search(r"\d+", arg or "")
+        if not m:
+            return self.reply(chat, "¿Cuál? <code>/olvidar 3</code> (el número sale en /recordatorios)")
+        ok = self.a.reminders.delete(chat, int(m.group(0)))
+        self.reply(chat, "🗑 Borrado." if ok else "No encontré ese recordatorio entre los tuyos.")

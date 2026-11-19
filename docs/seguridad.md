@@ -84,6 +84,55 @@ Las apps de Bitwarden (Vaultwarden) y los clientes de respaldo también funciona
 Ver [servicios](servicios.md#cuentas-para-la-familia-cada-quien-su-bóveda): registros cerrados,
 cada quien por invitación, y una Organización «Casa» para compartir contraseñas.
 
+## CrowdSec: bloquea a quien ataca
+
+```bash
+sudo ./hl crowdsec            # instala CrowdSec + el bloqueador de nftables
+sudo ./hl crowdsec status     # bloqueos activos, últimas alertas y qué está leyendo
+sudo ./hl crowdsec unban IP   # desbloquear (por si fuiste tú)
+sudo ./hl crowdsec enroll CLAVE   # opcional: consola web gratis en app.crowdsec.net
+sudo ./hl crowdsec remove
+```
+
+Lee el SSH (journald) y la bitácora de Caddy (el panel). Si alguien prueba contraseñas, escanea
+rutas o explota una CVE conocida, lo bloquea en el firewall unas horas y te avisa por Telegram
+(«🛑 CrowdSec bloqueó …»). También usa la lista comunitaria de IPs maliciosas.
+
+- Su API escucha solo en `127.0.0.1:8085` (el 8080 es del bot).
+- **Nunca** bloquea tus redes de casa ni la VPN (lista blanca); la red del **laboratorio no**
+  está en la lista blanca, a propósito: si un equipo del lab ataca a la Pi, se bloquea.
+- No toca tu nginx (80/443/8090) ni `wg-hoshimy`; solo agrega su propia tabla de nftables.
+- Aparece en el panel → Inicio → Servicios con su punto verde.
+
+## Inventario de servicios y CVE (Seguridad → Inventario)
+
+Una vez a la semana, de madrugada, el panel revisa con `nmap -sV` y el script `vulners` qué
+programas y versiones tiene abiertos cada equipo (cámaras, AP, impresoras, la PC…) y busca
+vulnerabilidades conocidas. Si aparece una CVE nueva con CVSS ≥ 7 te llega un evento
+(🧬 «Versión vulnerable en …»). Botón **Escanear ahora** y **Exportar CSV**. Se ajusta en
+`config/homelab.yml`:
+
+```yaml
+inventory:
+  enabled: true
+  every_days: 7
+```
+
+Es una revisión ligera por versión; para algo profundo usa Greenbone del laboratorio.
+
+## Control parental (Seguridad → Control parental)
+
+Por equipo (tablet, tele, consola): qué apps o sitios se bloquean (YouTube, TikTok, Roblox,
+Fortnite… el catálogo de AdGuard), **a qué horas sí se permiten** cada día, búsqueda segura y
+bloqueo de sitios para adultos. Cada regla se guarda como un cliente de AdGuard
+(«homelab: NOMBRE») con la MAC y la IP del equipo, y se resincroniza cada 30 min por si cambia
+de IP.
+
+Requisitos: perfil `dns` con `ADGUARD_USER`/`ADGUARD_PASSWORD` en `.env`, que el router reparta
+la Pi como DNS y que el equipo **no** use «DNS seguro» propio (Chrome/Firefox → Ajustes →
+Privacidad → DNS seguro: apagado; en Android «DNS privado: desactivado»). Un niño con datos
+móviles o VPN se lo salta: esto cuida la red de la casa, no el celular fuera de ella.
+
 ## Revisión rápida
 `./hl check` (o dashboard → Sistema) te dice si SSH acepta contraseña, si UFW está
 apagado, si Vaultwarden deja registrarse a cualquiera y cuándo fue el último respaldo.

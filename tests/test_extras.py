@@ -417,7 +417,7 @@ def test_herramientas_de_casa_en_el_panel(tmp_path, monkeypatch):
     c.request("GET", "/api/tools")
     tools = [t for t in json.loads(c.getresponse().read())["tools"] if t.get("group") == "En casa"]
     by = {t["home"]: t for t in tools}
-    assert set(by) == {"homeassistant", "paperless", "navidrome", "syncthing", "umami", "cloudflared"}  # sin dns-backup: aquí está el principal
+    assert set(by) == {"homeassistant", "paperless", "navidrome", "mealie", "jellyseerr", "syncthing", "umami", "cloudflared"}  # sin dns-backup: aquí está el principal
     assert by["navidrome"]["enabled"] and by["navidrome"]["url"] == "http://192.168.1.69:4533"
     assert by["cloudflared"]["enabled"] and by["cloudflared"]["status"] is True
     assert not by["paperless"]["enabled"]

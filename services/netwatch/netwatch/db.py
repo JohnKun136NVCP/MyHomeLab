@@ -205,7 +205,7 @@ class DB:
 
     def update_device(self, mac: str, **fields) -> None:
         allowed = {"name", "type_manual", "ap", "known", "type", "ports", "last_port_scan",
-                   "hostname", "hostname_src", "name_tried"}
+                   "hostname", "hostname_src", "name_tried", "wifi"}
         sets = {k: v for k, v in fields.items() if k in allowed}
         if "ports" in sets:
             sets["ports"] = json.dumps(sets["ports"])

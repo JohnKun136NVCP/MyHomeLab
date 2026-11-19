@@ -17,6 +17,8 @@ ponlo en el disco grande editando `hosts/home/.env`).
 | Home Assistant | `homeassistant` | `:8123` | Focos, enchufes y cámaras; automatizaciones («apaga todo a la 1 am») |
 | Paperless-ngx | `paperless` | `:8010` | Escanea recibos, actas y contratos; los encuentra por texto (OCR en español) |
 | Navidrome | `navidrome` | `:4533` | Tu música en streaming; apps Subsonic en el celular |
+| Mealie | `mealie` | `:9925` | Recetas de la familia (importa de cualquier página) y lista del súper compartida |
+| Jellyseerr | `jellyseerr` | `:5055` | La familia pide películas o series; tú apruebas y aparecen en Cine en casa |
 | Syncthing | `syncthing` | `:8384` | Carpetas sincronizadas entre tus equipos sin nube |
 | Umami | `umami` | `:3007` | Visitas a tu página web sin Google Analytics |
 | Túnel de Cloudflare | `cloudflared` | — | Publica Umami a internet sin abrir puertos |
@@ -38,6 +40,24 @@ con Syncthing para escanear desde el celular). Trabaja de a uno en la Pi para no
 **Navidrome.** Te pregunta la carpeta de tu música. En la web crea tu usuario. En el celular
 usa una app Subsonic (Symfonium o Substreamer en Android, play:Sub o Amperfy en iPhone) con
 `http://IP:4533`.
+
+**Mealie.** Entra a `http://IP:9925` con `changeme@example.com` / `MyPassword` y cámbiala. En
+Ajustes → Usuarios crea una cuenta por persona (el registro abierto está apagado). Para guardar
+una receta pega el enlace de cualquier página de cocina y la importa sola; la **lista del súper**
+la comparte toda la casa y se puede instalar en el celular como app (menú del navegador →
+«Agregar a pantalla de inicio»).
+
+**Jellyseerr.** Abre `http://IP:5055`, elige **Jellyfin** y pon la dirección de tu Jellyfin
+(`http://IP-de-la-PC:8096`) con tu usuario administrador. La familia entra con su misma cuenta
+de Jellyfin, busca una película o serie y la pide; tú la apruebas y, cuando la agregas a la
+biblioteca, aparece en Cine en casa. (Sin Radarr/Sonarr solo queda la lista de pedidos: tú
+consigues el archivo.)
+
+**Recordatorios de la casa (bot).** No hay que encender nada: en el bot de Telegram cada quien
+escribe `/recordar mañana 9:00 pagar la luz`, `/recordar 15/12 18:00 cita con el dentista`,
+`/recordar cada mes 5 9:00 pagar el internet`, `/recordar cada año 03-15 cumpleaños de mamá`
+o `/recordar en 2h sacar la ropa`. `/recordatorios` los lista y `/olvidar N` borra uno. Cada
+quien ve solo los suyos; el aviso llega a la hora (zona de `TZ`).
 
 **Syncthing.** Ponle usuario y contraseña a la web (Acciones → Ajustes → Interfaz). Instala
 Syncthing en tus otros equipos (en Android: «Syncthing-Fork») y compárteles carpetas, por

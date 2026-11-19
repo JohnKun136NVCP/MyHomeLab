@@ -13,7 +13,7 @@
 #    ./hl check                  diagnóstico completo
 #    ./hl services [enable|disable NAME]   opcionales: dns servicios ids speedtest diun botapi
 #    ./hl photos [status|diagnose|open-firewall|update|install]   Immich
-#    ./hl home [enable|disable NAME]   casa: homeassistant paperless navidrome syncthing umami…
+#    ./hl home [enable|disable NAME]   casa: homeassistant paperless navidrome mealie jellyseerr syncthing umami…
 #    ./hl roles [ping|check|apply]     reparte servicios entre la Pi y tus PCs (Ansible)
 #    ./hl link add|remove …      botón en el panel
 #    ./hl firewall [--key-only]  aplica las reglas de UFW
@@ -28,6 +28,7 @@
 #    ./hl vps [IP:9100]          ¿por qué Prometheus ve el VPS abajo? (y lo agrega/corrige)
 #    ./hl ups                    no-break por USB: avisos y apagado en orden (NUT)
 #    ./hl sso [--remove]         inicio de sesión único con Authelia (panel.casa.lan)
+#    ./hl crowdsec [status|unban IP|remove]  bloquea IPs que atacan SSH o el panel (CrowdSec)
 #    ./hl migrate                pasa todo a la PC (desde cero o copiando de esta Pi)
 #    ./hl clean [--plan]         deja la Pi limpia (quita todo lo del homelab)
 #    ./hl <otra cosa>            se pasa tal cual a «docker compose» (ps, exec, pull…)
@@ -135,6 +136,7 @@ case "$cmd" in
   test-backup|probar-respaldo) exec ./scripts/test-backup.sh "$@" ;;
   ups|nut|nobreak|no-break) exec ./scripts/ups.sh "$@" ;;
   sso|authelia) exec ./scripts/sso.sh "$@" ;;
+  crowdsec|cs) exec ./scripts/crowdsec.sh "$@" ;;
   migrate|migrar) exec ./scripts/migrate.sh "$@" ;;
   clean|limpiar) exec ./scripts/clean-pi.sh "$@" ;;
   *)

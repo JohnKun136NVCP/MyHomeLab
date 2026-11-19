@@ -118,6 +118,15 @@ cameras:
   notify_labels: [person, car]              # el bot avisa con foto cuando detecta esto
   notify_cooldown: 300                      # segundos entre avisos de la misma cámara
 
+# Mapa de Wi-Fi (Red → Wi-Fi). Si no lo pones, adivina tus redes por los AP a los que está la Pi.
+wifi:
+  ssids: []                  # ej. ["Casa", "Casa-Arriba", "Casa-5G"]
+
+# Inventario de servicios y CVE (Seguridad → Inventario). Escanea de madrugada.
+inventory:
+  enabled: true
+  every_days: 7
+
 anomalies:
   notify_new_devices: true
   quarantine_unknown: false     # true = bloquea en automático lo desconocido (solo modo puente)

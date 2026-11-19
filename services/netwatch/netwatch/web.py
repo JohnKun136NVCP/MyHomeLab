@@ -1,6 +1,7 @@
 """API y app web de netwatch (Starlette)."""
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -541,6 +542,10 @@ def build_app(mon: Monitor) -> Starlette:
             tools.append({"name": "Fotos (Immich)", "icon": "📸", "url": url, "group": "Servicios",
                           "desc": "Fotos y videos de los celulares, cada quien su cuenta",
                           "check": url.rstrip("/") + "/api/server/ping"})
+        if check_url("http://127.0.0.1:8085/health"):
+            tools.append({"name": "CrowdSec", "icon": "🛑", "url": "#eventos", "group": "Servicios",
+                          "desc": "Bloquea en el firewall a quien ataca SSH o el panel (sudo ./hl crowdsec status)",
+                          "check": "http://127.0.0.1:8085/health"})
         if "speedtest" in profiles:
             tools.append({"name": "Velocidad del internet", "icon": "🚀", "url": f"http://{host}:8765", "group": "Servicios",
                           "desc": "Speedtest Tracker: mide cada 6 h y guarda el historial",
@@ -602,6 +607,8 @@ def build_app(mon: Monitor) -> Starlette:
         ("homeassistant", "Home Assistant", "🏠", 8123, "/manifest.json", "Focos, enchufes y cámaras con automatizaciones"),
         ("paperless", "Documentos (Paperless)", "📄", 8010, "/", "Documentos escaneados con búsqueda"),
         ("navidrome", "Música (Navidrome)", "🎵", 4533, "/ping", "Tu música en streaming, con app en el celular"),
+        ("mealie", "Recetas y súper (Mealie)", "🍲", 9925, "/api/app/about", "Recetas de la familia y lista del súper compartida"),
+        ("jellyseerr", "Pedir películas (Jellyseerr)", "🎟", 5055, "/api/v1/status", "Pide películas o series para Cine en casa"),
         ("syncthing", "Syncthing", "🔄", 8384, "/rest/noauth/health", "Carpetas sincronizadas entre tus equipos"),
         ("umami", "Visitas de la página (Umami)", "📊", 3007, "/api/heartbeat", "Visitas a tu página web, sin Google"),
         ("cloudflared", "Túnel de Cloudflare", "☁", 0, "", "Publica Umami a internet sin abrir puertos"),
@@ -1143,6 +1150,74 @@ def build_app(mon: Monitor) -> Starlette:
                                           f"(docs/vpn.md). Firewall: sudo ufw allow in on {itf['name']} from "
                                           f"{itf['hub']['my_ip']} to any port 9100 proto tcp"})
 
+    # ------------------------------------------------ inventario, Wi-Fi y control parental
+    async def inventory_get(_):
+        return JSONResponse({"devices": await asyncio.to_thread(mon.inventory.devices),
+                             "scan": mon.inventory.last_scan(),
+                             "every_days": float((mon.cfg.get("inventory") or {}).get("every_days", 7))})
+
+    async def inventory_scan(request: Request):
+        b = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+        ips = [str(i) for i in (b.get("ips") or [])] or None
+        if mon.inventory.running:
+            return JSONResponse({"ok": True, "running": True, "msg": "Ya hay un escaneo en curso"})
+        threading.Thread(target=mon.inventory.scan, args=(ips,), name="inventario", daemon=True).start()
+        return JSONResponse({"ok": True, "running": True,
+                             "msg": "Escaneando: tarda unos minutos por equipo, la página se actualiza sola"})
+
+    async def inventory_export(_):
+        import csv
+        import io
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["equipo", "ip", "mac", "puerto", "proto", "servicio", "producto", "version", "cvss_max", "cves"])
+        for d in await asyncio.to_thread(mon.inventory.devices):
+            for sv in d["services"]:
+                w.writerow([d["name"], d["ip"], d["mac"], sv["port"], sv["proto"], sv["service"], sv["product"],
+                            sv["version"], sv["max_cvss"] or "", " ".join(c["id"] for c in sv["cves"])])
+        stamp = time.strftime("%Y%m%d-%H%M")
+        return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="inventario-{stamp}.csv"'})
+
+    async def wifi_get(request: Request):
+        from .wifi import vendor_of
+        if request.query_params.get("rescan"):
+            mon.wifi._at = 0
+        return JSONResponse(await asyncio.to_thread(mon.wifi.summary, vendor_of))
+
+    async def device_wifi(request: Request):
+        mac = request.path_params["mac"].lower()
+        b = await request.json()
+        if not db.device(mac):
+            return JSONResponse({"error": "No conozco ese equipo"}, 404)
+        db.update_device(mac, wifi=str(b.get("ssid") or "")[:64])
+        return JSONResponse({"ok": True})
+
+    async def parental_get(_):
+        try:
+            services = await asyncio.to_thread(mon.parental.services) if mon.adguard.enabled else []
+            err = "" if mon.adguard.enabled else "Necesita AdGuard (perfil dns) con ADGUARD_USER y ADGUARD_PASSWORD en .env"
+        except Exception as e:  # noqa: BLE001
+            services, err = [], f"No pude leer AdGuard: {e}"
+        devs = [{"mac": d["mac"], "ip": d.get("ip"), "online": bool(d.get("online")),
+                 "name": d.get("display_name") or d.get("name") or d.get("hostname") or d.get("vendor") or d["mac"]}
+                for d in db.devices()]
+        return JSONResponse({"rules": mon.parental.rules(), "services": services, "devices": devs, "error": err})
+
+    async def parental_save(request: Request):
+        b = await request.json()
+        try:
+            r = await asyncio.to_thread(mon.parental.save, b)
+        except (ValueError, RuntimeError) as e:
+            return JSONResponse({"error": str(e)}, 400)
+        except Exception as e:  # noqa: BLE001 - AdGuard respondió mal
+            return JSONResponse({"error": f"AdGuard no aceptó la regla: {e}"}, 502)
+        return JSONResponse({"ok": True, "rule": r})
+
+    async def parental_delete(request: Request):
+        await asyncio.to_thread(mon.parental.delete, int(request.path_params["rid"]))
+        return JSONResponse({"ok": True})
+
     routes = [
         Route("/", index), Route("/health", health), Route("/metrics", prom_metrics),
         Route("/api/summary", summary), Route("/api/devices", devices),
@@ -1179,6 +1254,11 @@ def build_app(mon: Monitor) -> Starlette:
         Route("/api/wol", wol_list), Route("/api/wol", wol_send, methods=["POST"]),
         Route("/api/cameras/probe", camera_probe, methods=["POST"]),
         Route("/api/home/toggle", home_toggle, methods=["POST"]),
+        Route("/api/inventory", inventory_get), Route("/api/inventory/scan", inventory_scan, methods=["POST"]),
+        Route("/api/inventory/export", inventory_export),
+        Route("/api/wifi", wifi_get), Route("/api/devices/{mac}/wifi", device_wifi, methods=["POST"]),
+        Route("/api/parental", parental_get), Route("/api/parental", parental_save, methods=["POST"]),
+        Route("/api/parental/{rid:int}", parental_delete, methods=["DELETE"]),
         Route("/api/system", system_get), Route("/api/system/{action}", system_action, methods=["POST"]),
         Route("/ca.crt", ca_cert),
         Route("/api/vpn", vpn_get), Route("/api/vpn/client", vpn_client, methods=["POST"]),

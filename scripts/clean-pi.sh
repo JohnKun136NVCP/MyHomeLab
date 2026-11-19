@@ -68,6 +68,7 @@ if command -v ufw >/dev/null; then
 fi
 SSHD=0; [[ -f /etc/ssh/sshd_config.d/10-homelab.conf ]] && { SSHD=1; echo "  • SSH: solo con llave (/etc/ssh/sshd_config.d/10-homelab.conf)"; }
 NUT=0; [[ -f /etc/nut/.homelab ]] && { NUT=1; echo "  • No-break: NUT configurado por el homelab"; }
+CS=0; [[ -f /etc/crowdsec/.homelab ]] && { CS=1; echo "  • CrowdSec y su bouncer de firewall"; }
 WZA=0; [[ -f /var/ossec/.homelab ]] && { WZA=1; echo "  • Agente de Wazuh (lab/security/wazuh-agent.sh)"; }
 WG0=0; [[ -f /etc/wireguard/wg0.conf ]] && grep -q "10.8.0.0/24" /etc/wireguard/wg0.conf 2>/dev/null && { WG0=1; echo "  • VPN wg0 (de scripts/pi-vpn.sh; tu wg-hoshimy no se toca)"; }
 BK="$(envv BACKUPS_DIR)"; VW="$(envv VW_DATA)"; VW="${VW:-./vaultwarden}"; [[ "$VW" != /* ]] && VW="$REPO/hosts/pi/$VW"
@@ -153,6 +154,7 @@ if ((NUT)); then
   rm -f /etc/nut/.homelab /etc/nut/.homelab-pass /etc/nut/homelab-notify.sh /etc/nut/homelab-notify.env \
     /etc/nut/homelab-notify-both.sh /etc/nut/homelab-upssched.sh; echo "  - configuración de NUT devuelta a la original"
 fi
+((CS)) && { step "CrowdSec"; ./scripts/crowdsec.sh remove || true; }
 rm -f /etc/sudoers.d/90-homelab-immich-mudanza    # por si una mudanza de Immich se quedó a medias
 if ((WZA)); then step "Agente de Wazuh"; ./lab/security/wazuh-agent.sh --remove; fi
 

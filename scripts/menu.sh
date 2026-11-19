@@ -194,6 +194,7 @@ menu_seguridad() {
   4) Certificado para que el navegador confíe en el panel
   5) Inicio de sesión único (Authelia)
   6) ¿En qué puerto está mi SSH?
+  7) CrowdSec: bloquear a quien ataca (instalar / ver bloqueos)
   0) Volver
 EOF
     case "$(ask "Elige")" in
@@ -203,6 +204,7 @@ EOF
       4) run ./hl ca; pause ;;
       5) run ./hl sso; pause ;;
       6) echo; (HL_REPO="$REPO"; . scripts/lib/ssh.sh; echo "  SSH escucha en: $(ssh_ports | paste -sd' ' -)"); pause ;;
+      7) if [[ -f /etc/crowdsec/.homelab ]]; then run sudo ./hl crowdsec status; else run sudo ./hl crowdsec install; fi; pause ;;
       0|"") return ;;
     esac
   done
@@ -272,7 +274,7 @@ menu_casa() {
     echo "  1) Encender una          2) Apagar una          3) Ver contenedores"
     echo "  4) Guía (docs/casa.md)   0) Volver"
     case "$(ask "Elige")" in
-      1) p="$(ask "¿Cuál? (homeassistant paperless navidrome syncthing umami cloudflared dns-backup)")"; [[ -n $p ]] && run ./hl home enable "$p"; pause ;;
+      1) p="$(ask "¿Cuál? (homeassistant paperless navidrome mealie jellyseerr syncthing umami cloudflared dns-backup)")"; [[ -n $p ]] && run ./hl home enable "$p"; pause ;;
       2) p="$(ask "¿Cuál?")"; [[ -n $p ]] && run ./hl home disable "$p"; pause ;;
       3) run ./hl home status; pause ;;
       4) ${PAGER:-less} docs/casa.md ;;

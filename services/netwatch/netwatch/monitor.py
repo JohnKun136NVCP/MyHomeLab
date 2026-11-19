@@ -67,6 +67,13 @@ class Monitor:
         self._upstream_checked = 0.0
         self.upstream_msg = ""
         self._name_budget = int(net.get("names_per_cycle", 8))
+        from .inventory import Inventory
+        from .parental import Parental
+        from .wifi import Survey
+        self.inventory = Inventory(db, cfg)
+        self.wifi = Survey(db, cfg)
+        self.parental = Parental(db, self.adguard, os.environ.get("TZ") or "America/Mexico_City")
+        self._parental_synced = 0.0
         self.write_prom_targets()
 
     # ------------------------------------------------------------ config
@@ -128,7 +135,7 @@ class Monitor:
             t0 = time.time()
             for step in (self.scan_all, self.ping_all, self.sync_acl, self.read_ids, self.collect_inbound,
                          self.poll_dns, self.resolve_names, self.daily_port_scan, self.notify,
-                         self.sync_sso, self.maybe_roam):
+                         self.sync_sso, self.maintenance, self.maybe_roam):
                 try:
                     step()
                 except Exception:  # noqa: BLE001 - que un paso no tumbe a los demás
@@ -357,6 +364,14 @@ class Monitor:
                                   "dns_danger", f"DNS bloqueó {b['reason']}: {b['domain']}",
                                   f"Lo pidió {who}. Si no lo abriste tú, revisa ese equipo.",
                                   f"{b['client']}|{b['domain']}")
+
+    def maintenance(self) -> None:
+        """Inventario semanal (de madrugada) y control parental al día si un equipo cambia de IP."""
+        if self.inventory.due():
+            threading.Thread(target=self.inventory.scan, name="inventario", daemon=True).start()
+        if self.adguard.enabled and time.time() - self._parental_synced > 1800:
+            self._parental_synced = time.time()
+            self.parental.resync()
 
     # ---------------------------------------------------------- roaming
     def maybe_roam(self) -> None:

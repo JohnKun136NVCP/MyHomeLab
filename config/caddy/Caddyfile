@@ -15,6 +15,11 @@ import /etc/caddy/sso/*.caddy
 https://{$HOMELAB_HOST}:443 {
 	tls internal
 	encode zstd gzip
+	# Bitácora de accesos en JSON (la lee CrowdSec si lo instalas: ./hl crowdsec)
+	log {
+		output stdout
+		format json
+	}
 
 	# Los clientes de respaldo usan su propio token, no la contraseña web
 	handle /api/backup/* {

@@ -69,6 +69,33 @@ services:
       - ${HOME_DATA:-/srv/homelab-home}/navidrome:/data
       - ${MUSIC_DIR:-/srv/musica}:/music:ro
 
+  # --- Mealie: recetas de la familia y lista del súper compartida (http://IP:9925)
+  mealie:
+    <<: *common
+    profiles: ["mealie"]
+    image: ghcr.io/mealie-recipes/mealie:latest
+    ports: ["9925:9000"]
+    environment:
+      TZ: "${TZ:-America/Mexico_City}"
+      ALLOW_SIGNUP: "false"               # las cuentas las creas tú (Ajustes → Usuarios)
+      BASE_URL: "http://${HOME_HOST:-localhost}:9925"
+      DEFAULT_GROUP: Casa
+      DEFAULT_HOUSEHOLD: Casa
+    volumes:
+      - ${HOME_DATA:-/srv/homelab-home}/mealie:/app/data
+
+  # --- Jellyseerr: la familia pide películas o series para «Cine en casa» (http://IP:5055)
+  jellyseerr:
+    <<: *common
+    profiles: ["jellyseerr"]
+    image: fallenbagel/jellyseerr:latest
+    ports: ["5055:5055"]
+    environment:
+      TZ: "${TZ:-America/Mexico_City}"
+      LOG_LEVEL: info
+    volumes:
+      - ${HOME_DATA:-/srv/homelab-home}/jellyseerr:/app/config
+
   # --- Syncthing: carpetas sincronizadas entre tus equipos, sin nube (http://IP:8384)
   syncthing:
     <<: *common
