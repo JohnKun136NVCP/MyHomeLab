@@ -40,7 +40,7 @@ HAVE_DOCKER=0; command -v docker >/dev/null && docker info >/dev/null 2>&1 && HA
 echo "${B}Esto es lo que el homelab dejó en esta máquina:${N}"
 PROJECTS=()
 if ((HAVE_DOCKER)); then
-  for p in homelab-pi homelab-server homelab-immich homelab-seclab; do
+  for p in homelab-pi homelab-server homelab-immich homelab-seclab homelab-home greenbone-community-edition; do
     n=$(docker ps -aq --filter "label=com.docker.compose.project=$p" | wc -l)
     v=$(docker volume ls -q --filter "label=com.docker.compose.project=$p" | wc -l)
     ((n + v)) && { PROJECTS+=("$p"); echo "  • Docker «$p»: $n contenedor(es), $v volumen(es)"; }
@@ -116,14 +116,15 @@ read -r -p "Escribe LIMPIAR para empezar: " c
 step() { echo; echo "${B}== $*${N}"; }
 if ((HAVE_DOCKER)); then
   step "Contenedores, volúmenes e imágenes"
-  for f in hosts/pi/docker-compose.yml hosts/server/docker-compose.yml hosts/server/immich/docker-compose.yml lab/security/docker-compose.yml; do
+  for f in hosts/pi/docker-compose.yml hosts/server/docker-compose.yml hosts/server/immich/docker-compose.yml lab/security/docker-compose.yml hosts/home/docker-compose.yml; do
     [[ -f "$f" ]] || continue
     ef=.env; [[ $f == hosts/server/immich/* ]] && ef=hosts/server/immich/.env     # Immich trae su propio .env
+    [[ $f == hosts/home/* ]] && ef=hosts/home/.env
     [[ -f $ef ]] || ef=/dev/null
     docker compose -f "$f" --env-file "$ef" --profile '*' down --volumes --rmi all --remove-orphans 2>/dev/null \
       || docker compose -f "$f" --env-file "$ef" down --volumes --rmi all --remove-orphans 2>/dev/null || true
   done
-  for p in homelab-pi homelab-server homelab-immich homelab-seclab immich; do
+  for p in homelab-pi homelab-server homelab-immich homelab-seclab homelab-home greenbone-community-edition immich; do
     docker ps -aq --filter "label=com.docker.compose.project=$p" | xargs -r docker rm -f >/dev/null
     docker volume ls -q --filter "label=com.docker.compose.project=$p" | xargs -r docker volume rm -f >/dev/null
     docker network ls -q --filter "label=com.docker.compose.project=$p" | xargs -r docker network rm >/dev/null 2>&1

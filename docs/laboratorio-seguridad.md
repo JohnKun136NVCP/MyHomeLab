@@ -62,6 +62,29 @@ dice que lea el `eve.json` de Suricata del homelab y el log de UFW. En el dashbo
 en **Agents**. Para quitarlo: `sudo ./lab/security/wazuh-agent.sh --remove`
 (`clean-pi.sh` también lo quita).
 
+## Greenbone (escáner de vulnerabilidades)
+
+Revisa tus equipos en busca de fallas conocidas (versiones viejas, configuraciones débiles,
+servicios expuestos), como lo haría una auditoría.
+
+```bash
+./lab/security/greenbone.sh install     # versión oficial; la 1ª vez baja sus bases (tarda horas)
+./lab/security/greenbone.sh lan         # para verlo desde otra máquina de la casa
+./lab/security/greenbone.sh stop|start|status|password|remove
+```
+
+Web: `http://127.0.0.1:9392` (usuario `admin`, contraseña en `lab/security/greenbone/admin.txt`).
+Para tu primer escaneo: **Scans → Tasks → Task Wizard** con la IP de la Pi. Escanea solo tus
+equipos y, si es la red de la casa, avisa: un escaneo completo hace lento algún equipo viejo.
+Va en una PC x86 con ~8 GB de RAM (rol `lab: [greenbone]` en `./hl roles`).
+
+## ntopng (tráfico de la red)
+
+Muestra quién usa la red, con qué protocolos, a dónde se conecta cada equipo y cuánto
+descarga. `./hl services enable ntopng` en la Pi → `http://IP-de-la-Pi:3005` (la primera vez
+`admin`/`admin`). Mira la tarjeta de `NTOPNG_IFACE` en `.env` (por defecto `eth0`). Si su imagen
+no arranca en la Pi, ponlo en una PC.
+
 ## Prácticas sugeridas
 
 Cada práctica tiene un lado de ataque y un lado de detección: ataca desde Kali o desde tu

@@ -175,3 +175,27 @@ homelab_backup:
 services:
   uptime_kuma_url: http://127.0.0.1:3001
   status_page: homelab
+
+# ---------------------------------------------------------------------------
+# Reparto de servicios entre máquinas (./hl roles; guía: docs/redistribucion.md)
+# Roles: core (lo de la Pi), media (video y cámaras), photos (Immich),
+#        home (herramientas de la casa), lab (seguridad, x86), dns_backup (2° AdGuard)
+# machines:
+#   - name: pi
+#     host: 192.168.1.69
+#     user: pi
+#     ssh_port: 22
+#     local: true                  # la máquina donde corres ./hl roles
+#     roles: [core]
+#   - name: minipc
+#     host: 192.168.1.50
+#     user: john
+#     roles: [media, photos, home, dns_backup]
+#     home: [paperless, navidrome, syncthing]
+#   - name: laptop-vieja
+#     host: 192.168.1.60
+#     user: john
+#     laptop: true                 # no se duerme con la tapa cerrada; batería al 80 %
+#     battery_limit: 80
+#     roles: [lab]
+#     lab: [wazuh, greenbone]      # wazuh, greenbone, targets

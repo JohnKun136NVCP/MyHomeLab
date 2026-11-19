@@ -1,0 +1,49 @@
+- name: Paquetes que usan los scripts
+  become: true
+  ansible.builtin.package:
+    name: [git, curl, rsync, ufw, openssl]
+    state: present
+
+- name: python3-yaml (Debian/Ubuntu)
+  become: true
+  ansible.builtin.apt: { name: python3-yaml, state: present }
+  when: ansible_os_family == "Debian"
+
+- name: python3-pyyaml (Fedora)
+  become: true
+  ansible.builtin.dnf: { name: python3-pyyaml, state: present }
+  when: ansible_os_family == "RedHat"
+
+- name: ¿Ya hay Docker?
+  ansible.builtin.command: docker --version
+  register: docker_v
+  changed_when: false
+  failed_when: false
+
+- name: Instalar Docker (script oficial)
+  become: true
+  ansible.builtin.shell: curl -fsSL https://get.docker.com | sh
+  when: docker_v.rc != 0
+
+- name: Tu usuario puede usar Docker
+  become: true
+  ansible.builtin.user: { name: "{{ ansible_user }}", groups: docker, append: true }
+
+- name: Docker arranca con el sistema
+  become: true
+  ansible.builtin.systemd: { name: docker, enabled: true, state: started }
+
+- name: ¿Ya está el repo?
+  ansible.builtin.stat: { path: "{{ repo_dir }}/hl" }
+  register: repo
+
+- name: Bajar el repo del homelab
+  ansible.builtin.git: { repo: "{{ repo_url }}", dest: "{{ repo_dir }}" }
+  when: not repo.stat.exists
+
+- name: Actualizar el repo (sin pisar tus cambios)
+  ansible.builtin.command: git -C {{ repo_dir }} pull --ff-only
+  register: pull
+  changed_when: "'Already up to date' not in pull.stdout and 'Ya está actualizado' not in pull.stdout"
+  failed_when: false
+  when: repo.stat.exists

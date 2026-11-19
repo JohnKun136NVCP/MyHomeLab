@@ -1,0 +1,18 @@
+# Las credenciales del AdGuard principal salen del .env del núcleo (esta Pi, donde corres ./hl roles)
+- name: Datos del AdGuard principal
+  ansible.builtin.lineinfile:
+    path: "{{ repo_dir }}/hosts/home/.env"
+    regexp: "^{{ item.k }}="
+    line: "{{ item.k }}={{ item.v }}"
+    create: true
+    mode: "0600"
+  loop:
+    - { k: ADGUARD_PRIMARY, v: "{{ core_ip }}" }
+    - { k: ADGUARD_USER, v: "{{ lookup('ansible.builtin.ini', 'ADGUARD_USER', type='properties', file=playbook_dir ~ '/../.env') }}" }
+    - { k: ADGUARD_PASSWORD, v: "{{ lookup('ansible.builtin.ini', 'ADGUARD_PASSWORD', type='properties', file=playbook_dir ~ '/../.env') }}" }
+  loop_control: { label: "{{ item.k }}" }
+  no_log: true
+
+- name: Encender el DNS de respaldo
+  ansible.builtin.command: ./scripts/home.sh enable dns-backup --yes
+  args: { chdir: "{{ repo_dir }}" }

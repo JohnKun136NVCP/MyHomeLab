@@ -1,0 +1,36 @@
+# ======================================================================
+#  Reparto de servicios entre la Pi y tus PCs. No lo corras a mano: ./hl roles apply
+#  Qué va en cada máquina: config/homelab.yml → machines (ver docs/redistribucion.md)
+#  Cada rol llama a los mismos scripts del repo, así que hace lo mismo que harías tú a mano.
+# ======================================================================
+- name: Lo básico en todas (paquetes, Docker, el repo)
+  hosts: all
+  roles: [base]
+
+- name: Laptops como servidor
+  hosts: laptops
+  roles: [laptop]
+
+- name: Núcleo (panel, bot, DNS, VPN)
+  hosts: core
+  roles: [core]
+
+- name: Video y cámaras
+  hosts: media
+  roles: [media]
+
+- name: Fotos (Immich)
+  hosts: photos
+  roles: [photos]
+
+- name: Herramientas de la casa
+  hosts: home
+  roles: [home]
+
+- name: Laboratorio de seguridad
+  hosts: lab
+  roles: [lab]
+
+- name: DNS de respaldo
+  hosts: dns_backup
+  roles: [dns_backup]

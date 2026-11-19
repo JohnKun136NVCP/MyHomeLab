@@ -250,6 +250,21 @@ services:
     volumes:
       - speedtest:/config
 
+  # --- Tráfico de la red por equipo y protocolo (opcional): --profile ntopng --
+  # http://IP-de-la-Pi:3005 (la primera vez admin/admin y te pide cambiarla)
+  ntopng:
+    <<: *common
+    profiles: ["ntopng"]
+    image: ntop/ntopng:stable
+    network_mode: host
+    command: ["-i", "${NTOPNG_IFACE:-eth0}", "-w", "3005", "-r", "127.0.0.1:6380", "--community"]
+    depends_on: [ntopng-redis]
+  ntopng-redis:
+    <<: *common
+    profiles: ["ntopng"]
+    image: redis:7-alpine
+    ports: ["127.0.0.1:6380:6379"]
+
   # --- Avisos de imágenes nuevas (opcional): --profile diun -----------------
   # Revisa cada día si hay versión nueva de las imágenes que usas y te avisa (sin sonido).
   # No actualiza nada: tú decides cuándo con ./hl update o ./hl pull.

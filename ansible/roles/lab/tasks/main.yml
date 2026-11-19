@@ -1,0 +1,22 @@
+- name: El laboratorio necesita una PC x86_64
+  ansible.builtin.fail: { msg: "{{ inventory_hostname }} es {{ ansible_architecture }}: Wazuh y Greenbone van en x86_64." }
+  when: ansible_architecture != "x86_64" and lab_services | length > 0
+
+- name: Wazuh (SIEM)
+  ansible.builtin.command: ./lab/security/lab.sh wazuh
+  args: { chdir: "{{ repo_dir }}" }
+  when: "'wazuh' in lab_services"
+
+- name: Objetivos vulnerables (red aislada)
+  ansible.builtin.command: ./lab/security/lab.sh targets
+  args: { chdir: "{{ repo_dir }}" }
+  when: "'targets' in lab_services"
+
+- name: ¿Ya está Greenbone?
+  ansible.builtin.stat: { path: "{{ repo_dir }}/lab/security/greenbone/docker-compose.yml" }
+  register: gb
+
+- name: Greenbone (escáner de vulnerabilidades)
+  ansible.builtin.command: ./lab/security/greenbone.sh {{ 'start' if gb.stat.exists else 'install' }}
+  args: { chdir: "{{ repo_dir }}" }
+  when: "'greenbone' in lab_services"

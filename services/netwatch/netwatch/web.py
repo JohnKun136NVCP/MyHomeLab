@@ -447,6 +447,10 @@ def build_app(mon: Monitor) -> Starlette:
             tools.append({"name": "Velocidad del internet", "icon": "🚀", "url": f"http://{host}:8765", "group": "Servicios",
                           "desc": "Speedtest Tracker: mide cada 6 h y guarda el historial",
                           "check": "http://127.0.0.1:8765"})
+        if "ntopng" in profiles:
+            tools.append({"name": "Tráfico de la red (ntopng)", "icon": "🔎", "url": f"http://{host}:3005", "group": "Servicios",
+                          "desc": "Quién usa la red, con qué protocolos y a dónde se conecta",
+                          "check": "http://127.0.0.1:3005"})
         if "diun" in profiles:
             tools.append({"name": "Avisos de versiones", "icon": "🆕", "url": "#sistema", "group": "Servicios",
                           "desc": "Diun: te avisa por Telegram si hay imagen nueva (sin página)",
@@ -489,9 +493,10 @@ def build_app(mon: Monitor) -> Starlette:
             if link.get("url") in seen or link.get("url") in known or \
                     any(k in link.get("url", "") for k in (":3001", ":3002")):
                 continue
+            # Los que agregan los scripts (home.sh, greenbone…) traen group: Servicios y su check
             tools.append({"name": link["name"], "icon": link.get("icon", "🔗"), "url": link["url"],
-                          "group": "Tus enlaces", "desc": link.get("desc", link["url"]),
-                          "check": link["url"] if link["url"].startswith("http") else None})
+                          "group": link.get("group") or "Tus enlaces", "desc": link.get("desc", link["url"]),
+                          "check": link.get("check") or (link["url"] if link["url"].startswith("http") else None)})
         return tools
 
     def check_url(url: str) -> bool:

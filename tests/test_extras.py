@@ -235,3 +235,51 @@ def test_reglas_ufw_de_la_pi_se_adaptan(tmp_path):
     assert out.stdout.splitlines() == ["allow from 192.168.1.0/24 to any port 8090 proto tcp comment 'mi app'",
                                        "allow in on enp3s0 to 192.168.1.50 port 51820 proto udp"]
     assert "SSH" in out.stderr and "laboratorio" in out.stderr      # wlan0 sin red de lab: no se copia
+
+
+# ------------------------------------------------------- reparto (Ansible) y herramientas de la casa
+def test_inventario_de_ansible(tmp_path):
+    sys.path.insert(0, str(ROOT / "scripts" / "lib"))
+    import inventory
+    cfg = tmp_path / "homelab.yml"
+    cfg.write_text(yaml.safe_dump({"machines": [
+        {"name": "pi", "host": "192.168.1.69", "user": "john", "local": True, "roles": ["core"]},
+        {"name": "minipc", "host": "192.168.1.50", "user": "john", "ssh_port": 2222,
+         "roles": ["media", "photos", "home", "dns_backup"], "home": ["paperless"]},
+        {"name": "laptop", "host": "192.168.1.60", "laptop": True, "roles": ["lab"], "lab": ["wazuh"]}]}))
+    inv = inventory.inventory(inventory.load(cfg), "https://example/repo.git")["all"]
+    assert inv["vars"]["core_ip"] == "192.168.1.69" and inv["vars"]["core_name"] == "pi"
+    assert inv["hosts"]["pi"]["ansible_connection"] == "local"
+    assert inv["hosts"]["minipc"]["ansible_port"] == 2222 and inv["hosts"]["minipc"]["home_services"] == ["paperless"]
+    assert set(inv["children"]) == {"core", "media", "photos", "home", "dns_backup", "lab", "laptops"}
+    assert "laptop" in inv["children"]["laptops"]["hosts"]
+    cfg.write_text(yaml.safe_dump({"machines": [{"name": "a", "host": "x", "roles": ["core", "dns_backup", "nada"]}]}))
+    with pytest.raises(SystemExit) as e:
+        inventory.load(cfg)
+    assert "nada" in str(e.value) and "dns_backup" in str(e.value)
+
+
+def test_botones_del_panel_y_casa(tmp_path):
+    import shutil
+    import subprocess
+    repo = tmp_path / "r"
+    (repo / "scripts" / "lib").mkdir(parents=True)
+    (repo / "config").mkdir()
+    shutil.copy(ROOT / "scripts" / "lib" / "links.py", repo / "scripts" / "lib")
+    (repo / "config" / "homelab.yml").write_text("links:\n- {name: Grafana, url: /grafana/}\n")
+    run = lambda *a: subprocess.run([sys.executable, str(repo / "scripts/lib/links.py"), *a], check=True)
+    run("add", "Música (Navidrome)", "http://10.0.0.5:4533", "🎵", "tu música", "http://10.0.0.5:4533/ping")
+    run("add", "Música (Navidrome)", "http://10.0.0.6:4533", "🎵", "tu música", "")
+    links = yaml.safe_load((repo / "config/homelab.yml").read_text())["links"]
+    assert [l["name"] for l in links] == ["Grafana", "Música (Navidrome)"]
+    assert links[1]["url"].endswith("10.0.0.6:4533") and links[1]["group"] == "Servicios"
+    run("remove", "Música (Navidrome)")
+    assert len(yaml.safe_load((repo / "config/homelab.yml").read_text())["links"]) == 1
+    # home.sh: la lista y los botones de lo encendido, sin Docker
+    shutil.copytree(ROOT / "scripts", repo / "scripts", dirs_exist_ok=True)
+    (repo / "hosts" / "home").mkdir(parents=True)
+    (repo / "hosts" / "home" / ".env").write_text("HOME_HOST=10.0.0.5\nCOMPOSE_PROFILES=navidrome,umami\nHOME_DATA=/tmp/x\n")
+    out = subprocess.run(["bash", str(repo / "scripts/home.sh"), "links"], capture_output=True, text=True, cwd=repo).stdout
+    assert '"Música (Navidrome)" "http://10.0.0.5:4533"' in out and "3007/api/heartbeat" in out
+    lst = subprocess.run(["bash", str(repo / "scripts/home.sh"), "list"], capture_output=True, text=True, cwd=repo).stdout
+    assert "navidrome" in lst and "paperless" in lst

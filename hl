@@ -13,6 +13,9 @@
 #    ./hl check                  diagnóstico completo
 #    ./hl services [enable|disable NAME]   opcionales: dns servicios ids speedtest diun botapi
 #    ./hl photos [status|diagnose|open-firewall|update|install]   Immich
+#    ./hl home [enable|disable NAME]   casa: homeassistant paperless navidrome syncthing umami…
+#    ./hl roles [ping|check|apply]     reparte servicios entre la Pi y tus PCs (Ansible)
+#    ./hl link add|remove …      botón en el panel
 #    ./hl firewall [--key-only]  aplica las reglas de UFW
 #    ./hl backup                 respaldo cifrado del homelab ahora
 #    ./hl restore FILE           restaura un respaldo del homelab
@@ -38,12 +41,12 @@ perfiles() { grep -E '^COMPOSE_PROFILES=' .env | tail -1 | cut -d= -f2- | tr -d 
 
 if [[ $# -eq 0 && -t 0 && -t 1 ]]; then exec ./scripts/menu.sh; fi
 cmd="${1:-help}"; shift || true
-if [[ ! -f .env && ! "$cmd" =~ ^(ayuda|help|-h|--help|secrets|secretos)$ ]]; then
+if [[ ! -f .env && ! "$cmd" =~ ^(ayuda|help|-h|--help|secrets|secretos|home|casa|roles)$ ]]; then
   echo "Falta .env: corre ./scripts/gen-secrets.sh"; exit 1
 fi
 case "$cmd" in
   help|ayuda|-h|--help)
-    sed -n '3,30p' "$0" | sed 's/^# \{0,3\}//' ;;
+    sed -n '3,33p' "$0" | sed 's/^# \{0,3\}//' ;;
   status|estado)
     "${C[@]}" ps --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}' ;;
   update|actualizar)
@@ -76,6 +79,9 @@ case "$cmd" in
   menu) exec ./scripts/menu.sh "$@" ;;
   secrets|secretos) exec ./scripts/gen-secrets.sh "$@" ;;
   vps) exec ./scripts/vps-check.sh "$@" ;;
+  home|casa) exec ./scripts/home.sh "$@" ;;
+  roles) exec ./scripts/roles.sh "$@" ;;
+  link) exec python3 scripts/lib/links.py "$@" ;;
   photos|immich|fotos)
     a="${1:-status}"; shift || true
     case "$a" in

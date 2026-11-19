@@ -26,13 +26,14 @@ ask() { local a; read -r -p "  $1${2:+ [$2]}: " a; echo "${a:-${2:-}}"; }
 yes_no() { local a; read -r -p "  $1 [s/N] " a; [[ "$a" =~ ^[sSyY] ]]; }
 
 # ------------------------------------------------------------ perfiles (servicios opcionales)
-PROFILE_LIST=(dns servicios ids speedtest diun botapi)
+PROFILE_LIST=(dns servicios ids speedtest diun ntopng botapi)
 declare -A PROFILE_DESC=(
   [dns]="AdGuard: DNS sin anuncios para la casa (puerto 53, web :3002)"
   [servicios]="Uptime Kuma (:3001) y Vaultwarden (/vault)"
   [ids]="Suricata: detección de intrusos en la red"
   [speedtest]="Velocidad del internet cada 6 h (:8765)"
   [diun]="Aviso por Telegram cuando hay versión nueva de una imagen"
+  [ntopng]="Tráfico de la red por equipo y protocolo (:3005)"
   [botapi]="Servidor local de la Bot API (archivos de hasta 2 GB)"
 )
 profiles() { envv COMPOSE_PROFILES | tr ',' '\n' | grep -v '^$' || true; }
@@ -108,17 +109,17 @@ menu_servicios() {
       if has_profile "$p"; then mark="${G}[encendido]${N}"; else mark="${DIM}[apagado]  ${N}"; fi
       printf '  %d) %s %-10s %s\n' "$i" "$mark" "$p" "${PROFILE_DESC[$p]}"; i=$((i + 1))
     done
-    echo "  7) Inicio de sesión único (Authelia) → ./hl sso"
+    echo "  8) Inicio de sesión único (Authelia) → ./hl sso"
     echo "  0) Volver"
     c="$(ask "Elige")"
     case "$c" in
-      [1-6]) p="${PROFILE_LIST[$((c - 1))]}"
+      [1-7]) p="${PROFILE_LIST[$((c - 1))]}"
              if [[ $p == botapi ]] && ! has_profile botapi && [[ -z "$(envv TELEGRAM_API_ID)" ]]; then
                echo "  ${Y}⚠${N} botapi necesita TELEGRAM_API_ID y TELEGRAM_API_HASH en .env (my.telegram.org)."
                echo "    En la Pi normalmente ya tienes tu propio telegram-bot-api: no lo enciendas aquí."; pause; continue
              fi
              toggle_profile "$p"; pause ;;
-      7) if has_profile sso; then yes_no "¿Apagar el inicio de sesión único?" && run ./hl sso --remove
+      8) if has_profile sso; then yes_no "¿Apagar el inicio de sesión único?" && run ./hl sso --remove
          else run ./hl sso; fi; pause ;;
       0|"") return ;;
     esac
@@ -241,6 +242,8 @@ menu_lab() {
   5) Apagar el laboratorio
   6) Instalar el agente de Wazuh en ESTA máquina
   7) Guía de prácticas
+  8) Greenbone: instalar / encender el escáner de vulnerabilidades
+  9) Greenbone: ver la web desde la red de la casa
   0) Volver
 EOF
     case "$(ask "Elige")" in
@@ -251,6 +254,24 @@ EOF
       5) run ./lab/security/lab.sh stop; pause ;;
       6) m="$(ask "IP de la PC con Wazuh")"; [[ -n $m ]] && run sudo ./lab/security/wazuh-agent.sh "$m"; pause ;;
       7) ${PAGER:-less} docs/laboratorio-seguridad.md ;;
+      8) if [[ -f lab/security/greenbone/docker-compose.yml ]]; then run ./lab/security/greenbone.sh start; else run ./lab/security/greenbone.sh install; fi; pause ;;
+      9) run ./lab/security/greenbone.sh lan; pause ;;
+      0|"") return ;;
+    esac
+  done
+}
+
+menu_casa() {
+  while true; do
+    header; echo "${B}Herramientas para la casa${N} (en esta máquina)"
+    ./scripts/home.sh list | tail -n +2 | head -8
+    echo "  1) Encender una          2) Apagar una          3) Ver contenedores"
+    echo "  4) Guía (docs/casa.md)   0) Volver"
+    case "$(ask "Elige")" in
+      1) p="$(ask "¿Cuál? (homeassistant paperless navidrome syncthing umami cloudflared dns-backup)")"; [[ -n $p ]] && run ./hl home enable "$p"; pause ;;
+      2) p="$(ask "¿Cuál?")"; [[ -n $p ]] && run ./hl home disable "$p"; pause ;;
+      3) run ./hl home status; pause ;;
+      4) ${PAGER:-less} docs/casa.md ;;
       0|"") return ;;
     esac
   done
@@ -265,6 +286,10 @@ menu_equipos() {
   3) (En la PC nueva) mudar todo el homelab aquí
   4) Ver qué quitaría la limpieza de la Pi (sin tocar nada)
   5) Limpiar la Pi (quitar todo lo del homelab)
+  6) Reparto de servicios: ver qué va en cada máquina
+  7) Reparto: probar la conexión con todas
+  8) Reparto: simular (no cambia nada)
+  9) Reparto: aplicar
   0) Volver
 EOF
     case "$(ask "Elige")" in
@@ -279,6 +304,10 @@ EOF
       4) run sudo ./hl clean --plan; pause ;;
       5) echo "  ${Y}Antes: si AdGuard de la Pi es el DNS de la casa, cámbialo en el módem.${N}"
          run sudo ./hl clean; pause ;;
+      6) run ./hl roles; pause ;;
+      7) run ./hl roles ping; pause ;;
+      8) run ./hl roles check; pause ;;
+      9) run ./hl roles apply; pause ;;
       0|"") return ;;
     esac
   done
@@ -296,7 +325,8 @@ menu_principal() {
   ${B}6)${N} Seguridad y acceso (firewall, SSH, contraseñas)
   ${B}7)${N} No-break
   ${B}8)${N} Laboratorio de seguridad
-  ${B}9)${N} Equipos (encender la PC, mudanza, limpieza)
+  ${B}9)${N} Equipos (encender la PC, reparto entre máquinas, mudanza, limpieza)
+  ${B}c)${N} Herramientas para la casa (Home Assistant, documentos, música, Umami…)
   ${B}a)${N} Ayuda: todos los comandos de ./hl
   ${B}0)${N} Salir
 EOF
@@ -311,6 +341,7 @@ EOF
       7) menu_nobreak ;;
       8) menu_lab ;;
       9) menu_equipos ;;
+      c|C) menu_casa ;;
       a|A) ./hl help; pause ;;
       0|q|"") echo; exit 0 ;;
     esac
@@ -321,6 +352,6 @@ EOF
 case "${1:-}" in
   status|estado) menu_estado ;; services|servicios) menu_servicios ;; photos|fotos|immich) menu_fotos ;;
   backups|respaldos) menu_respaldos ;; security|seguridad) menu_seguridad ;; ups|nobreak) menu_nobreak ;;
-  lab|laboratorio) menu_lab ;; devices|equipos) menu_equipos ;;
+  lab|laboratorio) menu_lab ;; devices|equipos) menu_equipos ;; home|casa) menu_casa ;;
   *) menu_principal ;;
 esac

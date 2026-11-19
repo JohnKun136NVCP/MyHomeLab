@@ -1,0 +1,41 @@
+# Laptop como servidor: que no se duerma, que la batería no se infle, que despierte por red
+- name: No dormir al cerrar la tapa
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/logind.conf
+    regexp: "^#?{{ item }}="
+    line: "{{ item }}=ignore"
+  loop: [HandleLidSwitch, HandleLidSwitchExternalPower, HandleLidSwitchDocked]
+  notify: recargar logind
+
+- name: Nunca suspender ni hibernar
+  become: true
+  ansible.builtin.systemd: { name: "{{ item }}", masked: true }
+  loop: [sleep.target, suspend.target, hibernate.target, hybrid-sleep.target]
+
+- name: ¿La batería acepta límite de carga?
+  ansible.builtin.find:
+    paths: /sys/class/power_supply
+    patterns: "BAT*"
+    file_type: any
+  register: bats
+
+- name: Límite de carga de la batería (se aplica en cada arranque)
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homelab-battery-limit.service
+    content: |
+      [Unit]
+      Description=MyHomeLab: limitar la carga de la batería al {{ battery_limit }} %
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/sh -c 'for b in /sys/class/power_supply/BAT*/charge_control_end_threshold; do [ -w "$b" ] && echo {{ battery_limit }} > "$b"; done; true'
+      [Install]
+      WantedBy=multi-user.target
+  when: bats.matched > 0
+  register: batunit
+
+- name: Activar el límite de batería
+  become: true
+  ansible.builtin.systemd: { name: homelab-battery-limit, enabled: true, state: started, daemon_reload: true }
+  when: bats.matched > 0

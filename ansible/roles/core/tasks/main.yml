@@ -1,0 +1,14 @@
+- name: ¿Está configurado el núcleo?
+  ansible.builtin.stat: { path: "{{ repo_dir }}/.env" }
+  register: env
+
+- name: Primera vez → se instala a mano
+  ansible.builtin.fail:
+    msg: "En {{ inventory_hostname }} falta .env. La primera vez del núcleo es a mano: ./scripts/install-pi.sh (o ./hl migrate en una PC)."
+  when: not env.stat.exists
+
+- name: Actualizar y levantar el núcleo
+  ansible.builtin.command: ./hl update
+  args: { chdir: "{{ repo_dir }}" }
+  register: up
+  changed_when: true

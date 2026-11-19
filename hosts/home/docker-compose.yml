@@ -1,0 +1,133 @@
+# ======================================================================
+#  Herramientas para la casa — en la Pi o en cualquier PC del homelab.
+#  No lo levantes a mano:  ./hl home enable navidrome   (o el menú: ./hl → Casa)
+#  Cada herramienta es un perfil; ./scripts/home.sh guarda los encendidos en hosts/home/.env
+# ======================================================================
+name: homelab-home
+
+x-common: &common
+  restart: unless-stopped
+  logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+
+services:
+  # --- Home Assistant: focos, enchufes, cámaras, automatizaciones (http://IP:8123)
+  homeassistant:
+    <<: *common
+    profiles: ["homeassistant"]
+    image: ghcr.io/home-assistant/home-assistant:stable
+    network_mode: host                    # para descubrir focos y equipos de la red
+    environment: { TZ: "${TZ:-America/Mexico_City}" }
+    volumes:
+      - ${HOME_DATA:-/srv/homelab-home}/homeassistant:/config
+      - /run/dbus:/run/dbus:ro
+
+  # --- Paperless-ngx: documentos escaneados con búsqueda (http://IP:8010)
+  paperless:
+    <<: *common
+    profiles: ["paperless"]
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    depends_on: [paperless-db, paperless-redis]
+    ports: ["8010:8000"]
+    environment:
+      PAPERLESS_REDIS: redis://paperless-redis:6379
+      PAPERLESS_DBHOST: paperless-db
+      PAPERLESS_DBPASS: ${PAPERLESS_DB_PASSWORD}
+      PAPERLESS_SECRET_KEY: ${PAPERLESS_SECRET_KEY}
+      PAPERLESS_ADMIN_USER: ${PAPERLESS_ADMIN_USER:-admin}
+      PAPERLESS_ADMIN_PASSWORD: ${PAPERLESS_ADMIN_PASSWORD}
+      PAPERLESS_OCR_LANGUAGE: spa+eng
+      PAPERLESS_OCR_LANGUAGES: spa
+      PAPERLESS_TIME_ZONE: ${TZ:-America/Mexico_City}
+      PAPERLESS_URL: http://${HOME_HOST}:8010
+      PAPERLESS_TASK_WORKERS: "1"           # suave para la Pi
+    volumes:
+      - ${HOME_DATA:-/srv/homelab-home}/paperless/data:/usr/src/paperless/data
+      - ${HOME_DATA:-/srv/homelab-home}/paperless/media:/usr/src/paperless/media
+      - ${HOME_DATA:-/srv/homelab-home}/paperless/consume:/usr/src/paperless/consume   # deja aquí PDFs/fotos
+      - ${HOME_DATA:-/srv/homelab-home}/paperless/export:/usr/src/paperless/export
+  paperless-db:
+    <<: *common
+    profiles: ["paperless"]
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: paperless, POSTGRES_USER: paperless, POSTGRES_PASSWORD: "${PAPERLESS_DB_PASSWORD}" }
+    volumes: ["${HOME_DATA:-/srv/homelab-home}/paperless/db:/var/lib/postgresql/data"]
+  paperless-redis:
+    <<: *common
+    profiles: ["paperless"]
+    image: redis:7-alpine
+
+  # --- Navidrome: tu música en streaming, apps Subsonic en el celular (http://IP:4533)
+  navidrome:
+    <<: *common
+    profiles: ["navidrome"]
+    image: deluan/navidrome:latest
+    ports: ["4533:4533"]
+    environment:
+      ND_SCANSCHEDULE: 1h
+      ND_DEFAULTLANGUAGE: es
+    volumes:
+      - ${HOME_DATA:-/srv/homelab-home}/navidrome:/data
+      - ${MUSIC_DIR:-/srv/musica}:/music:ro
+
+  # --- Syncthing: carpetas sincronizadas entre tus equipos, sin nube (http://IP:8384)
+  syncthing:
+    <<: *common
+    profiles: ["syncthing"]
+    image: syncthing/syncthing:latest
+    network_mode: host                    # descubre tus otros equipos en la red
+    hostname: homelab-${HOME_NAME:-casa}
+    environment: { PUID: "1000", PGID: "1000", STGUIADDRESS: "0.0.0.0:8384" }
+    volumes:
+      - ${HOME_DATA:-/srv/homelab-home}/syncthing:/var/syncthing
+
+  # --- Umami: visitas a tu página web sin Google Analytics (http://IP:3007)
+  umami:
+    <<: *common
+    profiles: ["umami"]
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    depends_on: [umami-db]
+    ports: ["3007:3000"]
+    environment:
+      DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD}@umami-db:5432/umami
+      APP_SECRET: ${UMAMI_APP_SECRET}
+      DISABLE_TELEMETRY: "1"
+  umami-db:
+    <<: *common
+    profiles: ["umami"]
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: umami, POSTGRES_USER: umami, POSTGRES_PASSWORD: "${UMAMI_DB_PASSWORD}" }
+    volumes: ["${HOME_DATA:-/srv/homelab-home}/umami/db:/var/lib/postgresql/data"]
+
+  # --- Túnel de Cloudflare: publica SOLO Umami a internet sin abrir puertos ni tocar el VPS
+  cloudflared:
+    <<: *common
+    profiles: ["cloudflared"]
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment: { TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN}" }
+
+  # --- DNS de respaldo: un segundo AdGuard que copia la configuración del de la Pi
+  adguard-backup:
+    <<: *common
+    profiles: ["dns-backup"]
+    image: adguard/adguardhome:latest
+    ports: ["53:53/tcp", "53:53/udp", "3002:3000/tcp"]
+    volumes:
+      - ${HOME_DATA:-/srv/homelab-home}/adguard/work:/opt/adguardhome/work
+      - ${HOME_DATA:-/srv/homelab-home}/adguard/conf:/opt/adguardhome/conf
+  adguard-sync:
+    <<: *common
+    profiles: ["dns-backup"]
+    image: ghcr.io/bakito/adguardhome-sync:latest
+    command: run
+    depends_on: [adguard-backup]
+    environment:
+      ORIGIN_URL: http://${ADGUARD_PRIMARY}:3002
+      ORIGIN_USERNAME: ${ADGUARD_USER}
+      ORIGIN_PASSWORD: ${ADGUARD_PASSWORD}
+      REPLICA1_URL: http://adguard-backup:3000
+      REPLICA1_USERNAME: ${ADGUARD_USER}
+      REPLICA1_PASSWORD: ${ADGUARD_PASSWORD}
+      REPLICA1_AUTOSETUP: "true"            # configura el AdGuard nuevo la primera vez
+      CRON: "*/10 * * * *"
+      RUN_ON_START: "true"

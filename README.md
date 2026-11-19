@@ -60,6 +60,10 @@ flowchart LR
 | Velocidad del internet, imágenes nuevas, encender la PC | Speedtest Tracker, Diun, Wake-on-LAN (`/encender`) | [servicios](docs/servicios.md#speedtest-tracker--httpip-de-la-pi8765) |
 | Prueba de restauración | `./hl test-backup` (cada mes): descifra y revisa el último respaldo | [servicios](docs/servicios.md#prueba-mensual-del-respaldo) |
 | Mudarse a la PC / limpiar la Pi | `./hl migrate` (desde cero o copiando de la Pi por SSH con llave) y `./hl clean` | [migrar](docs/migrar.md) |
+| Reparto entre máquinas | `./hl roles`: la Pi y tus PCs/laptops con roles (core, media, photos, home, lab, dns_backup), con Ansible | [reparto](docs/redistribucion.md) |
+| Herramientas para la casa | `./hl home enable …`: Home Assistant, Paperless, Navidrome, Syncthing, DNS de respaldo | [casa](docs/casa.md) |
+| Analítica de tu página | Umami (sin Google ni cookies) + túnel de Cloudflare, sin tocar el VPS | [casa](docs/casa.md#analítica-de-tu-página-umami) |
+| Más seguridad | Greenbone (vulnerabilidades) y ntopng (tráfico por equipo) | [laboratorio](docs/laboratorio-seguridad.md#greenbone-escáner-de-vulnerabilidades) |
 
 ## Instalación
 

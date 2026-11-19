@@ -147,7 +147,9 @@ CS+=(--env-file .env)
 "${CS[@]}" ps --format 'table {{.Service}}\t{{.Status}}'
 
 if [[ -z "${HL_TODO_EN_UNO:-}" ]]; then         # migrate.sh lo llama aparte
-  if curl -fsS -m 4 "http://$PI:2283/api/server/ping" 2>/dev/null | grep -q pong; then
+  if [[ -n "${HL_NO_IMMICH:-}" ]]; then
+    echo "  (Immich lo instala el rol «photos» de ./hl roles si se lo asignaste a esta máquina)"
+  elif curl -fsS -m 4 "http://$PI:2283/api/server/ping" 2>/dev/null | grep -q pong; then
     echo "  La Raspberry ya tiene Immich. ¿Qué hago con él?"
     echo "    1) Que esta PC haga el reconocimiento de caras para la Pi (las fotos se quedan en la Pi)"
     echo "    2) Mudar Immich completo a esta PC (fotos, cuentas y álbumes)"

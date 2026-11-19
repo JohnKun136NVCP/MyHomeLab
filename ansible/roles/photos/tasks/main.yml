@@ -1,0 +1,17 @@
+- name: ¿Ya hay Immich?
+  ansible.builtin.stat: { path: "{{ repo_dir }}/hosts/server/immich/.env" }
+  register: env
+
+- name: Instalar Immich
+  ansible.builtin.command: ./scripts/immich.sh --yes
+  args: { chdir: "{{ repo_dir }}" }
+  when: not env.stat.exists
+
+- name: Botón «Fotos» en el panel del núcleo
+  ansible.builtin.command: >
+    python3 scripts/lib/links.py add "Fotos (Immich)" "http://{{ ansible_host }}:2283" "📸"
+    "Fotos y videos de los celulares" "http://{{ ansible_host }}:2283/api/server/ping"
+  args: { chdir: "{{ repo_dir }}" }
+  delegate_to: "{{ core_name }}"
+  when: core_name and core_name != inventory_hostname
+  changed_when: false

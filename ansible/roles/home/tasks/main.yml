@@ -1,0 +1,18 @@
+- name: Encender las herramientas de la casa de esta máquina
+  ansible.builtin.command: ./scripts/home.sh enable {{ item }} --yes
+  args: { chdir: "{{ repo_dir }}" }
+  loop: "{{ home_services }}"
+
+- name: Sus botones (para el panel del núcleo)
+  ansible.builtin.command: ./scripts/home.sh links
+  args: { chdir: "{{ repo_dir }}" }
+  register: links
+  changed_when: false
+
+- name: Botones en el panel del núcleo
+  ansible.builtin.command: python3 scripts/lib/links.py add {{ item }}
+  args: { chdir: "{{ repo_dir }}" }
+  loop: "{{ links.stdout_lines }}"
+  delegate_to: "{{ core_name }}"
+  when: core_name and core_name != inventory_hostname
+  changed_when: false

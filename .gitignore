@@ -32,3 +32,5 @@ lab/security/wazuh-docker/
 config/caddy/sso/*.caddy
 config/authelia/configuration.yml
 lab/security/trabajo/
+lab/security/greenbone/
+hosts/home/.env
