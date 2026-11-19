@@ -518,13 +518,21 @@ def build_app(mon: Monitor) -> Starlette:
                  "desc": "¿Están arriba tu página, el VPS y tus servicios?", "check": "http://127.0.0.1:3001"},
                 {"name": "Vaultwarden", "icon": "🔑", "url": "/vault/", "group": "Servicios",
                  "desc": "Tus contraseñas (apps de Bitwarden)", "check": f"{base}/vault/alive"}]
-        # --- Herramientas de la casa (./hl home): solo las que están corriendo en esta máquina
-        for name, icon, port, path, desc in HOME_TOOLS:
-            if port == 3002 and ("dns" in profiles or mon.adguard.reachable):
-                continue      # en esta máquina el 3002 es el AdGuard principal, no el de respaldo
-            if check_url(f"http://127.0.0.1:{port}{path}"):
-                tools.append({"name": name, "icon": icon, "url": f"http://{host}:{port}", "group": "En casa",
-                              "desc": desc, "check": f"http://127.0.0.1:{port}{path}"})
+        # --- Herramientas de la casa (./hl home): todas, con encendida/apagada
+        home_on = home_profiles()
+        for key, name, icon, port, path, desc in HOME_TOOLS:
+            on = key in home_on
+            if key == "dns-backup" and ("dns" in profiles) and not on:
+                continue      # aquí está el AdGuard principal: el de respaldo va en otra máquina
+            t = {"name": name, "icon": icon, "group": "En casa", "desc": desc, "home": key, "enabled": on,
+                 "url": f"http://{host}:{port}" if port else "#casa"}
+            if on and port:
+                t["check"] = f"http://127.0.0.1:{port}{path}"
+            elif on:
+                t["status"] = True          # sin página propia (el túnel): basta con que esté encendido
+            else:
+                t["status"] = None
+            tools.append(t)
         # --- Servicios que agregan los scripts (Immich, Speedtest, Diun, Authelia, no-break, lo de la PC)
         links_by_name = {l.get("name"): l for l in cfg.get("links", []) or []}
         im = links_by_name.get("Fotos (Immich)")
@@ -590,14 +598,26 @@ def build_app(mon: Monitor) -> Starlette:
                           "check": link.get("check") or (link["url"] if link["url"].startswith("http") else None)})
         return tools
 
-    HOME_TOOLS = [   # nombre, icono, puerto, ruta que responde, descripción (los mismos de scripts/home.sh)
-        ("Home Assistant", "🏠", 8123, "/manifest.json", "Focos, enchufes y cámaras con automatizaciones"),
-        ("Documentos (Paperless)", "📄", 8010, "/", "Documentos escaneados con búsqueda"),
-        ("Música (Navidrome)", "🎵", 4533, "/ping", "Tu música en streaming, con app en el celular"),
-        ("Syncthing", "🔄", 8384, "/rest/noauth/health", "Carpetas sincronizadas entre tus equipos"),
-        ("Visitas de la página (Umami)", "📊", 3007, "/api/heartbeat", "Visitas a tu página web, sin Google"),
-        ("DNS de respaldo", "🛡", 3002, "/", "Segundo AdGuard que copia al principal"),
+    HOME_TOOLS = [   # clave, nombre, icono, puerto, ruta que responde, descripción (los de scripts/home.sh)
+        ("homeassistant", "Home Assistant", "🏠", 8123, "/manifest.json", "Focos, enchufes y cámaras con automatizaciones"),
+        ("paperless", "Documentos (Paperless)", "📄", 8010, "/", "Documentos escaneados con búsqueda"),
+        ("navidrome", "Música (Navidrome)", "🎵", 4533, "/ping", "Tu música en streaming, con app en el celular"),
+        ("syncthing", "Syncthing", "🔄", 8384, "/rest/noauth/health", "Carpetas sincronizadas entre tus equipos"),
+        ("umami", "Visitas de la página (Umami)", "📊", 3007, "/api/heartbeat", "Visitas a tu página web, sin Google"),
+        ("cloudflared", "Túnel de Cloudflare", "☁", 0, "", "Publica Umami a internet sin abrir puertos"),
+        ("dns-backup", "DNS de respaldo", "🛡", 3002, "/", "Segundo AdGuard que copia al principal"),
     ]
+    HOME_KEYS = {t[0] for t in HOME_TOOLS}
+
+    def home_profiles() -> set[str]:
+        f = Path(os.environ.get("HOMELAB_HOME_ENV", "/homelab/home/.env"))
+        try:
+            for ln in f.read_text().splitlines():
+                if ln.startswith("COMPOSE_PROFILES="):
+                    return {p.strip() for p in ln.split("=", 1)[1].strip("\"' ").split(",") if p.strip()}
+        except OSError:
+            pass
+        return set()
 
     def check_url(url: str) -> bool:
         import ssl
@@ -967,7 +987,8 @@ def build_app(mon: Monitor) -> Starlette:
         kuma_task = asyncio.to_thread(kuma.status, sv.get("uptime_kuma_url", "http://127.0.0.1:3001"),
                                       sv.get("status_page", "homelab"))
         # Lo que el propio panel revisa (sin depender de Uptime Kuma)
-        items = [t for t in await asyncio.to_thread(tool_list) if t.get("group") == "Servicios"]
+        items = [t for t in await asyncio.to_thread(tool_list)
+                 if t.get("group") == "Servicios" or (t.get("group") == "En casa" and t.get("enabled"))]
 
         async def one(t):
             if "status" not in t and t.get("check"):
@@ -1010,6 +1031,26 @@ def build_app(mon: Monitor) -> Starlette:
             return JSONResponse({"error": "acción desconocida"}, 404)
         try:
             req = st.request_apply("all", [], action=act)
+        except RuntimeError as e:
+            return JSONResponse({"error": str(e)}, 400)
+        return JSONResponse({"ok": True, "request": req})
+
+    async def home_toggle(request: Request):
+        """Encender/apagar una herramienta de la casa: lo hace la Pi (homelab-apply) con scripts/home.sh."""
+        b = await request.json()
+        key, on = str(b.get("name", "")), bool(b.get("on"))
+        if key not in HOME_KEYS:
+            return JSONResponse({"error": "No conozco esa herramienta"}, 404)
+        if on and key == "cloudflared" and "cloudflared" not in home_profiles():
+            env = Path(os.environ.get("HOMELAB_HOME_ENV", "/homelab/home/.env"))
+            if "CLOUDFLARE_TUNNEL_TOKEN=ey" not in (env.read_text() if env.exists() else ""):
+                return JSONResponse({"error": "El túnel necesita su token: la primera vez enciéndelo en la Pi con "
+                                              "./hl home enable cloudflared"}, 400)
+        if on and key == "dns-backup":
+            return JSONResponse({"error": "El DNS de respaldo va en OTRA máquina (no la del AdGuard principal): "
+                                          "./hl home enable dns-backup ahí, o ./hl roles"}, 400)
+        try:
+            req = st.request_apply("all", [], action=f"home-{'enable' if on else 'disable'}:{key}")
         except RuntimeError as e:
             return JSONResponse({"error": str(e)}, 400)
         return JSONResponse({"ok": True, "request": req})
@@ -1137,6 +1178,7 @@ def build_app(mon: Monitor) -> Starlette:
         Route("/api/services", services_status),
         Route("/api/wol", wol_list), Route("/api/wol", wol_send, methods=["POST"]),
         Route("/api/cameras/probe", camera_probe, methods=["POST"]),
+        Route("/api/home/toggle", home_toggle, methods=["POST"]),
         Route("/api/system", system_get), Route("/api/system/{action}", system_action, methods=["POST"]),
         Route("/ca.crt", ca_cert),
         Route("/api/vpn", vpn_get), Route("/api/vpn/client", vpn_client, methods=["POST"]),

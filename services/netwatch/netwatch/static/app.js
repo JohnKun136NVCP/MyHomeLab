@@ -232,16 +232,30 @@ const views = {
       { name: "Dispositivos", icon: "💻", url: "#dispositivos", desc: "Quién está conectado", status: true },
       { name: "Mapa", icon: "🗺", url: "#mapa", desc: "Módem → AP → equipos", status: true },
       ...j.tools.filter((t) => t.group === "Homelab")]]];
-    for (const g of ["Servicios", "Red", "Tus enlaces"]) {
+    for (const g of ["Servicios", "En casa", "Red", "Tus enlaces"]) {
       const ts = j.tools.filter((t) => t.group === g);
       if (ts.length) sections.push([g, ts]);
     }
-    $("#tools").innerHTML = sections.map(([g, ts]) => `<div class="section-title">${esc(g)}</div><div class="links">${ts.map((t) =>
-      `<a class="link" href="${esc(t.url)}" ${t.url.startsWith("#") ? "" : 'target="_blank" rel="noopener"'}>
-        <span class="i">${t.icon || "🔗"}</span><div><b>${esc(t.name)}</b>
+    const tile = (t) => t.home && !t.enabled
+      ? `<div class="link off"><span class="i">${t.icon || "🔗"}</span><div style="flex:1"><b>${esc(t.name)}</b> <span class="muted small">apagado</span>
+          <div class="muted small">${esc(t.desc || "")}</div></div>
+          ${ADMIN ? `<button class="small" data-home-on="${esc(t.home)}">Encender</button>` : ""}</div>`
+      : `<a class="link" href="${esc(t.url)}" ${t.url.startsWith("#") ? "" : 'target="_blank" rel="noopener"'}>
+        <span class="i">${t.icon || "🔗"}</span><div style="flex:1"><b>${esc(t.name)}</b>
         ${t.status === true ? ' <span class="dot on" title="responde"></span>' : t.status === false ? ' <span class="dot off" title="no responde"></span>' : ""}
-        <div class="muted small">${esc(t.desc || "")}</div></div></a>`).join("")}</div>`).join("")
+        <div class="muted small">${esc(t.desc || "")}</div></div>
+        ${t.home && ADMIN ? `<button class="small" data-home-off="${esc(t.home)}" title="Apagar (sus datos se quedan)">⏻</button>` : ""}</a>`;
+    $("#tools").innerHTML = sections.map(([g, ts]) => `<div class="section-title">${esc(g)}</div><div class="links">${ts.map(tile).join("")}</div>`).join("")
       + (ADMIN ? `<p class="muted small" style="margin-top:16px">¿Falta algo? Agrega enlaces en Ajustes → editor avanzado (sección <span class="mono">links</span>).</p>` : "");
+    const homeToggle = async (name, on, b) => {
+      if (!on && !confirm("¿Apagarlo? Sus datos se quedan; lo vuelves a encender cuando quieras.")) return;
+      b.disabled = true;
+      try { await api("/api/home/toggle", { method: "POST", body: JSON.stringify({ name, on }) });
+        toast(on ? "Encendiendo: tarda 1–3 min (la primera vez descarga la imagen). Resultado en Sistema." : "Apagando…"); }
+      catch (e) { toast(e.message); b.disabled = false; }
+    };
+    $("#tools").querySelectorAll("[data-home-on]").forEach((b) => b.onclick = () => homeToggle(b.dataset.homeOn, true, b));
+    $("#tools").querySelectorAll("[data-home-off]").forEach((b) => b.onclick = (e) => { e.preventDefault(); homeToggle(b.dataset.homeOff, false, b); });
   },
 
   async inicioFamilia() {

@@ -63,6 +63,7 @@ services:
       - ../../.env:/homelab/.env
       - ../../run:/homelab/run
       - ../../clients:/homelab/clients:ro    # instaladores de «Mis respaldos»
+      - ../../hosts/home:/homelab/home:ro     # qué herramientas de la casa están encendidas
       - netwatch_data:/data
       - prom_targets:/data/prom-targets
       - suricata_logs:/suricata:ro

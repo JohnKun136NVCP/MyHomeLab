@@ -390,3 +390,38 @@ def test_respaldos_en_varios_zip(tmp_path):
     assert n == 2 and all(s[2] <= TG.limit for s in sent)
     assert "parte1de2" in sent[0][0] and sum(len(s[1]) for s in sent) == 4
     assert list(work.iterdir()) == [] and "se abre por separado" in told[-1]
+
+
+def test_herramientas_de_casa_en_el_panel(tmp_path, monkeypatch):
+    """Inicio → «En casa»: las 7, con encendida/apagada según hosts/home/.env."""
+    import http.client
+    import uvicorn
+    from netwatch import auth
+    from netwatch import monitor as M
+    from netwatch import settings as st
+    from netwatch.db import DB
+    from netwatch.web import build_app
+    (tmp_path / ".env").write_text("WEB_USER=a\nHOMELAB_HOST=192.168.1.69\nCOMPOSE_PROFILES=dns\n")
+    (tmp_path / "home.env").write_text("COMPOSE_PROFILES=navidrome,cloudflared\n")
+    monkeypatch.setattr(st, "ENV_PATH", tmp_path / ".env")
+    monkeypatch.setattr(auth, "_secret", b"s" * 32)
+    monkeypatch.setenv("HOMELAB_HOME_ENV", str(tmp_path / "home.env"))
+    db = DB(tmp_path / "n.db")
+    mon = M.Monitor({"network": {"networks": [{"name": "casa", "cidr": "192.168.1.0/24"}]}}, db, tmp_path)
+    server = uvicorn.Server(uvicorn.Config(build_app(mon), host="127.0.0.1", port=0, log_level="error"))
+    threading.Thread(target=server.run, daemon=True).start()
+    while not server.started:
+        time.sleep(0.05)
+    port = server.servers[0].sockets[0].getsockname()[1]
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=20)
+    c.request("GET", "/api/tools")
+    tools = [t for t in json.loads(c.getresponse().read())["tools"] if t.get("group") == "En casa"]
+    by = {t["home"]: t for t in tools}
+    assert set(by) == {"homeassistant", "paperless", "navidrome", "syncthing", "umami", "cloudflared"}  # sin dns-backup: aquí está el principal
+    assert by["navidrome"]["enabled"] and by["navidrome"]["url"] == "http://192.168.1.69:4533"
+    assert by["cloudflared"]["enabled"] and by["cloudflared"]["status"] is True
+    assert not by["paperless"]["enabled"]
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    c.request("POST", "/api/home/toggle", json.dumps({"name": "nada", "on": True}), {"Content-Type": "application/json"})
+    assert c.getresponse().status == 404
+    server.should_exit = True

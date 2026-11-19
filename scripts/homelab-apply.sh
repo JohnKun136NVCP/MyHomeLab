@@ -40,6 +40,10 @@ start=$(date +%s)
       ./scripts/check.sh; exit 0 ;;
     respaldo)
       ./scripts/backup.sh; exit $? ;;
+    home-enable:*|home-disable:*)      # panel → Inicio → En casa → Encender/Apagar
+      n="${action#*:}"; what="${action%%:*}"; what="${what#home-}"
+      [[ $n =~ ^(homeassistant|paperless|navidrome|syncthing|umami|cloudflared|dns-backup)$ ]] || { echo "   herramienta desconocida: $n"; exit 1; }
+      ./scripts/home.sh "$what" "$n" --yes; exit $? ;;
     actualizar)
       echo "   git pull (como $owner)"
       sudo -u "$owner" git pull --ff-only || exit 1
