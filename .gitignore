@@ -34,3 +34,4 @@ config/authelia/configuration.yml
 lab/security/trabajo/
 lab/security/greenbone/
 hosts/home/.env
+config/bots.yml

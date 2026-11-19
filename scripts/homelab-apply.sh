@@ -44,6 +44,13 @@ start=$(date +%s)
       n="${action#*:}"; what="${action%%:*}"; what="${what#home-}"
       [[ $n =~ ^(homeassistant|paperless|navidrome|mealie|jellyseerr|syncthing|umami|cloudflared|dns-backup)$ ]] || { echo "   herramienta desconocida: $n"; exit 1; }
       ./scripts/home.sh "$what" "$n" --yes; exit $? ;;
+    bots-status)                       # panel → Bots (estado de sus servicios)
+      ./scripts/bots.sh status-json; exit $? ;;
+    bot-start:*|bot-stop:*|bot-restart:*|bot-logs:*)
+      n="${action#*:}"; verb="${action%%:*}"; verb="${verb#bot-}"
+      [[ $n =~ ^[a-z0-9][a-z0-9_-]{0,30}$ ]] || { echo "   bot inválido: $n"; exit 1; }
+      if [[ $verb == logs ]]; then ./scripts/bots.sh logs-file "$n"; exit $?; fi
+      ./scripts/bots.sh "$verb" "$n"; rc=$?; ./scripts/bots.sh status-json >/dev/null; exit $rc ;;
     actualizar)
       echo "   git pull (como $owner)"
       sudo -u "$owner" git pull --ff-only || exit 1

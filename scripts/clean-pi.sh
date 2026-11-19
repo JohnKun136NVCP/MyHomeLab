@@ -69,6 +69,7 @@ fi
 SSHD=0; [[ -f /etc/ssh/sshd_config.d/10-homelab.conf ]] && { SSHD=1; echo "  • SSH: solo con llave (/etc/ssh/sshd_config.d/10-homelab.conf)"; }
 NUT=0; [[ -f /etc/nut/.homelab ]] && { NUT=1; echo "  • No-break: NUT configurado por el homelab"; }
 CS=0; [[ -f /etc/crowdsec/.homelab ]] && { CS=1; echo "  • CrowdSec y su bouncer de firewall"; }
+BOTS=0; grep -q "# homelab-bot " /etc/fstab 2>/dev/null && { BOTS=1; echo "  • Montajes de tus otros bots para el panel (los bots no se tocan)"; }
 WZA=0; [[ -f /var/ossec/.homelab ]] && { WZA=1; echo "  • Agente de Wazuh (lab/security/wazuh-agent.sh)"; }
 WG0=0; [[ -f /etc/wireguard/wg0.conf ]] && grep -q "10.8.0.0/24" /etc/wireguard/wg0.conf 2>/dev/null && { WG0=1; echo "  • VPN wg0 (de scripts/pi-vpn.sh; tu wg-hoshimy no se toca)"; }
 BK="$(envv BACKUPS_DIR)"; VW="$(envv VW_DATA)"; VW="${VW:-./vaultwarden}"; [[ "$VW" != /* ]] && VW="$REPO/hosts/pi/$VW"
@@ -155,6 +156,8 @@ if ((NUT)); then
     /etc/nut/homelab-notify-both.sh /etc/nut/homelab-upssched.sh; echo "  - configuración de NUT devuelta a la original"
 fi
 ((CS)) && { step "CrowdSec"; ./scripts/crowdsec.sh remove || true; }
+((BOTS)) && { step "Bots"; for m in $(awk '/# homelab-bot /{print $2}' /etc/fstab); do umount "$m" 2>/dev/null || true; done
+  sed -i '/# homelab-bot /d' /etc/fstab; rmdir /srv/homelab-bots/* /srv/homelab-bots 2>/dev/null || true; }
 rm -f /etc/sudoers.d/90-homelab-immich-mudanza    # por si una mudanza de Immich se quedó a medias
 if ((WZA)); then step "Agente de Wazuh"; ./lab/security/wazuh-agent.sh --remove; fi
 

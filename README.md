@@ -62,6 +62,7 @@ flowchart LR
 | Mudarse a la PC / limpiar la Pi | `./hl migrate` (desde cero o copiando de la Pi por SSH con llave) y `./hl clean` | [migrar](docs/migrar.md) |
 | Reparto entre máquinas | `./hl roles`: la Pi y tus PCs/laptops con roles (core, media, photos, home, lab, dns_backup), con Ansible | [reparto](docs/redistribucion.md) |
 | Herramientas para la casa | `./hl home enable …`: Home Assistant, Paperless, Navidrome, Mealie (recetas y súper), Jellyseerr (pedir películas), Syncthing, DNS de respaldo | [casa](docs/casa.md) |
+| Tus otros bots | `sudo ./hl bots add yt ~/yt-telegrambot`: panel → Bots (estado, reinicio, logs, usuarios, premium, pagos con Stars) | [bot](docs/bot.md#tus-otros-bots-panel--bots) |
 | Recordatorios de la casa | Bot: `/recordar mañana 9:00 pagar la luz`, `cada mes 5 …`, `cada año 15/03 …` | [casa](docs/casa.md) |
 | CrowdSec | `sudo ./hl crowdsec`: bloquea en el firewall a quien ataca SSH o el panel | [seguridad](docs/seguridad.md#crowdsec-bloquea-a-quien-ataca) |
 | Inventario y CVE | Panel → Inventario: versiones abiertas de cada equipo y vulnerabilidades conocidas | [seguridad](docs/seguridad.md) |

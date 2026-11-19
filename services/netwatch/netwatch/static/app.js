@@ -1216,6 +1216,139 @@ const views = {
     });
   },
 
+  async bots() {
+    const j = await api("/api/bots");
+    const tab = globalThis.HL_BOT || {};
+    const SVC = { active: ["ok", "corriendo"], activating: ["warn", "arrancando"], deactivating: ["warn", "apagando"],
+      inactive: ["", "apagado"], failed: ["bad", "falló"], none: ["", "sin servicio"] };
+    const TYPE = { admin: "👑 admin", premium: "⭐ premium", subscribed: "💎 suscrito", unsubscribed: "gratis" };
+    const fmtd = (s) => s ? s.slice(0, 16).replace("T", " ") : "—";
+    if (!j.bots.length) {
+      view.innerHTML = `<h2>Bots</h2><div class="card"><p>Aquí administras tus otros bots de Telegram: si están corriendo,
+        reiniciarlos, sus logs y, en los de tipo <b>yt-telegrambot</b>, sus usuarios, premium y pagos con Stars.</p>
+        <p>Regístralo una vez en la Pi:</p><pre class="mono">sudo ./hl bots add yt ~/yt-telegrambot</pre>
+        <p class="muted small">Detecta el tipo y su servicio de systemd. El bot sigue corriendo igual que siempre.</p></div>`;
+      return;
+    }
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Bots</h2>
+        <span class="muted small">estado de systemd ${j.status_ts ? ago(j.status_ts) : "pidiéndose…"}</span>
+        <button id="bst">🔄</button></div>
+      ${j.bots.map((b) => {
+        const [cls, label] = SVC[b.service.state] || ["", b.service.state || "¿?"];
+        const me = b.me || {}, s = b.stats || {};
+        return `<div class="card" style="margin-bottom:var(--gap)">
+          <div class="toolbar"><h3 class="grow">🤖 ${esc(b.name)} ${me.username ? `<a href="https://t.me/${esc(me.username)}" target="_blank" rel="noopener">@${esc(me.username)}</a>` : ""}
+            <span class="pill ${cls}">${label}</span>${me.pending >= 3 ? `<span class="pill warn">${me.pending} mensajes sin leer</span>` : ""}</h3>
+            ${b.unit ? `<button data-bact="restart" data-b="${b.name}">↻ Reiniciar</button>
+              ${b.service.state === "active" ? `<button data-bact="stop" data-b="${b.name}">⏹ Apagar</button>` : `<button class="primary" data-bact="start" data-b="${b.name}">▶ Encender</button>`}` : ""}
+            <button data-blog="${b.name}">📜 Logs</button></div>
+          <p class="muted small">${esc(b.kind)} · ${esc(b.unit || "sin servicio")} · <span class="mono">${esc(b.path)}</span>
+            ${b.service.since ? ` · arriba ${ago(b.service.since)}` : ""}${b.service.restarts ? ` · ${b.service.restarts} reinicios` : ""}
+            ${b.service.memory ? ` · ${Math.round(b.service.memory / 2 ** 20)} MB` : ""}</p>
+          ${b.error ? `<div class="banner">${esc(b.error)}</div>` : ""}${me.error ? `<div class="banner">Telegram: ${esc(me.error)}</div>` : ""}
+          ${b.kind === "yt-telegrambot" && !b.error ? (s.error ? `<div class="banner">${esc(s.error)}</div>` : `<div class="grid" style="margin:8px 0">
+            ${[["Usuarios", s.total_users], ["Activos hoy", s.active_today], ["Premium", s.premium_flagged], ["Pagos", s.payment_count],
+               ["Stars", `${s.stars_total} ⭐`], ["Canciones", s.songs != null ? `${s.songs}${s.songs_mb != null ? ` · ${s.songs_mb} MB` : ""}` : "—"],
+               ["En cola", s.queue ? Object.entries(s.queue).map(([k, v]) => `${v} ${k}`).join(", ") || "0" : "—"],
+               ["Gratis hoy", s.free_downloads_today]].map(([k, v]) => `<div class="stat"><span class="muted small">${k}</span><b>${v ?? "—"}</b></div>`).join("")}</div>
+            <div class="toolbar"><button data-btab="users" data-b="${b.name}" class="${tab[b.name] === "users" ? "primary" : ""}">👥 Usuarios</button>
+              <button data-btab="pay" data-b="${b.name}" class="${tab[b.name] === "pay" ? "primary" : ""}">⭐ Pagos</button>
+              <button data-btab="msg" data-b="${b.name}" class="${tab[b.name] === "msg" ? "primary" : ""}">✉ Mensaje</button></div>
+            <div id="bt-${b.name}"></div>`) : ""}
+          ${b.broadcast ? `<p class="small">✉ Aviso: ${b.broadcast.sent}/${b.broadcast.total} enviados${b.broadcast.failed ? `, ${b.broadcast.failed} fallaron` : ""}${b.broadcast.running ? "…" : "."}</p>` : ""}
+          <pre id="bl-${b.name}" class="mono small" hidden style="max-height:360px;overflow:auto;white-space:pre-wrap"></pre></div>`;
+      }).join("")}`;
+
+    const act = async (name, a) => {
+      try { await api(`/api/bots/${name}/do/${a}`, { method: "POST" }); toast("Pedido: se aplica en unos segundos"); }
+      catch (e) { toast(e.message); }
+      setTimeout(() => location.hash === "#bots" && route(), 4000);
+    };
+    $("#bst").onclick = () => act(j.bots[0].name, "status");
+    view.querySelectorAll("[data-bact]").forEach((x) => x.onclick = () => {
+      if (x.dataset.bact === "stop" && !confirm(`¿Apagar ${x.dataset.b}? Nadie podrá usarlo hasta que lo enciendas.`)) return;
+      act(x.dataset.b, x.dataset.bact);
+    });
+    view.querySelectorAll("[data-blog]").forEach((x) => x.onclick = async () => {
+      const n = x.dataset.blog, pre = $(`#bl-${n}`), before = (await api(`/api/bots/${n}/logs`)).ts;
+      pre.hidden = false; pre.textContent = "Pidiendo los logs…";
+      await api(`/api/bots/${n}/do/logs`, { method: "POST" }).catch((e) => { pre.textContent = e.message; });
+      for (let i = 0; i < 15; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const l = await api(`/api/bots/${n}/logs`);
+        if (l.ts > before) { pre.textContent = l.text || "(vacío)"; pre.scrollTop = pre.scrollHeight; return; }
+      }
+      pre.textContent = "No llegaron. ¿Está instalado el servicio de aplicar? En la Pi:  sudo ./hl bots logs " + n;
+    });
+    view.querySelectorAll("[data-btab]").forEach((x) => x.onclick = () => {
+      globalThis.HL_BOT = { ...tab, [x.dataset.b]: tab[x.dataset.b] === x.dataset.btab ? "" : x.dataset.btab }; route();
+    });
+
+    for (const b of j.bots) {
+      const box = $(`#bt-${b.name}`), t = tab[b.name];
+      if (!box || !t) continue;
+      if (t === "users") {
+        box.innerHTML = `<div class="toolbar"><input id="bq-${b.name}" placeholder="Buscar ID o @usuario" value="${esc(globalThis.HL_BOTQ || "")}"></div><div id="bu-${b.name}">Cargando…</div>`;
+        const load = async () => {
+          const q = $(`#bq-${b.name}`).value; globalThis.HL_BOTQ = q;
+          const r = await api(`/api/bots/${b.name}/users?q=${encodeURIComponent(q)}`).catch((e) => ({ error: e.message, users: [] }));
+          $(`#bu-${b.name}`).innerHTML = r.error ? `<div class="banner">${esc(r.error)}</div>` : `<table><tr><th>Usuario</th><th>Tipo</th><th>Vence</th><th>Hoy</th><th>Última vez</th><th>Pagos</th><th></th></tr>
+            ${r.users.map((u) => `<tr><td>${u.username ? "@" + esc(u.username) : "—"}<br><span class="mono small muted">${u.telegram_id}</span></td>
+              <td><span class="pill ${u.active && u.type_user !== "unsubscribed" ? "ok" : ""}">${TYPE[u.type_user] || esc(u.type_user)}</span>${u.operator ? ' <span class="muted small">(ADMIN_IDS)</span>' : ""}</td>
+              <td class="small">${u.premium_until ? fmtd(u.premium_until) : u.type_user !== "unsubscribed" ? "nunca" : "—"}</td>
+              <td>${u.songs_by_day}</td><td class="small">${fmtd(u.last_request_time)}</td>
+              <td class="small">${u.payments ? `${u.payments} · ${u.stars} ⭐` : "—"}</td>
+              <td><select data-uop="${u.telegram_id}" data-b="${b.name}"><option value="">Acción…</option>
+                <option value="grant:premium:30">⭐ Premium 30 días</option><option value="grant:premium:365">⭐ Premium 1 año</option>
+                <option value="grant:premium:ask">⭐ Premium N días…</option><option value="grant:premium:0">⭐ Premium sin vencer</option>
+                <option value="grant:admin:0">👑 Hacer admin</option><option value="revoke">Regresar a gratis</option>
+                <option value="reset">Cuota de hoy en 0</option><option value="msg">✉ Mandarle mensaje</option>
+                <option value="delete">🗑 Borrar usuario</option></select></td></tr>`).join("") || '<tr><td colspan="7" class="muted">Nadie</td></tr>'}</table>`;
+          box.querySelectorAll("[data-uop]").forEach((sel) => sel.onchange = async () => {
+            const [op, type, d] = sel.value.split(":"), uid = sel.dataset.uop; sel.value = "";
+            if (!op) return;
+            try {
+              if (op === "msg") {
+                const text = prompt("Mensaje para " + uid); if (!text) return;
+                toast((await api(`/api/bots/${b.name}/message`, { method: "POST", body: JSON.stringify({ to: uid, text }) })).msg); return;
+              }
+              let days = d === "ask" ? prompt("¿Cuántos días? (se suman a lo que le quede)") : d;
+              if (days === null) return;
+              if (op === "delete" && !confirm(`¿Borrar a ${uid} del bot? Pierde su premium e historial.`)) return;
+              const r = await api(`/api/bots/${b.name}/users/${uid}`, { method: "POST", body: JSON.stringify({ op, type, days: Number(days) || 0 }) });
+              toast(r.msg); load();
+            } catch (e) { toast(e.message); }
+          });
+        };
+        let tmr; $(`#bq-${b.name}`).oninput = () => { clearTimeout(tmr); tmr = setTimeout(load, 300); };
+        load();
+      } else if (t === "pay") {
+        const r = await api(`/api/bots/${b.name}/payments`).catch((e) => ({ error: e.message, payments: [] }));
+        box.innerHTML = r.error ? `<div class="banner">${esc(r.error)}</div>` : `<table><tr><th>Fecha</th><th>Usuario</th><th>Plan</th><th>Stars</th><th>Días</th><th></th></tr>
+          ${r.payments.map((p) => `<tr><td class="small">${fmtd(p.created_at)}</td><td>${p.username ? "@" + esc(p.username) : ""} <span class="mono small muted">${p.telegram_id}</span></td>
+            <td>${esc(p.plan_code)}</td><td>${p.stars} ⭐</td><td>${p.days}</td>
+            <td>${p.refunded ? '<span class="pill">reembolsado</span>' : `<button class="danger" data-refund="${esc(p.charge_id)}" data-st="${p.stars}" data-u="${p.telegram_id}">Reembolsar</button>`}</td></tr>`).join("")
+            || '<tr><td colspan="6" class="muted">Sin pagos todavía</td></tr>'}</table>`;
+        box.querySelectorAll("[data-refund]").forEach((x) => x.onclick = async () => {
+          if (!confirm(`¿Regresar ${x.dataset.st} ⭐ a ${x.dataset.u}? Telegram se las devuelve y pierde su premium. No se puede deshacer.`)) return;
+          try { toast((await api(`/api/bots/${b.name}/refund`, { method: "POST", body: JSON.stringify({ charge_id: x.dataset.refund }) })).msg); route(); }
+          catch (e) { toast(e.message); }
+        });
+      } else if (t === "msg") {
+        box.innerHTML = `<p class="muted small">Un aviso a todos los usuarios del bot (mantenimiento, novedades). Llega como mensaje del propio bot.</p>
+          <textarea id="bm-${b.name}" rows="4" style="width:100%" maxlength="4000" placeholder="Ej.: El bot estará en mantenimiento hoy de 10 a 11 pm 🙏"></textarea>
+          <div class="toolbar"><button class="primary" id="bms-${b.name}">Enviar a todos (${b.stats.total_users ?? "?"})</button></div>`;
+        $(`#bms-${b.name}`).onclick = async () => {
+          const text = $(`#bm-${b.name}`).value.trim(); if (!text) return;
+          if (!confirm(`¿Mandar este mensaje a los ${b.stats.total_users} usuarios de ${b.name}?`)) return;
+          try { toast((await api(`/api/bots/${b.name}/message`, { method: "POST", body: JSON.stringify({ to: "all", text }) })).msg); }
+          catch (e) { toast(e.message); }
+          setTimeout(() => location.hash === "#bots" && route(), 3000);
+        };
+      }
+    }
+  },
+
   async acl() {
     const [j, d] = await Promise.all([api("/api/acl"), api("/api/devices")]);
     view.innerHTML = `<h2>Control de acceso (ACL)</h2>
@@ -1303,7 +1436,7 @@ const views = {
 
 const EV_ICON = { new_device: "🆕", arp_spoof: "🕵", ports_changed: "🚪", ids: "🚨", blocked_seen: "⛔",
   quarantine: "🧪", acl: "🔒", honeypot: "🍯", dns_danger: "☣", roam_failed: "📶", login_failed: "🔑",
-  login_new_ip: "👤", camera_found: "📷", wol: "⏻", log_cleared: "🧹", vulnerable: "🧬", crowdsec: "🛑" };
+  login_new_ip: "👤", camera_found: "📷", wol: "⏻", log_cleared: "🧹", vulnerable: "🧬", crowdsec: "🛑", bots: "🤖", bot_down: "🤖" };
 function evList(evs, actions = false) {
   if (!evs.length) return '<p class="muted">Sin eventos. Todo tranquilo.</p>';
   return evs.map((e) => `<div class="ev${e.fp ? " fp" : ""}"><span>${EV_ICON[e.kind] || "•"}</span>
@@ -1356,8 +1489,8 @@ const TITLES = { inicio: "Inicio", resumen: "Resumen", dispositivos: "Dispositiv
   conexiones: "Conexiones", ap: "Por AP", mapa: "Mapa", camaras: "Cámaras", servicios: "Servicios",
   accesos: "Accesos", eventos: "Eventos", acl: "ACL", vpn: "VPN", sistema: "Sistema", cuentas: "Cuentas",
   ajustes: "Ajustes", cuenta: "Mi cuenta", respaldos: "Mis respaldos", inventario: "Inventario", wifi: "Wi-Fi",
-  parental: "Control parental" };
-const ADMIN_ONLY = ["acl", "vpn", "sistema", "cuentas", "ajustes", "parental"];
+  parental: "Control parental", bots: "Bots" };
+const ADMIN_ONLY = ["acl", "vpn", "sistema", "cuentas", "ajustes", "parental", "bots"];
 const LOGS_ONLY = ["resumen", "dispositivos", "trafico", "conexiones", "ap", "mapa", "eventos", "inventario", "wifi"];
 const setNav = (open) => {
   document.body.classList.toggle("nav-open", open);

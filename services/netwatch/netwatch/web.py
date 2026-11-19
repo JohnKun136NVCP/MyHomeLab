@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import sqlite3
 import json
 import os
 import re
@@ -1218,6 +1220,93 @@ def build_app(mon: Monitor) -> Starlette:
         await asyncio.to_thread(mon.parental.delete, int(request.path_params["rid"]))
         return JSONResponse({"ok": True})
 
+    # ------------------------------------------------ otros bots de Telegram (./hl bots add)
+    from .bots import BotError
+
+    def _bot(request: Request):
+        return mon.bots.get(request.path_params["name"])
+
+    async def bots_get(_):
+        status = mon.bots.status()
+        if time.time() - status.get("ts", 0) > 60 and mon.bots.all():
+            with contextlib.suppress(RuntimeError):
+                st.request_apply(action="bots-status")          # homelab-apply.sh lee systemd
+        out = [await asyncio.to_thread(b.summary, status.get("bots") or {}) for b in mon.bots.all().values()]
+        for b in out:
+            b["broadcast"] = mon.bots.broadcasts.get(b["name"])
+        return JSONResponse({"bots": out, "status_ts": status.get("ts", 0)})
+
+    async def bot_action(request: Request):
+        b, act = _bot(request), request.path_params["act"]
+        if act not in ("start", "stop", "restart", "logs", "status"):
+            return JSONResponse({"error": "Acción desconocida"}, 400)
+        if act == "status":
+            st.request_apply(action="bots-status")
+        else:
+            if act != "logs" and not b.unit:
+                return JSONResponse({"error": "Este bot no tiene servicio de systemd (./hl bots add … --unit …)"}, 400)
+            st.request_apply(action=f"bot-{act}:{b.name}")
+            if act != "logs":
+                db.add_event("info", "bots", f"Bot «{b.name}»: {dict(start='encender', stop='apagar', restart='reiniciar')[act]}"
+                             " pedido desde el panel")
+        return JSONResponse({"ok": True})
+
+    async def bot_logs(request: Request):
+        return JSONResponse(mon.bots.logs(_bot(request).name))
+
+    async def bot_users(request: Request):
+        b = _bot(request)
+        try:
+            rows = await asyncio.to_thread(b.users, request.query_params.get("q", "").strip()[:64])
+        except BotError as e:
+            return JSONResponse({"error": str(e)}, 400)
+        return JSONResponse({"users": rows})
+
+    async def bot_user_change(request: Request):
+        b, uid = _bot(request), int(request.path_params["uid"])
+        body = await request.json()
+        days = body.get("days")
+        try:
+            msg = await asyncio.to_thread(b.change_user, uid, str(body.get("op")), str(body.get("type") or "premium"),
+                                          int(days) if days not in (None, "", 0, "0") else None)
+        except BotError as e:
+            return JSONResponse({"error": str(e)}, 400)
+        db.add_event("info", "bots", f"Bot «{b.name}»: usuario {uid} → {msg}")
+        return JSONResponse({"ok": True, "msg": msg})
+
+    async def bot_payments(request: Request):
+        b = _bot(request)
+        try:
+            return JSONResponse({"payments": await asyncio.to_thread(b.payments)})
+        except (BotError, sqlite3.Error) as e:
+            return JSONResponse({"error": str(e)}, 400)
+
+    async def bot_refund(request: Request):
+        b = _bot(request)
+        charge = str((await request.json()).get("charge_id") or "")
+        try:
+            msg = await asyncio.to_thread(b.refund, charge)
+        except BotError as e:
+            return JSONResponse({"error": str(e)}, 400)
+        db.add_event("info", "bots", f"Bot «{b.name}»: {msg}")
+        return JSONResponse({"ok": True, "msg": msg})
+
+    async def bot_message(request: Request):
+        b = _bot(request)
+        body = await request.json()
+        text = str(body.get("text") or "").strip()
+        if not text or len(text) > 4000:
+            return JSONResponse({"error": "Escribe el mensaje (máximo 4000 letras)"}, 400)
+        to = body.get("to")
+        try:
+            if to == "all":
+                job = mon.bots.broadcast(b.name, text)
+                return JSONResponse({"ok": True, "msg": f"Enviando a {job['total']} usuarios…"})
+            await asyncio.to_thread(b.api, "sendMessage", chat_id=int(to), text=text)
+        except (BotError, ValueError, TypeError) as e:
+            return JSONResponse({"error": str(e) or "Destino inválido"}, 400)
+        return JSONResponse({"ok": True, "msg": "Enviado"})
+
     routes = [
         Route("/", index), Route("/health", health), Route("/metrics", prom_metrics),
         Route("/api/summary", summary), Route("/api/devices", devices),
@@ -1259,6 +1348,11 @@ def build_app(mon: Monitor) -> Starlette:
         Route("/api/wifi", wifi_get), Route("/api/devices/{mac}/wifi", device_wifi, methods=["POST"]),
         Route("/api/parental", parental_get), Route("/api/parental", parental_save, methods=["POST"]),
         Route("/api/parental/{rid:int}", parental_delete, methods=["DELETE"]),
+        Route("/api/bots", bots_get), Route("/api/bots/{name}/do/{act}", bot_action, methods=["POST"]),
+        Route("/api/bots/{name}/logs", bot_logs), Route("/api/bots/{name}/users", bot_users),
+        Route("/api/bots/{name}/users/{uid:int}", bot_user_change, methods=["POST"]),
+        Route("/api/bots/{name}/payments", bot_payments), Route("/api/bots/{name}/refund", bot_refund, methods=["POST"]),
+        Route("/api/bots/{name}/message", bot_message, methods=["POST"]),
         Route("/api/system", system_get), Route("/api/system/{action}", system_action, methods=["POST"]),
         Route("/ca.crt", ca_cert),
         Route("/api/vpn", vpn_get), Route("/api/vpn/client", vpn_client, methods=["POST"]),
@@ -1271,4 +1365,11 @@ def build_app(mon: Monitor) -> Starlette:
         return JSONResponse({"error": f"Petición inválida: {exc}"}, 400)
 
     routes[1:1] = respaldos.routes(db, mon)
-    return Starlette(routes=routes, exception_handlers={ValueError: bad_request})
+    async def bot_error(_request, exc):
+        return JSONResponse({"error": str(exc)}, 400)
+
+    async def runtime_error(_request, exc):          # p. ej. falta run/ (servicio de aplicar)
+        return JSONResponse({"error": str(exc)}, 503)
+
+    return Starlette(routes=routes, exception_handlers={ValueError: bad_request, BotError: bot_error,
+                                                        RuntimeError: runtime_error})

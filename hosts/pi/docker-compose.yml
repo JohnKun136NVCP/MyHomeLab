@@ -64,6 +64,7 @@ services:
       - ../../run:/homelab/run
       - ../../clients:/homelab/clients:ro    # instaladores de «Mis respaldos»
       - ../../hosts/home:/homelab/home:ro     # qué herramientas de la casa están encendidas
+      - /srv/homelab-bots:/homelab/bots       # tus otros bots (./hl bots add): solo sus carpetas
       - netwatch_data:/data
       - prom_targets:/data/prom-targets
       - suricata_logs:/suricata:ro

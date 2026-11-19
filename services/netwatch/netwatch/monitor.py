@@ -74,6 +74,9 @@ class Monitor:
         self.wifi = Survey(db, cfg)
         self.parental = Parental(db, self.adguard, os.environ.get("TZ") or "America/Mexico_City")
         self._parental_synced = 0.0
+        from .bots import Bots
+        self.bots = Bots(db)
+        self._bots_watched = 0.0
         self.write_prom_targets()
 
     # ------------------------------------------------------------ config
@@ -372,6 +375,9 @@ class Monitor:
         if self.adguard.enabled and time.time() - self._parental_synced > 1800:
             self._parental_synced = time.time()
             self.parental.resync()
+        if self.bots.all() and time.time() - self._bots_watched > 300:
+            self._bots_watched = time.time()
+            threading.Thread(target=self.bots.watch, name="bots", daemon=True).start()
 
     # ---------------------------------------------------------- roaming
     def maybe_roam(self) -> None:

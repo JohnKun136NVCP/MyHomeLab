@@ -292,3 +292,7 @@ label.check input { width: 18px; height: 18px; }
 
 .link.off { opacity: .7; }
 .link.off .i { filter: grayscale(1); }
+
+/* Bots: números pequeños en fila */
+.stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); }
+.stat b { font-size: 1.15rem; }

@@ -283,3 +283,13 @@ def test_script_respaldo_facil_linux(lab, tmp_path):
                        capture_output=True, text=True, timeout=30)
     assert p.returncode == 0 and len(list((lab["tmp"] / "backups" / r["device"]).rglob("*.enc"))) == 1
 
+
+
+def test_bots_solo_admin(lab):
+    admin = login(lab, "admin", "adminpw1")
+    c, _, body = req(lab["nw"], "GET", "/api/bots", headers=admin)
+    assert c == 200 and json.loads(body)["bots"] == []
+    c, _, body = req(lab["nw"], "POST", "/api/bots/nadie/do/restart", headers=admin)
+    assert c == 400 and "No existe" in json.loads(body)["error"]
+    from netwatch import auth
+    assert not auth.allowed("registros", "GET", "/api/bots")
