@@ -53,8 +53,20 @@ if ((CHECK)); then
   ok "Dominio: $DOM  ·  entra en https://panel.$DOM$P"
   [[ ",$(envget COMPOSE_PROFILES)," == *,sso,* ]] && ok "Perfil sso encendido" || f "Falta sso en COMPOSE_PROFILES (corre ./hl sso de nuevo)"
   st="$(./hl ps authelia --format '{{.Status}}' 2>/dev/null | tail -1)"
-  [[ $st == Up* ]] && ok "Authelia: $st" || { f "Authelia no está corriendo (${st:-no existe})"; ./hl logs --tail 15 --no-log-prefix authelia 2>/dev/null | sed 's/^/      /' | tail -8; }
-  [[ -s config/authelia/users.yml ]] && ok "Cuentas en Authelia: $(grep -c 'password:' config/authelia/users.yml)" || f "config/authelia/users.yml vacío"
+  [[ $st == Up* ]] && ok "Authelia: $st" || { f "Authelia no está corriendo (${st:-no existe})"
+    docker compose -f hosts/pi/docker-compose.yml --env-file .env logs --no-color --no-log-prefix --tail 15 authelia 2>/dev/null | sed 's/^/      /' | tail -8; }
+  if [[ -s config/authelia/users.yml ]]; then
+    ok "Cuentas en Authelia: $(sudo -n grep -c 'password:' config/authelia/users.yml 2>/dev/null || echo '(sin sudo no puedo contarlas)')"
+  else f "config/authelia/users.yml vacío"; fi
+  # ¿Authelia está usando la configuración de ahora? (si se cambió el dominio y no se reinició, falla todo)
+  cid="$(./hl ps -q authelia 2>/dev/null | head -1)"
+  if [[ -n $cid ]]; then
+    started="$(date -d "$(docker inspect -f '{{.State.StartedAt}}' "$cid" 2>/dev/null || sudo docker inspect -f '{{.State.StartedAt}}' "$cid")" +%s 2>/dev/null || echo 0)"
+    conf="$(stat -c %Y config/authelia/configuration.yml 2>/dev/null || echo 0)"
+    if ((conf > started)); then
+      f "Authelia sigue con la configuración anterior (se cambió después de arrancar) → ./hl restart authelia caddy"
+    else ok "Authelia usa la configuración actual ($DOM)"; fi
+  fi
   [[ -f config/caddy/sso/sso.caddy ]] && ok "Caddy tiene la configuración de $DOM" || f "Falta config/caddy/sso/sso.caddy (./hl sso)"
   for n in auth panel; do
     r="$(getent hosts "$n.$DOM" | awk '{print $1}' | head -1)"
@@ -68,7 +80,9 @@ if ((CHECK)); then
   else
     f "El portal no puede leer la sesión (/api/state): ${stj:0:160}"
     echo "      Lo que dice Authelia:"
-    ./hl logs --tail 200 --no-log-prefix authelia 2>/dev/null | grep -iE 'level=error|level=warn|error' | tail -5 | cut -c1-220 | sed 's/^/        /'
+    { docker compose -f hosts/pi/docker-compose.yml --env-file .env logs --no-color --no-log-prefix --tail 300 authelia 2>/dev/null \
+      || sudo docker compose -f hosts/pi/docker-compose.yml --env-file .env logs --no-color --no-log-prefix --tail 300 authelia; } \
+      | grep -iE 'level=(error|warn)|error' | tail -5 | cut -c1-220 | sed 's/^/        /'
     echo "      Casi siempre es entrar con una dirección distinta a la configurada: usa EXACTAMENTE"
     echo "      https://auth.$DOM$P y https://panel.$DOM$P (no la IP, no casa.lan si cambiaste a sslip, ni al revés)."
   fi
@@ -92,6 +106,7 @@ if ((REMOVE)); then
   ./hl stop authelia >/dev/null 2>&1 || true
   ./hl rm -f authelia >/dev/null 2>&1 || true
   ./hl up -d netwatch caddy grafana
+  ./hl restart caddy >/dev/null
   ok "Inicio de sesión único apagado. Entra por https://$(envget HOMELAB_HOST):$(envget HTTPS_PORT) como siempre."
   exit 0
 fi
@@ -296,6 +311,8 @@ for _ in $(seq 1 30); do [[ -s config/authelia/users.yml ]] && break; sleep 2; d
   || warn "Todavía no aparece config/authelia/users.yml (el panel lo escribe en menos de un minuto)"
 [[ -s config/authelia/users.yml ]] || printf 'users: {}\n' > config/authelia/users.yml
 ./hl up -d authelia caddy grafana
+# Authelia y Caddy no releen su configuración solos: sin esto se quedaban con el dominio anterior
+./hl restart authelia caddy >/dev/null
 sleep 5
 if ./hl ps authelia 2>/dev/null | grep -q -i "up\|running"; then ok "Authelia arriba"
 else warn "Authelia no arrancó; mira:  ./hl logs authelia"; fi
