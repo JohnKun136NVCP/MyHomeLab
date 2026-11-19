@@ -217,6 +217,8 @@ menu_nobreak() {
   3) Ver cómo está ahora
   4) Dejar que la PC lo lea también
   5) Apagar todo si la luz no regresa en N minutos
+  6) Ya no avisar «perdió contacto (cable USB)»
+  7) Volver a avisarlo
   0) Volver
 EOF
     case "$(ask "Elige")" in
@@ -225,6 +227,8 @@ EOF
       3) run upsc ups@localhost; pause ;;
       4) p="$(ask "IP de la PC")"; [[ -n $p ]] && run sudo ./hl ups --allow "$p"; pause ;;
       5) m="$(ask "Minutos" 10)"; run sudo ./hl ups --shutdown-after "$m"; pause ;;
+      6) run sudo ./hl ups --no-usb-alerts; pause ;;
+      7) run sudo ./hl ups --usb-alerts; pause ;;
       0|"") return ;;
     esac
   done

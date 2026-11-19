@@ -7,6 +7,8 @@
 #     sudo ./scripts/ups.sh --allow 192.168.1.50   deja que la PC lo lea también
 #     sudo ./scripts/ups.sh --shutdown-after 10     apágate tras 10 min sin luz (además de «batería baja»)
 #     sudo ./scripts/ups.sh --test           manda un aviso de prueba al bot
+#     sudo ./scripts/ups.sh --no-usb-alerts  ya no avisar por Telegram de «perdió contacto (cable USB)»
+#     sudo ./scripts/ups.sh --usb-alerts     volver a avisarlo
 #
 #   En la PC (enchufada al mismo no-break):
 #     sudo ./scripts/ups.sh --client 192.168.1.5
@@ -19,14 +21,16 @@ cd "$(dirname "$0")/.."
 REPO="$PWD"
 [[ $EUID -eq 0 ]] || exec sudo "$0" "$@"
 
-MODE=servidor; PI=""; ALLOW=(); AFTER=0; TEST=0
+MODE=servidor; PI=""; ALLOW=(); AFTER=0; TEST=0; USBQ=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --client) MODE=cliente; PI="${2:?falta la IP de la Pi}"; shift ;;
     --allow) ALLOW+=("${2:?falta la IP}"); shift ;;
     --shutdown-after) AFTER="${2:?faltan los minutos}"; shift ;;
     --test) TEST=1 ;;
-    -h|--help) sed -n 2,15p "$0"; exit 0 ;;
+    --no-usb-alerts) USBQ=1 ;;
+    --usb-alerts) USBQ=0 ;;
+    -h|--help) sed -n 2,18p "$0"; exit 0 ;;
     *) echo "Opción desconocida: $1"; exit 1 ;;
   esac; shift
 done
@@ -47,6 +51,14 @@ notify_test() {
     && ok "Aviso mandado. Revisa Telegram."
 }
 if ((TEST)); then notify_test; exit 0; fi
+if [[ -n $USBQ ]]; then
+  [[ -f /etc/nut/homelab-notify.env ]] || die "Primero instala NUT (sudo ./hl ups)."
+  sed -i '/^QUIET_USB=/d' /etc/nut/homelab-notify.env
+  echo "QUIET_USB=$USBQ" >> /etc/nut/homelab-notify.env
+  ((USBQ)) && ok "Listo: ya no te llega el aviso del cable USB (queda en el registro: journalctl -t homelab-ups)" \
+           || ok "Listo: el aviso del cable USB vuelve a llegar por Telegram"
+  exit 0
+fi
 
 # ------------------------------------------------------------ paquetes
 if command -v apt-get >/dev/null; then
@@ -94,15 +106,17 @@ case "$NOTIFYTYPE" in
   LOWBATT)  t="🪫 Batería baja del no-break: $HOST_NAME se va a apagar en orden." ;;
   FSD)      t="⏻ Apagado forzado del no-break: $HOST_NAME se está apagando." ;;
   SHUTDOWN) t="⏻ $HOST_NAME se apaga ahora para proteger los discos." ;;
-  COMMBAD|NOCOMM) t="⚠ $HOST_NAME perdió contacto con el no-break (¿cable USB?)." ;;
-  COMMOK)   t="✅ $HOST_NAME volvió a ver el no-break." ;;
+  COMMBAD|COMMOK)   # parpadeos del USB: muchos no-break baratos se desconectan segundos; solo al registro
+            logger -t homelab-ups "$NOTIFYTYPE: $*"; exit 0 ;;
+  NOCOMM)   [ "${QUIET_USB:-0}" = 1 ] && { logger -t homelab-ups "NOCOMM (aviso apagado)"; exit 0; }
+            t="⚠ $HOST_NAME lleva rato sin ver el no-break (¿cable USB o controlador?). Para no recibir esto: sudo ./hl ups --no-usb-alerts" ;;
   REPLBATT) t="🔋 El no-break pide cambio de batería." ;;
   *)        t="$*" ;;
 esac
 logger -t homelab-ups "$t"
 # Una sola línea JSON; las comillas del texto no deben romperla
 j=$(printf '%s' "$t" | sed 's/\\/\\\\/g; s/"/\\"/g')
-silent=false; [ "$NOTIFYTYPE" = COMMOK ] && silent=true
+silent=false; [ "$NOTIFYTYPE" = NOCOMM ] && silent=true
 curl -s -m 8 -X POST "$BOT_URL/notify" -H "Authorization: Bearer $INTERNAL_TOKEN" \
   -H 'Content-Type: application/json' -d "{\"text\":\"$j\",\"silent\":$silent}" >/dev/null 2>&1 || true
 EOF
@@ -136,6 +150,7 @@ if [[ $MODE == servidor ]]; then
     echo "maxretry = 3"
     printf '%s\n' "$SCAN" | awk 'BEGIN{n=0} /^\[/{n++; if(n==1){print "[ups]"; next} else exit} n==1{print}'
     echo '	desc = "No-break del homelab"'
+    echo '	pollinterval = 15'
   } > /etc/nut/ups.conf
   grep -E 'driver' /etc/nut/ups.conf | sed 's/^/  /'
 
@@ -196,6 +211,7 @@ POLLFREQ 5
 POLLFREQALERT 5
 HOSTSYNC 15
 DEADTIME 25
+NOCOMMWARNTIME 86400
 FINALDELAY 5
 EOF
 for ev in ONLINE ONBATT LOWBATT FSD COMMOK COMMBAD SHUTDOWN REPLBATT NOCOMM; do
@@ -213,6 +229,20 @@ fi
 systemctl enable --now nut-monitor >/dev/null 2>&1 || systemctl enable --now nut-client >/dev/null 2>&1 || true
 systemctl restart nut-monitor >/dev/null 2>&1 || systemctl restart nut-client >/dev/null 2>&1 || true
 sleep 3
+
+# Si no lo lee, prueba los controladores de los no-break de casa (Koblenz, Smartbitt, Forza, CyberPower…)
+if [[ $MODE == servidor ]] && ! upsc ups@localhost ups.status >/dev/null 2>&1; then
+  for drv in usbhid-ups nutdrv_qx blazer_usb; do
+    grep -q "driver = \"$drv\"" /etc/nut/ups.conf && continue
+    echo "  Probando el controlador $drv…"
+    sed -i -E "s/^([[:space:]]*driver = ).*/\1\"$drv\"/" /etc/nut/ups.conf
+    upsdrvctl -u root stop >/dev/null 2>&1 || true
+    if upsdrvctl -u root start ups >/dev/null 2>&1; then
+      systemctl restart nut-server >/dev/null 2>&1 || true; sleep 4
+      upsc ups@localhost ups.status >/dev/null 2>&1 && { ok "Funciona con $drv"; systemctl restart nut-monitor >/dev/null 2>&1 || true; break; }
+    fi
+  done
+fi
 
 if [[ $MODE == servidor ]]; then
   if upsc ups@localhost >/tmp/ups.$$ 2>/dev/null; then

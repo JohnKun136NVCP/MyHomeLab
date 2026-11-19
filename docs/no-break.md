@@ -46,6 +46,19 @@ ella. Para que todo vuelva a prender solo al regresar la luz:
 - **Pi**: prende sola al recibir corriente.
 - Revisa que el no-break esté en modo «encender al volver la corriente» (casi todos lo hacen).
 
+## «Perdió contacto con el no-break (cable USB)»
+
+Muchos no-break de casa se desconectan del USB unos segundos de vez en cuando. Esos parpadeos
+ya no te llegan por Telegram, solo quedan en el registro (`journalctl -t homelab-ups`). Si se
+pierde de verdad un buen rato, te llega un aviso sin sonido, una vez al día como máximo.
+
+- **Quitar ese aviso del todo:** `sudo ./hl ups --no-usb-alerts` (volver: `--usb-alerts`).
+  Los avisos de luz, batería baja y apagado siguen llegando.
+- **Si sale aunque el cable está conectado,** casi siempre es el controlador: vuelve a correr
+  `sudo ./hl ups` y prueba solo `usbhid-ups`, `nutdrv_qx` y `blazer_usb` hasta que uno lo lea.
+  Revisa con `upsc ups@localhost`. También ayuda un cable corto y conectarlo a un puerto USB 2.0
+  (negro) de la Pi.
+
 ## Si algo falla
 
 ```bash
