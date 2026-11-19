@@ -3,6 +3,7 @@
 #  En la Pi: ¿por qué Prometheus dice que el VPS está abajo?
 #    ./hl vps            revisa homelab.yml, el túnel, el puerto 9100 y el error de Prometheus
 #    ./hl vps IP:9100    agrega/corrige el VPS en homelab.yml con esa dirección
+#    ./hl vps --remove   deja de pedirle métricas al VPS (no instala nada en él)
 #  En el VPS corre la otra mitad:  ./hosts/vps/check.sh --fix
 # ======================================================================
 set -uo pipefail
@@ -23,6 +24,20 @@ for n in (c.get("infrastructure") or {}).get("nodes") or []:
 PY
 }
 
+if [[ "${1:-}" == --remove ]]; then   # dejar de pedirle métricas al VPS (el ping se queda)
+  python3 - <<'PY'
+import yaml
+p = "config/homelab.yml"; c = yaml.safe_load(open(p)) or {}
+inf = c.get("infrastructure") or {}
+before = len(inf.get("nodes") or [])
+inf["nodes"] = [n for n in inf.get("nodes") or [] if "vps" not in str(n.get("name", "")).lower()]
+with open(p, "w") as f:
+    yaml.safe_dump(c, f, sort_keys=False, allow_unicode=True)
+print("  ✔ El VPS ya no está en Prometheus" if len(inf["nodes"]) < before else "  (el VPS no estaba en Prometheus)")
+PY
+  "${C[@]}" restart netwatch >/dev/null 2>&1 && echo "  ✔ Panel reiniciado; en ~1 min deja de salir «down»."
+  exit 0
+fi
 if [[ -n "${1:-}" ]]; then        # ./hl vps 10.66.0.1:9100
   T="$1"; [[ $T == *:* ]] || T="$T:9100"
   python3 - "$T" <<'PY'
