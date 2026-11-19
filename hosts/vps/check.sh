@@ -84,7 +84,16 @@ elif [[ -n $st ]]; then
     prog="$(sed -E 's/users:\(\("([^"]+)".*/\1/' <<<"$own")"; pid="$(grep -oE '[0-9]+$' <<<"$own")"
     unit="$( [[ -n $pid ]] && ps -o unit= -p "$pid" 2>/dev/null | tr -d ' ' )"
     echo "      El puerto 9100 ya lo usa: ${B}${prog:-?}${N} (pid ${pid:-?}${unit:+, servicio $unit})"
-    if [[ $prog == docker-proxy ]]; then
+    cid="$(sed -nE 's/^docker-([0-9a-f]{12,})\.scope$/\1/p' <<<"$unit")"
+    if [[ -n $cid ]]; then           # otro contenedor con red del host (otro node-exporter)
+      cname="$("${D[@]}" ps --no-trunc --filter "id=$cid" --format '{{.Names}} ({{.Image}}, proyecto {{.Label "com.docker.compose.project"}})')"
+      echo "      Es OTRO contenedor: ${B}${cname:-$cid}${N}"
+      tip "Quítalo:  ${D[*]} rm -f ${cid:0:12}   (si es de otro compose, bórralo de ese archivo para que no vuelva)"
+      if ((FIX)) && yes_no; then
+        "${D[@]}" update --restart=no "$cid" >/dev/null 2>&1; "${D[@]}" rm -f "$cid" >/dev/null && \
+          "${C[@]}" up -d --force-recreate node-exporter >/dev/null 2>&1 && sleep 3 && ok "Quitado; node-exporter del homelab arrancando en $WANT:9100"
+      fi
+    elif [[ $prog == docker-proxy ]]; then
       tip "Es otro contenedor: ${D[*]} ps --filter publish=9100   y apágalo o cámbiale el puerto"
     elif [[ -n $unit && $unit == *.service ]]; then
       echo "      Ese escucha en TODAS las IPs (también la pública; solo te protege UFW)."
