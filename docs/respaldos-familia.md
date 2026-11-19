@@ -71,5 +71,8 @@ En **Mis respaldos → «Cuando llega un respaldo»** cada quien elige (viene as
 - **Borrarlo de la Pi cuando ya lo tenga**: en cuanto llega a Telegram (o, sin Telegram, cuando
   lo descarga completo con ⬇), se borra de la Pi para ahorrar espacio. También hay 🗑 por archivo.
 
+Para un respaldo que **ya estaba** en la Pi: en su equipo, botón **📲** junto a cada archivo (con
+su número, n.º) o **«📲 Mandarme los respaldos por Telegram»** para todos. Se mandan uno tras otro.
+
 Ojo: con las dos opciones, **la copia queda en Telegram**: que no borren ese chat. Para el admin
 principal el borrado viene apagado.

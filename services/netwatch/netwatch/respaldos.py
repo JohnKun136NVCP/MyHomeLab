@@ -231,6 +231,33 @@ def routes(db, mon) -> list[Route]:
              (s["user"], st_, da))
         return JSONResponse({"ok": True, "prefs": prefs(s["user"])})
 
+    async def my_file_send(request: Request):
+        s = me(request)
+        d = own_device(s, request.path_params["name"]) if s else None
+        if not d:
+            return JSONResponse({"error": "No existe"}, 404)
+        link = db.q("SELECT chat_id FROM telegram_links WHERE username=?", (s["user"],))
+        if not link:
+            return JSONResponse({"error": "Primero vincula tu Telegram (abajo en esta página)"}, 400)
+        base = os.environ.get("BOT_URL", "http://127.0.0.1:8080").rstrip("/")
+        body = json.dumps({"device": d["name"], "chat": link[0]["chat_id"], "owner": s["user"],
+                           "prefs": prefs(s["user"])}).encode()
+        req = urllib.request.Request(f"{base}/internal/backup-file/{int(request.path_params['fid'])}/send",
+                                     data=body, method="POST",
+                                     headers={"Authorization": f"Bearer {os.environ.get('INTERNAL_TOKEN', '')}",
+                                              "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                return JSONResponse(json.loads(r.read() or b"{}"))
+        except urllib.error.HTTPError as e:
+            try:
+                msg = json.loads(e.read()).get("error", "")
+            except ValueError:
+                msg = ""
+            return JSONResponse({"error": msg or f"El bot respondió {e.code}"}, e.code)
+        except (urllib.error.URLError, OSError) as e:
+            return JSONResponse({"error": f"El bot no responde: {e}"}, 502)
+
     async def my_file_delete(request: Request):
         s = me(request)
         d = own_device(s, request.path_params["name"]) if s else None
@@ -426,6 +453,7 @@ def routes(db, mon) -> list[Route]:
         Route("/api/my/devices/{name}", my_device_delete, methods=["DELETE"]),
         Route("/api/my/devices/{name}/files/{fid:int}", my_download),
         Route("/api/my/devices/{name}/files/{fid:int}", my_file_delete, methods=["DELETE"]),
+        Route("/api/my/devices/{name}/files/{fid:int}/send", my_file_send, methods=["POST"]),
         Route("/api/my/prefs", my_prefs, methods=["POST"]),
         Route("/api/my/web-token", my_web_token, methods=["POST"]),
         Route("/api/my/telegram", my_telegram_code, methods=["POST"]),

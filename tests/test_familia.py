@@ -231,6 +231,14 @@ def test_familia_de_punta_a_punta(lab):
     assert wait(lambda: any("no está disponible" in t for k, t in to_chat(MAMA_CHAT) if k == "msg"))
 
     # 8. Borrar la cuenta: su laptop ya no puede subir
+    # Un respaldo que ya estaba en la Pi: 📲 en «Mis respaldos» se lo manda a su dueño
+    _, _, b = req(lab["nw"], "GET", "/api/my/backups", headers=mama)
+    dev = next(d for d in json.loads(b)["devices"] if d["name"] == "mama-laptop" and d["files"])
+    before = sum(1 for k, _ in to_chat(MAMA_CHAT) if k == "doc")
+    c, _, b = req(lab["nw"], "POST", f"/api/my/devices/mama-laptop/files/{dev['files'][0]['id']}/send", "", mama)
+    assert c == 200 and json.loads(b)["ok"]
+    assert wait(lambda: sum(1 for k, _ in to_chat(MAMA_CHAT) if k == "doc") > before)
+    assert req(lab["nw"], "POST", "/api/my/devices/mama-laptop/files/999999/send", "", mama)[0] == 404
     assert req(lab["nw"], "DELETE", "/api/users/mama", headers={"Host": "x"})[0] == 200
     lab["app"]._auth_cache.clear()
     assert req(lab["bot"], "PUT", "/api/backup/mama-laptop/y.enc", b"y", {"Authorization": f"Bearer {token}"})[0] == 401
@@ -274,3 +282,4 @@ def test_script_respaldo_facil_linux(lab, tmp_path):
     p = subprocess.run(["bash", str(ROOT / "clients" / "unix" / "respaldo-facil.sh"), "--programado"], env=env,
                        capture_output=True, text=True, timeout=30)
     assert p.returncode == 0 and len(list((lab["tmp"] / "backups" / r["device"]).rglob("*.enc"))) == 1
+

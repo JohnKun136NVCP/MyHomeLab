@@ -509,6 +509,32 @@ class BotApp:
                                    "source": r["source"]} for r in rows[:30]]}
         return JSONResponse({"devices": out})
 
+    async def i_backup_send(self, request: Request):
+        """«Mis respaldos» → 📲: manda a su dueño un respaldo que ya estaba en la Pi."""
+        if not self._internal_ok(request):
+            return JSONResponse({"error": "no autorizado"}, 401)
+        b = await request.json()
+        r = self.store.q("SELECT * FROM backups WHERE id=?", (int(request.path_params["bid"]),))
+        if not r or r[0]["device"] != b.get("device"):
+            return JSONResponse({"error": "no existe"}, 404)
+        p = Path(r[0]["path"])
+        if not p.exists():
+            return JSONResponse({"error": "ya se borró de la Pi"}, 404)
+        chat, prefs, owner = b.get("chat"), b.get("prefs") or {}, b.get("owner", "")
+        if not chat:
+            return JSONResponse({"error": "primero vincula tu Telegram"}, 400)
+        text = f"📦 Tu respaldo de <b>{esc(r[0]['device'])}</b> (n.º {r[0]['id']})\n{esc(p.name)} · {human_bytes(r[0]['size'] or 0)}"
+        if not hasattr(self, "_send_lock"):
+            self._send_lock = asyncio.Lock()
+
+        async def one_at_a_time():          # «mandar todos»: uno tras otro, no todos juntos
+            async with self._send_lock:
+                await self._deliver(r[0]["id"], p, r[0]["size"] or 0, text, chat, admin_copy=False,
+                                    owner=owner, prefs={**prefs, "send_telegram": True})
+                await asyncio.sleep(1)
+        asyncio.create_task(one_at_a_time())
+        return JSONResponse({"ok": True, "parts": -(-(r[0]["size"] or 0) // self.tg.limit) or 1})
+
     async def i_backup_file(self, request: Request):
         if not self._internal_ok(request):
             return JSONResponse({"error": "no autorizado"}, 401)
@@ -555,4 +581,5 @@ class BotApp:
             Route("/internal/info", self.i_info),
             Route("/internal/backups", self.i_backups),
             Route("/internal/backup-file/{bid:int}", self.i_backup_file, methods=["GET", "DELETE"]),
+            Route("/internal/backup-file/{bid:int}/send", self.i_backup_send, methods=["POST"]),
         ], lifespan=lifespan)
