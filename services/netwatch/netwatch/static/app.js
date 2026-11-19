@@ -1073,19 +1073,71 @@ const views = {
   },
 
   async eventos() {
-    const j = await api("/api/events?limit=300");
-    view.innerHTML = `<h2>Registro de eventos anómalos</h2><div class="card">${evList(j.events)}</div>`;
+    const f = (globalThis.HL_EVF ??= { level: "", kind: "", q: "", fp: "", days: "" });
+    const qs = new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString();
+    const [j, sr] = await Promise.all([api("/api/events?limit=500&" + qs),
+      ADMIN ? api("/api/suppress") : Promise.resolve({ rules: [] })]);
+    const kinds = Object.keys(j.kinds || {}).sort();
+    const opt = (v, t, cur) => `<option value="${esc(v)}" ${v === cur ? "selected" : ""}>${esc(t)}</option>`;
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Bitácora de eventos</h2>
+        <a href="/api/events/export?format=csv&${qs}"><button>Exportar CSV</button></a>
+        <a href="/api/events/export?format=json&${qs}"><button>JSON</button></a>
+        <a href="/api/export/all"><button title="Bitácora, dispositivos, conexiones, ACL y falsos positivos">Exportar todo (.zip)</button></a>
+        ${ADMIN ? '<button id="ev-clear">Limpiar…</button>' : ""}</div>
+      <div class="card"><div class="toolbar" style="gap:.5rem;flex-wrap:wrap">
+        <select id="f-level">${opt("", "Todos los niveles", f.level)}${opt("critical", "Críticos", f.level)}${opt("warning", "Avisos", f.level)}${opt("info", "Información", f.level)}</select>
+        <select id="f-kind">${opt("", "Todos los tipos", f.kind)}${kinds.map((k) => opt(k, `${EV_ICON[k] || "•"} ${k} (${j.kinds[k]})`, f.kind)).join("")}</select>
+        <select id="f-days">${opt("", "Siempre", f.days)}${opt("1", "Último día", f.days)}${opt("7", "Última semana", f.days)}${opt("30", "Último mes", f.days)}</select>
+        <select id="f-fp">${opt("", "Con y sin falsos positivos", f.fp)}${opt("0", "Sin falsos positivos", f.fp)}${opt("1", "Solo falsos positivos", f.fp)}</select>
+        <input id="f-q" placeholder="Buscar (texto, IP, MAC)" value="${esc(f.q)}" style="flex:1;min-width:10rem">
+        <span class="muted small">${j.events.length} eventos</span></div>
+        ${evList(j.events, ADMIN)}</div>
+      ${ADMIN && sr.rules.length ? `<div class="card"><h3>Reglas de falso positivo <span class="muted small">(ya no avisan; siguen en la bitácora)</span></h3>
+        ${sr.rules.map((r) => `<div class="svc"><span>${EV_ICON[r.kind] || "•"}</span><div style="min-width:0"><b>${esc(r.kind)}</b>
+          <div class="muted small ellipsis">${esc(r.mac || r.title || "todos los de este tipo")}${r.note ? " · " + esc(r.note) : ""} · ${r.hits} veces silenciado</div></div>
+          <button class="small" data-unrule="${r.id}">Quitar regla</button></div>`).join("")}</div>` : ""}`;
+    const set = (k, v) => { f[k] = v; views.eventos(); };
+    $("#f-level").onchange = (e) => set("level", e.target.value);
+    $("#f-kind").onchange = (e) => set("kind", e.target.value);
+    $("#f-days").onchange = (e) => set("days", e.target.value);
+    $("#f-fp").onchange = (e) => set("fp", e.target.value);
+    $("#f-q").onchange = (e) => set("q", e.target.value.trim());
+    view.querySelectorAll("[data-fp]").forEach((b) => b.onclick = async () => {
+      const note = prompt("¿Por qué es falso positivo? (opcional, p. ej. «es la tele de la sala»)", "");
+      if (note === null) return;
+      const sup = confirm("¿Ya no avisar de esto mismo en el futuro?\n\nAceptar = no volver a avisar (queda en la bitácora)\nCancelar = solo marcar este");
+      try { await api(`/api/events/${b.dataset.fp}/fp`, { method: "POST", body: JSON.stringify({ note, suppress: sup }) });
+        toast(sup ? "Marcado; ya no te avisará de esto" : "Marcado como falso positivo"); views.eventos(); } catch (e) { toast(e.message); }
+    });
+    view.querySelectorAll("[data-unfp]").forEach((b) => b.onclick = async () => {
+      await api(`/api/events/${b.dataset.unfp}/fp`, { method: "DELETE" }); views.eventos();
+    });
+    view.querySelectorAll("[data-unrule]").forEach((b) => b.onclick = async () => {
+      if (!confirm("¿Volver a avisar de esto?")) return;
+      await api(`/api/suppress/${b.dataset.unrule}`, { method: "DELETE" }); toast("Regla quitada"); views.eventos();
+    });
+    $("#ev-clear")?.addEventListener("click", async () => {
+      const a = prompt("¿Qué borro de la bitácora?\n\n  1 = más viejos de 30 días\n  2 = más viejos de 7 días\n  3 = solo los falsos positivos\n  4 = TODO\n\n(Tip: antes usa «Exportar todo» para guardar una copia)", "1");
+      const opts = { 1: { older_than_days: 30 }, 2: { older_than_days: 7 }, 3: { only_fp: true }, 4: {} }[a?.trim()];
+      if (!opts) return;
+      if (a.trim() === "4" && !confirm("¿Seguro? Se borra toda la bitácora.")) return;
+      try { const r = await api("/api/events/clear", { method: "POST", body: JSON.stringify(opts) });
+        toast(`Listo: ${r.deleted} eventos borrados`); views.eventos(); } catch (e) { toast(e.message); }
+    });
   },
 };
 
 const EV_ICON = { new_device: "🆕", arp_spoof: "🕵", ports_changed: "🚪", ids: "🚨", blocked_seen: "⛔",
   quarantine: "🧪", acl: "🔒", honeypot: "🍯", dns_danger: "☣", roam_failed: "📶", login_failed: "🔑",
-  login_new_ip: "👤", camera_found: "📷" };
-function evList(evs) {
+  login_new_ip: "👤", camera_found: "📷", wol: "⏻", log_cleared: "🧹" };
+function evList(evs, actions = false) {
   if (!evs.length) return '<p class="muted">Sin eventos. Todo tranquilo.</p>';
-  return evs.map((e) => `<div class="ev"><span>${EV_ICON[e.kind] || "•"}</span>
-    <span class="t">${fmtTime(e.ts)}</span><div><b class="lvl-${e.level}">${esc(e.title)}</b>
-    <span class="muted small">${esc(e.detail)}</span></div></div>`).join("");
+  return evs.map((e) => `<div class="ev${e.fp ? " fp" : ""}"><span>${EV_ICON[e.kind] || "•"}</span>
+    <span class="t">${fmtTime(e.ts)}</span><div style="flex:1;min-width:0"><b class="lvl-${e.level}">${esc(e.title)}</b>
+    <span class="muted small">${esc(e.detail)}</span>
+    ${e.fp ? `<span class="small" style="color:var(--muted)"> · falso positivo${e.fp_note ? ": " + esc(e.fp_note) : ""}</span>` : ""}</div>
+    ${actions ? (e.fp ? `<button class="small" data-unfp="${e.id}" title="Quitar la marca">↺</button>`
+                      : `<button class="small" data-fp="${e.id}" title="Marcar como falso positivo">Falso positivo</button>`) : ""}</div>`).join("");
 }
 
 /* -------------------------------------------- árbol (Internet → módem → AP → dispositivos) */

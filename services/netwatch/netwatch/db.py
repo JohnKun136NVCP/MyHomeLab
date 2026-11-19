@@ -92,6 +92,16 @@ CREATE TABLE IF NOT EXISTS login_ips (
     username TEXT, ip TEXT, first REAL, last REAL,
     PRIMARY KEY (username, ip)
 );
+CREATE TABLE IF NOT EXISTS suppress (       -- falsos positivos: no volver a avisar de lo mismo
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind    TEXT NOT NULL,
+    mac     TEXT DEFAULT '',
+    title   TEXT DEFAULT '',     -- solo si no hay MAC (p. ej. una firma del IDS)
+    note    TEXT DEFAULT '',
+    created REAL,
+    hits    INTEGER DEFAULT 0,
+    last_hit REAL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS ip_history (
     ip   TEXT,
     mac  TEXT,
@@ -114,6 +124,11 @@ class DB:
                         "name_tried REAL DEFAULT 0"):
                 try:  # bases creadas con versiones anteriores
                     self.conn.execute(f"ALTER TABLE devices ADD COLUMN {col}")
+                except sqlite3.OperationalError:
+                    pass
+            for col in ("fp INTEGER DEFAULT 0", "fp_note TEXT DEFAULT ''"):
+                try:  # falso positivo
+                    self.conn.execute(f"ALTER TABLE events ADD COLUMN {col}")
                 except sqlite3.OperationalError:
                     pass
 
@@ -203,11 +218,76 @@ class DB:
 
     # --------------------------------------------------------------- eventos
     def add_event(self, level: str, kind: str, title: str, detail: str = "", mac: str = "") -> int:
+        rule = self.suppressed(kind, mac, title)
+        if rule:   # lo marcaste como falso positivo: queda en la bitácora, pero no avisa
+            self.x("UPDATE suppress SET hits=hits+1, last_hit=? WHERE id=?", (time.time(), rule["id"]))
+            return self.x("INSERT INTO events (ts, level, kind, title, detail, mac, notified, fp, fp_note) "
+                          "VALUES (?,?,?,?,?,?,1,1,?)",
+                          (time.time(), level, kind, title, detail, mac, rule.get("note") or "regla de silencio"))
         return self.x("INSERT INTO events (ts, level, kind, title, detail, mac) VALUES (?,?,?,?,?,?)",
                       (time.time(), level, kind, title, detail, mac))
 
-    def events(self, limit: int = 200, since: float = 0) -> list[dict]:
-        return self.q("SELECT * FROM events WHERE ts>=? ORDER BY ts DESC LIMIT ?", (since, limit))
+    def events(self, limit: int = 200, since: float = 0, level: str = "", kind: str = "",
+               search: str = "", fp: str = "") -> list[dict]:
+        sql, args = "SELECT * FROM events WHERE ts>=?", [since]
+        if level:
+            sql += " AND level=?"; args.append(level)
+        if kind:
+            sql += " AND kind=?"; args.append(kind)
+        if search:
+            sql += " AND (title LIKE ? OR detail LIKE ? OR mac LIKE ?)"; args += [f"%{search}%"] * 3
+        if fp in ("0", "1"):
+            sql += " AND COALESCE(fp,0)=?"; args.append(int(fp))
+        sql += " ORDER BY ts DESC LIMIT ?"; args.append(limit)
+        return self.q(sql, args)
+
+    # ------------------------------------------------- falsos positivos y limpieza
+    def suppressed(self, kind: str, mac: str, title: str) -> dict | None:
+        for r in self.q("SELECT * FROM suppress WHERE kind=?", (kind,)):
+            if (r["mac"] and r["mac"] == mac) or (not r["mac"] and r["title"] and r["title"] == title) \
+                    or (not r["mac"] and not r["title"]):
+                return r
+        return None
+
+    def mark_fp(self, event_id: int, note: str = "", suppress: bool = False) -> dict | None:
+        ev = self.q("SELECT * FROM events WHERE id=?", (event_id,))
+        if not ev:
+            return None
+        e = ev[0]
+        self.x("UPDATE events SET fp=1, fp_note=?, notified=1 WHERE id=?", (note, event_id))
+        rule = None
+        if suppress and not self.suppressed(e["kind"], e["mac"] or "", e["title"]):
+            rid = self.x("INSERT INTO suppress (kind, mac, title, note, created) VALUES (?,?,?,?,?)",
+                         (e["kind"], e["mac"] or "", "" if e["mac"] else e["title"], note, time.time()))
+            rule = self.q("SELECT * FROM suppress WHERE id=?", (rid,))[0]
+            # los iguales que aún no se avisan, tampoco
+            self.x("UPDATE events SET fp=1, notified=1 WHERE notified=0 AND kind=? AND "
+                   + ("mac=?" if e["mac"] else "title=?"), (e["kind"], e["mac"] or e["title"]))
+        return {"event": {**e, "fp": 1, "fp_note": note}, "rule": rule}
+
+    def unmark_fp(self, event_id: int) -> None:
+        self.x("UPDATE events SET fp=0, fp_note='' WHERE id=?", (event_id,))
+
+    def suppress_rules(self) -> list[dict]:
+        return self.q("SELECT * FROM suppress ORDER BY created DESC")
+
+    def delete_suppress(self, rid: int) -> None:
+        self.x("DELETE FROM suppress WHERE id=?", (rid,))
+
+    def clear_events(self, older_than_days: float | None = None, kind: str = "", only_fp: bool = False) -> int:
+        sql, args = "DELETE FROM events WHERE 1=1", []
+        if older_than_days is not None:
+            sql += " AND ts<?"; args.append(time.time() - older_than_days * 86400)
+        if kind:
+            sql += " AND kind=?"; args.append(kind)
+        if only_fp:
+            sql += " AND COALESCE(fp,0)=1"
+        with self.lock:
+            cur = self.conn.execute(sql, args)
+            self.conn.commit()
+            n = cur.rowcount
+            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        return n
 
     def recent_event(self, kind: str, mac: str, within: float) -> bool:
         return bool(self.q("SELECT 1 FROM events WHERE kind=? AND mac=? AND ts>=? LIMIT 1",

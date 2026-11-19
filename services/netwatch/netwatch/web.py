@@ -1,6 +1,7 @@
 """API y app web de netwatch (Starlette)."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
@@ -9,7 +10,7 @@ from pathlib import Path
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -50,7 +51,7 @@ def build_app(mon: Monitor) -> Starlette:
         for d in online:
             by_type[d["display_type"]] = by_type.get(d["display_type"], 0) + 1
         day = time.time() - 86400
-        ev = db.events(500, day)
+        ev = db.events(500, day, fp="0")      # sin falsos positivos
         return JSONResponse({
             "devices_total": len(devs), "devices_online": len(online),
             "new_today": sum(1 for d in devs if (d["first_seen"] or 0) >= day),
@@ -111,9 +112,91 @@ def build_app(mon: Monitor) -> Starlette:
         return JSONResponse({"ok": True})
 
     # ------------------------------------------------------------- eventos
+    def _ev_query(request: Request, limit_default: int = 200, limit_max: int = 1000) -> list[dict]:
+        qp = request.query_params
+        days = float(qp.get("days") or 0)
+        return db.events(min(int(qp.get("limit", limit_default)), limit_max),
+                         since=time.time() - days * 86400 if days else 0,
+                         level=qp.get("level", ""), kind=qp.get("kind", ""),
+                         search=qp.get("q", "")[:100], fp=qp.get("fp", ""))
+
     async def events(request: Request):
-        limit = int(request.query_params.get("limit", 200))
-        return JSONResponse({"events": db.events(min(limit, 1000))})
+        return JSONResponse({"events": _ev_query(request), "kinds": db.event_counts(),
+                             "rules": len(db.suppress_rules())})
+
+    async def events_export(request: Request):
+        """Bitácora en CSV o JSON (con los mismos filtros de la pantalla)."""
+        import csv
+        import io
+        rows = _ev_query(request, 100000, 100000)
+        stamp = time.strftime("%Y%m%d-%H%M")
+        if request.query_params.get("format") == "json":
+            return Response(json.dumps(rows, ensure_ascii=False, indent=1), media_type="application/json",
+                            headers={"Content-Disposition": f'attachment; filename="bitacora-{stamp}.json"'})
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["fecha", "nivel", "tipo", "titulo", "detalle", "mac", "falso_positivo", "nota"])
+        for e in rows:
+            w.writerow([time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(e["ts"])), e["level"], e["kind"],
+                        e["title"], e["detail"], e["mac"], "sí" if e.get("fp") else "", e.get("fp_note") or ""])
+        return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",   # BOM: Excel lo abre bien
+                        headers={"Content-Disposition": f'attachment; filename="bitacora-{stamp}.csv"'})
+
+    async def export_all(_):
+        """Todo en un .zip: bitácora, dispositivos, conexiones bloqueadas, ACL y reglas de silencio."""
+        import csv
+        import io
+        import zipfile
+
+        def to_csv(rows: list[dict]) -> str:
+            if not rows:
+                return ""
+            b = io.StringIO()
+            w = csv.DictWriter(b, fieldnames=list(rows[0].keys()), extrasaction="ignore")
+            w.writeheader()
+            for r in rows:
+                w.writerow({k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (list, dict)) else v)
+                            for k, v in r.items()})
+            return "\ufeff" + b.getvalue()
+        mem = io.BytesIO()
+        with zipfile.ZipFile(mem, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("bitacora.csv", to_csv(db.events(100000)))
+            z.writestr("dispositivos.csv", to_csv(db.devices()))
+            z.writestr("conexiones-entrantes.csv", to_csv(db.q("SELECT * FROM inbound ORDER BY last DESC")))
+            z.writestr("acl.csv", to_csv(db.acl()))
+            z.writestr("falsos-positivos.csv", to_csv(db.suppress_rules()))
+            z.writestr("LEEME.txt", "Exportado del panel del homelab el " + time.strftime("%Y-%m-%d %H:%M") +
+                       ".\nLas fechas (ts, first, last…) están en segundos desde 1970 (epoch).\n")
+        stamp = time.strftime("%Y%m%d-%H%M")
+        return Response(mem.getvalue(), media_type="application/zip",
+                        headers={"Content-Disposition": f'attachment; filename="homelab-{stamp}.zip"'})
+
+    async def event_fp(request: Request):
+        eid = int(request.path_params["eid"])
+        if request.method == "DELETE":
+            db.unmark_fp(eid)
+            return JSONResponse({"ok": True})
+        b = await request.json()
+        r = db.mark_fp(eid, str(b.get("note", ""))[:300], bool(b.get("suppress")))
+        if not r:
+            return JSONResponse({"error": "No existe ese evento"}, 404)
+        return JSONResponse({"ok": True, **r})
+
+    async def events_clear(request: Request):
+        b = await request.json()
+        days = b.get("older_than_days")
+        n = db.clear_events(float(days) if days not in (None, "") else None,
+                            str(b.get("kind", "")), bool(b.get("only_fp")))
+        db.add_event("info", "log_cleared", f"Se limpiaron {n} eventos de la bitácora",
+                     f"más viejos que {days} días" if days not in (None, "") else "todos" + (" (solo falsos positivos)" if b.get("only_fp") else ""))
+        db.mark_notified([e["id"] for e in db.pending_notifications() if e["kind"] == "log_cleared"])
+        return JSONResponse({"ok": True, "deleted": n})
+
+    async def suppress_list(request: Request):
+        if request.method == "DELETE":
+            db.delete_suppress(int(request.path_params["rid"]))
+            return JSONResponse({"ok": True})
+        return JSONResponse({"rules": db.suppress_rules()})
 
     # ----------------------------------------------------------------- ACL
     async def acl_list(_):
@@ -1009,7 +1092,12 @@ def build_app(mon: Monitor) -> Starlette:
         Route("/api/devices/{mac}", device_update, methods=["PATCH"]),
         Route("/api/devices/{mac}", device_delete, methods=["DELETE"]),
         Route("/api/devices/{mac}/rescan", device_rescan, methods=["POST"]),
-        Route("/api/events", events), Route("/api/acl", acl_list),
+        Route("/api/events", events), Route("/api/events/export", events_export),
+        Route("/api/export/all", export_all),
+        Route("/api/events/clear", events_clear, methods=["POST"]),
+        Route("/api/events/{eid:int}/fp", event_fp, methods=["POST", "DELETE"]),
+        Route("/api/suppress", suppress_list), Route("/api/suppress/{rid:int}", suppress_list, methods=["DELETE"]),
+        Route("/api/acl", acl_list),
         Route("/api/acl", acl_add, methods=["POST"]),
         Route("/api/acl/{rid:int}", acl_delete, methods=["DELETE"]),
         Route("/api/traffic", traffic), Route("/api/totals", totals),

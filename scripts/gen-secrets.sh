@@ -40,6 +40,8 @@ grep -q '^VW_ADMIN_TOKEN=' .env || echo 'VW_ADMIN_TOKEN=' >> .env
 setv VW_ADMIN_TOKEN "$(rand)$(rand)"
 grep -q '^SPEEDTEST_APP_KEY=' .env || echo 'SPEEDTEST_APP_KEY=' >> .env
 setv SPEEDTEST_APP_KEY "base64:$(openssl rand -base64 32)"
+grep -q '^SPEEDTEST_ADMIN_PASSWORD=' .env || echo 'SPEEDTEST_ADMIN_PASSWORD=' >> .env
+setv SPEEDTEST_ADMIN_PASSWORD "$(rand | cut -c1-16)"
 # Inicio de sesión único (Authelia): solo si ya lo instalaste (sso.sh agrega SSO_DOMAIN)
 if grep -qE '^SSO_DOMAIN=.+' .env; then
   for k in SSO_SECRET AUTHELIA_JWT_SECRET AUTHELIA_SESSION_SECRET AUTHELIA_STORAGE_KEY; do

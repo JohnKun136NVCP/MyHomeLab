@@ -283,3 +283,29 @@ def test_botones_del_panel_y_casa(tmp_path):
     assert '"Música (Navidrome)" "http://10.0.0.5:4533"' in out and "3007/api/heartbeat" in out
     lst = subprocess.run(["bash", str(repo / "scripts/home.sh"), "list"], capture_output=True, text=True, cwd=repo).stdout
     assert "navidrome" in lst and "paperless" in lst
+
+
+def test_falsos_positivos_y_limpieza(tmp_path):
+    from netwatch.db import DB
+    db = DB(tmp_path / "n.db")
+    a = db.add_event("warning", "new_device", "Nuevo: tele", "", "aa:aa:aa:aa:aa:01")
+    db.add_event("critical", "ids", "ET SCAN Nmap", "10.0.0.9", "")
+    r = db.mark_fp(a, "es la tele de la sala", suppress=True)
+    assert r["rule"]["mac"] == "aa:aa:aa:aa:aa:01"
+    # lo mismo otra vez: queda en la bitácora como falso positivo y no se avisa
+    b = db.add_event("warning", "new_device", "Nuevo: tele", "", "aa:aa:aa:aa:aa:01")
+    ev = {e["id"]: e for e in db.events(10)}
+    assert ev[b]["fp"] == 1 and ev[b]["notified"] == 1
+    assert [e["kind"] for e in db.pending_notifications()] == ["ids"]
+    assert db.suppress_rules()[0]["hits"] == 1
+    assert len(db.events(10, fp="0")) == 1 and len(db.events(10, search="Nmap")) == 1
+    # sin MAC: la regla es por título
+    c = db.add_event("critical", "ids", "ET SCAN Nmap", "10.0.0.9", "")
+    db.mark_fp(c, "", suppress=True)
+    d = db.add_event("critical", "ids", "ET SCAN Nmap", "otra vez", "")
+    e2 = db.add_event("critical", "ids", "ET EXPLOIT otra cosa", "", "")
+    ev = {e["id"]: e for e in db.events(20)}
+    assert ev[d]["fp"] == 1 and ev[e2]["fp"] == 0
+    assert db.clear_events(only_fp=True) == 5 and len(db.events(20)) == 1   # el 1.er Nmap (sin avisar) también
+    db.unmark_fp(e2)
+    assert db.clear_events() == 1 and db.events(20) == []

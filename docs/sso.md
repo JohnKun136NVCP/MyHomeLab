@@ -55,6 +55,13 @@ La primera vez que un administrador entra, Authelia pide registrar un dispositiv
 
 ## Si algo falla
 
+`./hl sso --check` revisa el DNS de `auth.` y `panel.`, que Authelia y Caddy estén bien y que el
+panel mande al portal. Si el navegador muestra **about:blank#blocked**: escribe tú la dirección
+`https://panel.casa.lan:8443` en una pestaña nueva (no desde un enlace), apaga el «DNS seguro»
+del navegador en ese equipo para que use la Pi como DNS, instala el certificado de la casa y
+prueba en una ventana de incógnito (si ahí funciona, es una extensión).
+
+
 ```bash
 ./hl logs authelia
 cat config/authelia/users.yml          # ¿están tus cuentas?

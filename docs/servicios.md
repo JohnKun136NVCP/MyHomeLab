@@ -95,3 +95,24 @@ Activa «Wake on LAN» / «Power on by PCI-E» en el BIOS. Solo funciona por cab
 respaldo más reciente del homelab en una carpeta temporal, revisa que trae `.env`,
 `homelab.yml` y los datos, que las bases SQLite estén íntegras y que no tenga más de 9 días.
 Te llega ✅ (sin sonido) o ⚠/❌ con lo que falló. `sudo ./hl test-backup` la corre ya.
+
+## Bitácora: exportar, limpiar y falsos positivos
+
+Panel → **Eventos**:
+
+- **Filtrar** por nivel, tipo, fecha o texto (IP, MAC, nombre).
+- **Exportar CSV / JSON** con esos filtros (el CSV abre bien en Excel), o **Exportar todo
+  (.zip)**: bitácora, dispositivos, conexiones entrantes, ACL y reglas de falso positivo.
+- **Falso positivo**: márcalo y, si quieres, «ya no avisar de esto». Lo mismo (mismo equipo, o la
+  misma alerta del IDS si no hay equipo) sigue quedando en la bitácora, tachado, pero ya no te
+  llega por Telegram ni cuenta en Inicio. Las reglas se ven y se quitan abajo de la bitácora.
+- **Limpiar…**: lo más viejo de 30 o 7 días, solo los falsos positivos, o todo. Antes exporta.
+
+Bitácoras de los servicios (contenedores, systemd y el diagnóstico) en un archivo, con
+contraseñas y tokens tapados: `./hl export-logs` (últimos 7 días; `./hl export-logs 30d`).
+
+## Speedtest: usuario y contraseña
+
+`./hl speedtest-login`. Si lo encendiste antes de esta versión, el usuario de fábrica es
+`admin@example.com` / `password`: entra y cámbialo en tu avatar → **Perfil**. Si ya no puedes
+entrar: `./hl exec speedtest php /app/www/artisan app:user-reset-password`.

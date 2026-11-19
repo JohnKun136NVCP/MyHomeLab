@@ -5,6 +5,7 @@
 #   ./scripts/sso.sh                 dominio casa.lan (te lo pregunta)
 #   ./scripts/sso.sh --domain casa.lan --no-2fa
 #   ./scripts/sso.sh --remove        lo apaga y regresa al inicio de sesión de siempre
+#   ./scripts/sso.sh --check         revisa todo (DNS, Authelia, Caddy) si no te deja entrar
 #
 # Las cuentas son las mismas del panel (Ajustes → Cuentas): el panel las copia a Authelia.
 # Por IP (https://192.168.1.5:8443) todo sigue igual que antes.
@@ -16,12 +17,13 @@ B=$'\e[1m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'
 ok() { echo "${G}✔${N} $*"; }; warn() { echo "${Y}⚠${N} $*"; }; die() { echo "${R}✘${N} $*"; exit 1; }
 [[ -f .env ]] || die "Falta .env: corre ./scripts/gen-secrets.sh"
 
-DOM=""; TWOFA=1; REMOVE=0
+DOM=""; TWOFA=1; REMOVE=0; CHECK=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain) DOM="${2:?}"; shift ;;
     --no-2fa) TWOFA=0 ;;
     --remove) REMOVE=1 ;;
+    --check|--revisar) CHECK=1 ;;
     -h|--help) sed -n 2,10p "$0"; exit 0 ;;
     *) die "Opción desconocida: $1" ;;
   esac; shift
@@ -40,6 +42,37 @@ profiles_set() {   # profiles_set add|del sso
   putv COMPOSE_PROFILES "$(printf '%s' "$new" | grep -v '^$' | paste -sd, -)"
 }
 
+if ((CHECK)); then
+  DOM="$(envget SSO_DOMAIN)"; HOST="$(envget HOMELAB_HOST)"; PORT="$(envget HTTPS_PORT)"; PORT="${PORT:-443}"
+  [[ $PORT == 443 ]] && P="" || P=":$PORT"
+  bad=0; f() { echo "  ${R}✘${N} $*"; bad=1; }
+  echo "${B}== Inicio de sesión único${N}"
+  [[ -n $DOM ]] || { f "No está instalado (SSO_DOMAIN vacío en .env). Instálalo: ./hl sso"; exit 1; }
+  ok "Dominio: $DOM  ·  entra en https://panel.$DOM$P"
+  [[ ",$(envget COMPOSE_PROFILES)," == *,sso,* ]] && ok "Perfil sso encendido" || f "Falta sso en COMPOSE_PROFILES (corre ./hl sso de nuevo)"
+  st="$(./hl ps authelia --format '{{.Status}}' 2>/dev/null | tail -1)"
+  [[ $st == Up* ]] && ok "Authelia: $st" || { f "Authelia no está corriendo (${st:-no existe})"; ./hl logs --tail 15 --no-log-prefix authelia 2>/dev/null | sed 's/^/      /' | tail -8; }
+  [[ -s config/authelia/users.yml ]] && ok "Cuentas en Authelia: $(grep -c 'password:' config/authelia/users.yml)" || f "config/authelia/users.yml vacío"
+  [[ -f config/caddy/sso/sso.caddy ]] && ok "Caddy tiene la configuración de $DOM" || f "Falta config/caddy/sso/sso.caddy (./hl sso)"
+  for n in auth panel; do
+    r="$(getent hosts "$n.$DOM" | awk '{print $1}' | head -1)"
+    if [[ $r == "$HOST" ]]; then ok "$n.$DOM → $r (la Pi)"; else f "$n.$DOM resuelve a «${r:-nada}», no a la Pi ($HOST)"; fi
+  done
+  code="$(curl -sk -o /dev/null -w '%{http_code}' --resolve "auth.$DOM:$PORT:$HOST" "https://auth.$DOM:$PORT/api/health" || true)"
+  [[ $code == 200 ]] && ok "El portal contesta (https://auth.$DOM$P)" || f "El portal no contesta bien (HTTP $code)"
+  loc="$(curl -sk -o /dev/null -w '%{redirect_url}' --resolve "panel.$DOM:$PORT:$HOST" "https://panel.$DOM:$PORT/" || true)"
+  [[ $loc == "https://auth.$DOM$P/"* || $loc == "https://auth.$DOM:$PORT/"* ]] && ok "Sin sesión, el panel manda al portal: ${loc%%\?*}" \
+    || f "Sin sesión, el panel debería mandar a https://auth.$DOM$P/ y manda a «${loc:-ningún lado}»"
+  echo
+  echo "  Si en el navegador ves ${B}about:blank#blocked${N}:"
+  echo "   • Abre la dirección escribiéndola tú en una pestaña nueva: https://panel.$DOM$P"
+  echo "     (el navegador bloquea abrir un dominio .lan desde un enlace si no confía en él todavía)"
+  echo "   • Ese equipo debe usar la Pi como DNS: en Chrome/Edge apaga «DNS seguro» (Configuración →"
+  echo "     Privacidad → Seguridad), o no verá $DOM."
+  echo "   • Instala el certificado de la casa (./hl ca) en ese equipo, y entra una vez a https://auth.$DOM$P"
+  echo "   • Prueba en una ventana de incógnito: si ahí funciona, es una extensión (bloqueador)."
+  exit $bad
+fi
 if ((REMOVE)); then
   rm -f config/caddy/sso/sso.caddy
   putv SSO_DOMAIN ""; putv SSO_GRAFANA false

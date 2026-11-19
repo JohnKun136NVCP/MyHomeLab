@@ -23,6 +23,8 @@
 #    ./hl ca                     copia el certificado de Caddy para instalarlo
 #    ./hl password               cambia la contraseña del usuario admin de la web
 #    ./hl secrets                genera las llaves que falten en .env
+#    ./hl speedtest-login        usuario y contraseña de Speedtest (y cómo cambiarla)
+#    ./hl export-logs [7d]       bitácoras de todos los servicios en un .tar.gz (para revisar o pedir ayuda)
 #    ./hl vps [IP:9100]          ¿por qué Prometheus ve el VPS abajo? (y lo agrega/corrige)
 #    ./hl ups                    no-break por USB: avisos y apagado en orden (NUT)
 #    ./hl sso [--remove]         inicio de sesión único con Authelia (panel.casa.lan)
@@ -46,7 +48,7 @@ if [[ ! -f .env && ! "$cmd" =~ ^(ayuda|help|-h|--help|secrets|secretos|home|casa
 fi
 case "$cmd" in
   help|ayuda|-h|--help)
-    sed -n '3,33p' "$0" | sed 's/^# \{0,3\}//' ;;
+    sed -n '3,35p' "$0" | sed 's/^# \{0,3\}//' ;;
   status|estado)
     "${C[@]}" ps --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}' ;;
   update|actualizar)
@@ -79,6 +81,29 @@ case "$cmd" in
   menu) exec ./scripts/menu.sh "$@" ;;
   secrets|secretos) exec ./scripts/gen-secrets.sh "$@" ;;
   vps) exec ./scripts/vps-check.sh "$@" ;;
+  speedtest-login)
+    em="$(grep -E '^SPEEDTEST_ADMIN_EMAIL=' .env | cut -d= -f2-)"; pw="$(grep -E '^SPEEDTEST_ADMIN_PASSWORD=' .env | cut -d= -f2-)"
+    echo "Speedtest: http://$(grep -E '^HOMELAB_HOST=' .env | cut -d= -f2-):8765"
+    echo "  Si lo encendiste ANTES de esta versión, el usuario es el de fábrica:  admin@example.com / password"
+    echo "  Si es nuevo:  ${em:-admin@example.com} / ${pw:-password}"
+    echo "  Cámbialo en la web: tu avatar → Perfil. ¿No entras? Pon una nueva aquí:"
+    echo "    ./hl exec speedtest php /app/www/artisan app:user-reset-password" ;;
+  export-logs|exportar-logs)
+    since="${1:-7d}"; t="$(mktemp -d)"; out="run/logs-$(date +%Y%m%d-%H%M).tar.gz"; mkdir -p run
+    for s in $("${C[@]}" ps --services 2>/dev/null); do "${C[@]}" logs --no-color --since "$since" "$s" > "$t/$s.log" 2>&1 || true; done
+    for f in hosts/server/immich/docker-compose.yml hosts/home/docker-compose.yml; do
+      [[ -f $f ]] || continue
+      ef=.env; [[ $f == hosts/server/immich/* ]] && ef=hosts/server/immich/.env; [[ $f == hosts/home/* ]] && ef=hosts/home/.env
+      for s in $("${D[@]}" compose -f "$f" --env-file "$ef" ps --services 2>/dev/null); do
+        "${D[@]}" compose -f "$f" --env-file "$ef" logs --no-color --since "$since" "$s" > "$t/$s.log" 2>&1 || true
+      done
+    done
+    journalctl --since "-${since%d} days" -u 'homelab-*' -t homelab-ups --no-pager > "$t/systemd-homelab.log" 2>/dev/null || true
+    ./scripts/check.sh > "$t/check.txt" 2>&1 || true
+    # Quita secretos que a veces salen en las bitácoras
+    sed -i -E 's/(token|password|passwd|secret|api_hash|bearer)([=: "]+)[^ "&]+/\1\2***/Ig' "$t"/*.log "$t"/*.txt 2>/dev/null || true
+    tar -czf "$out" -C "$t" . && rm -rf "$t"
+    echo "✅ $out ($(du -h "$out" | cut -f1)) — los últimos $since; contraseñas y tokens tapados con ***" ;;
   home|casa) exec ./scripts/home.sh "$@" ;;
   roles) exec ./scripts/roles.sh "$@" ;;
   link) exec python3 scripts/lib/links.py "$@" ;;

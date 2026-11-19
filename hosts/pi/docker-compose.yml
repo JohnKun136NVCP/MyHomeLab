@@ -243,6 +243,10 @@ services:
       TZ: ${TZ:-America/Mexico_City}
       DISPLAY_TIMEZONE: ${TZ:-America/Mexico_City}
       APP_KEY: ${SPEEDTEST_APP_KEY:-}
+      # Usuario de la web (solo cuenta la primera vez que arranca; luego cámbialo en su Perfil)
+      ADMIN_NAME: Admin
+      ADMIN_EMAIL: ${SPEEDTEST_ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${SPEEDTEST_ADMIN_PASSWORD:-password}
       APP_URL: http://${HOMELAB_HOST}:8765
       DB_CONNECTION: sqlite
       SPEEDTEST_SCHEDULE: ${SPEEDTEST_SCHEDULE:-17 */6 * * *}
