@@ -286,3 +286,6 @@ label.btn.primary { background: var(--accent); color: #06111f; border-color: var
 
 .ev.fp { opacity: .55; }
 .ev.fp b { text-decoration: line-through; text-decoration-thickness: 1px; }
+
+label.check { display: flex; gap: 8px; align-items: center; cursor: pointer; margin-top: 6px; }
+label.check input { width: 18px; height: 18px; }

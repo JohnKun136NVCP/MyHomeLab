@@ -309,3 +309,53 @@ def test_falsos_positivos_y_limpieza(tmp_path):
     assert db.clear_events(only_fp=True) == 5 and len(db.events(20)) == 1   # el 1.er Nmap (sin avisar) también
     db.unmark_fp(e2)
     assert db.clear_events() == 1 and db.events(20) == []
+
+
+# ------------------------------------------------------- respaldos: Telegram en partes y borrar de la Pi
+def test_respaldo_grande_en_partes_y_borrado(tmp_path):
+    from types import SimpleNamespace
+    from bot import app as botapp
+    App = next(v for v in vars(botapp).values() if isinstance(v, type) and hasattr(v, "send_big"))
+    sent, told = [], []
+
+    class TG:
+        limit = 40 * 1024 * 1024
+        def send_file(self, chat, path, method, field, caption):
+            sent.append((path.name, path.stat().st_size, caption))
+
+    rows = []
+    fake = SimpleNamespace(tg=TG(), tell=lambda c, t: told.append(t),
+                           store=SimpleNamespace(delete_backup_row=rows.append))
+    f = tmp_path / "2026-11-19_100000" / "videos.zip"
+    f.parent.mkdir()
+    f.write_bytes(b"x" * (60 * 1024 * 1024))
+    import time as _t
+    orig = botapp.time.sleep
+    botapp.time.sleep = lambda s: None
+    try:
+        n = App.send_big(fake, 123, f, "Llegó tu respaldo")
+    finally:
+        botapp.time.sleep = orig
+    assert n == 3 and [s[0] for s in sent] == ["videos.zip.001", "videos.zip.002", "videos.zip.003"]
+    assert sum(s[1] for s in sent) == f.stat().st_size and "Parte 1 de 3" in sent[0][2]
+    assert not list(f.parent.glob("*.0*")) and "ZArchiver" in told[-1]
+    (f.parent / ".session").write_text("abc")
+    App.drop_backup(fake, 7, f)
+    assert rows == [7] and not f.parent.exists()
+
+
+def test_preferencias_de_respaldo_por_defecto(tmp_path, monkeypatch):
+    from netwatch import auth, respaldos
+    from netwatch.db import DB
+    db = DB(tmp_path / "n.db")
+    accs = {"mama": {"user": "mama", "role": "familia", "main": False},
+            "john": {"user": "john", "role": "admin", "main": True}}
+    monkeypatch.setattr(auth, "account", lambda u: accs.get(u))
+    mon = type("M", (), {"cfg": {}})()
+    routes = respaldos.routes(db, mon)
+    prefs = next(c.cell_contents for r in routes for c in (r.endpoint.__closure__ or [])
+                 if callable(c.cell_contents) and getattr(c.cell_contents, "__name__", "") == "prefs")
+    assert prefs("mama") == {"send_telegram": True, "delete_after": True}      # familia: manda y borra
+    assert prefs("john") == {"send_telegram": True, "delete_after": False}     # admin principal: no borra
+    db.x("INSERT INTO backup_prefs (username, send_telegram, delete_after) VALUES ('mama', 0, 0)")
+    assert prefs("mama") == {"send_telegram": False, "delete_after": False}

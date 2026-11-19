@@ -346,7 +346,7 @@ class BotApp:
         if info.get("owner_main"):                 # equipos del admin: como siempre
             text = (f"{icon} Respaldo recibido de <b>{esc(device)}</b> ({esc(os_)})\n"
                     f"{esc(dest.name)} · {human_bytes(size)}\n<code>{esc(dest.parent)}</code>{clean}")
-            await self._deliver(bid, dest, size, text, self.owner, admin_copy=False)
+            await self._deliver(bid, dest, size, text, self.owner, admin_copy=False, prefs=info.get("prefs"))
             return
         # Equipo de un familiar: el archivo y el detalle SOLO a su dueño
         owner = info.get("owner", "")
@@ -354,18 +354,71 @@ class BotApp:
                 f"{clean}")
         await asyncio.to_thread(self.notice, owner, f"✅ Respaldo de {device} recibido: {dest.name} "
                                                     f"({human_bytes(size)})", "ok")
-        await self._deliver(bid, dest, size, text, info.get("chat"), admin_copy=True, owner=owner)
+        await self._deliver(bid, dest, size, text, info.get("chat"), admin_copy=True, owner=owner,
+                            prefs=info.get("prefs"))
 
-    async def _deliver(self, bid, dest: Path, size: int, text: str, chat, admin_copy: bool, owner: str = ""):
-        if chat and self.backups.forward and size <= self.tg.limit:
+    def send_big(self, chat, path: Path, caption: str) -> int:
+        """Manda un archivo por Telegram; si pasa del límite (2 GB con la Bot API local), en partes
+        nombre.001, .002… que se juntan con 7-Zip/ZArchiver o «cat». Regresa cuántas partes mandó."""
+        size = path.stat().st_size
+        if size <= self.tg.limit:
+            self.tg.send_file(chat, path, "sendDocument", "document", caption)
+            return 1
+        part_size = self.tg.limit - 16 * 1024 * 1024
+        n = -(-size // part_size)
+        with open(path, "rb") as src:
+            for i in range(1, n + 1):
+                part = path.with_name(f"{path.name}.{i:03d}")
+                with open(part, "wb") as out:
+                    left = part_size
+                    while left > 0:
+                        b = src.read(min(8 * 1024 * 1024, left))
+                        if not b:
+                            break
+                        out.write(b)
+                        left -= len(b)
+                try:
+                    self.tg.send_file(chat, part, "sendDocument", "document",
+                                      (caption + "\n" if i == 1 else "") + f"Parte {i} de {n}")
+                finally:
+                    part.unlink(missing_ok=True)
+                time.sleep(1)                       # Telegram: no más de ~1 mensaje por segundo al mismo chat
+        self.tell(chat, f"🧩 <b>{esc(path.name)}</b> llegó en {n} partes. Para juntarlas: descarga todas en la misma "
+                        "carpeta y abre la <b>.001</b> con 7-Zip (Windows) o ZArchiver (Android); en Linux/Mac: "
+                        f"<code>cat {esc(path.name)}.0* &gt; {esc(path.name)}</code>")
+        return n
+
+    def drop_backup(self, bid: int, path: Path) -> None:
+        """Borra un respaldo de la Pi (ya lo tiene su dueño) y su carpeta si quedó vacía."""
+        path.unlink(missing_ok=True)
+        self.store.delete_backup_row(bid)
+        d = path.parent
+        with contextlib.suppress(OSError):
+            rest = [f for f in d.iterdir() if f.name != ".session"]
+            if not rest:
+                (d / ".session").unlink(missing_ok=True)
+                d.rmdir()
+
+    async def _deliver(self, bid, dest: Path, size: int, text: str, chat, admin_copy: bool, owner: str = "",
+                       prefs: dict | None = None):
+        prefs = prefs or {}
+        send = self.backups.forward and prefs.get("send_telegram", True)
+        if chat and send:
             try:
-                await asyncio.to_thread(self.tg.send_file, chat, dest, "sendDocument", "document", text)
+                await asyncio.to_thread(self.send_big, chat, dest, text)
                 self.store.x("UPDATE backups SET forwarded=1 WHERE id=?", (bid,))
-            except TelegramError as e:
-                await asyncio.to_thread(self.tell, chat, text + f"\n⚠ No pude reenviarte el archivo: {esc(e)}")
+                if prefs.get("delete_after"):
+                    await asyncio.to_thread(self.drop_backup, bid, dest)
+                    await asyncio.to_thread(self.tell, chat, "🧹 Ya lo tienes aquí en Telegram, así que lo borré de la Pi "
+                                                             "para ahorrar espacio.")
+                    if owner:
+                        await asyncio.to_thread(self.notice, owner, f"📲 {dest.name} se te mandó por Telegram y se "
+                                                                    "borró de la Pi.", "ok")
+            except (TelegramError, OSError) as e:
+                await asyncio.to_thread(self.tell, chat, text + f"\n⚠ No pude mandarte el archivo: {esc(e)}. "
+                                                               "Sigue en la Pi: descárgalo en «Mis respaldos».")
         elif chat:
-            extra = "" if size <= self.tg.limit else f"\n(No te lo reenvío: pesa más de {human_bytes(self.tg.limit)})"
-            await asyncio.to_thread(self.tell, chat, text + extra)
+            await asyncio.to_thread(self.tell, chat, text + "\nDescárgalo cuando quieras en «Mis respaldos».")
         if admin_copy:                             # al admin solo una línea, sin el archivo
             await asyncio.to_thread(self.notify, f"📦 Respaldo de <b>{esc(owner)}</b> recibido "
                                                  f"({esc(dest.parent.parent.name)}, {human_bytes(size)})", False)
@@ -388,9 +441,48 @@ class BotApp:
             await asyncio.to_thread(self.notify, msg)
             return
         await asyncio.to_thread(self.notice, owner, f"✅ Subiste {len(files)} archivo(s) ({human_bytes(size)}).", "ok")
-        await asyncio.to_thread(self.tell, info.get("chat"), msg)
         await asyncio.to_thread(self.notify, f"📦 {esc(owner)} subió {len(files)} archivo(s) "
                                              f"({human_bytes(size)}) desde el navegador", False)
+        chat, prefs = info.get("chat"), info.get("prefs") or {}
+        if not (chat and self.backups.forward and prefs.get("send_telegram", True)):
+            await asyncio.to_thread(self.tell, chat, msg + "\nDescárgalos cuando quieras en «Mis respaldos».")
+            return
+        await asyncio.to_thread(self.tell, chat, msg + "\nTe los mando por aquí…")
+        try:
+            await asyncio.to_thread(self._send_batch, chat, d, files, device)
+        except (TelegramError, OSError) as e:
+            await asyncio.to_thread(self.tell, chat, f"⚠ No pude mandártelos todos: {esc(e)}. Siguen en la Pi "
+                                                     "(«Mis respaldos»).")
+            return
+        rows = [r for r in self.store.backups_of(device) if Path(r["path"]).parent == d]
+        for r in rows:
+            self.store.x("UPDATE backups SET forwarded=1 WHERE id=?", (r["id"],))
+        if prefs.get("delete_after"):
+            for r in rows:
+                await asyncio.to_thread(self.drop_backup, r["id"], Path(r["path"]))
+            import shutil
+            await asyncio.to_thread(shutil.rmtree, d, True)
+            await asyncio.to_thread(self.tell, chat, "🧹 Ya los tienes aquí en Telegram; los borré de la Pi.")
+            await asyncio.to_thread(self.notice, owner, f"📲 {len(files)} archivo(s) se te mandaron por Telegram "
+                                                        "y se borraron de la Pi.", "ok")
+
+    def _send_batch(self, chat, d: Path, files: list[Path], device: str) -> None:
+        """Pocos archivos: uno por uno. Muchos (o muy grandes juntos): un .zip sin comprimir
+        (las fotos y videos ya vienen comprimidos), en partes si pasa del límite."""
+        if len(files) <= 10:
+            for f in sorted(files):
+                self.send_big(chat, f, f"📎 {esc(f.name)}")
+                time.sleep(1)
+            return
+        import zipfile
+        z = d / f"{device}-{d.name}.zip"
+        with zipfile.ZipFile(z, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
+            for f in sorted(files):
+                zf.write(f, f.name)
+        try:
+            self.send_big(chat, z, f"🗜 {len(files)} archivos en un .zip")
+        finally:
+            z.unlink(missing_ok=True)
 
     # ------------------------------------------------- API interna (netwatch)
     async def i_info(self, request: Request):
@@ -424,6 +516,9 @@ class BotApp:
         if not r or r[0]["device"] != request.query_params.get("device"):
             return JSONResponse({"error": "no existe"}, 404)
         p = Path(r[0]["path"])
+        if request.method == "DELETE":
+            await asyncio.to_thread(self.drop_backup, r[0]["id"], p)
+            return JSONResponse({"ok": True})
         if not p.exists():
             return JSONResponse({"error": "ya se borró"}, 404)
         return FileResponse(p, filename=p.name, media_type="application/octet-stream")
@@ -459,5 +554,5 @@ class BotApp:
             Route("/api/backup/{device}/{filename:path}", self.http_backup_check, methods=["GET"]),
             Route("/internal/info", self.i_info),
             Route("/internal/backups", self.i_backups),
-            Route("/internal/backup-file/{bid:int}", self.i_backup_file),
+            Route("/internal/backup-file/{bid:int}", self.i_backup_file, methods=["GET", "DELETE"]),
         ], lifespan=lifespan)

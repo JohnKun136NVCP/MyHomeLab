@@ -276,7 +276,8 @@ const views = {
       ${d.setup ? setupBox(d) : ""}
       ${d.files?.length ? `<details><summary class="small">Archivos (${d.files.length})</summary><div class="table-wrap"><table>
         ${d.files.map((f) => `<tr><td class="small ellipsis" style="max-width:340px" title="${esc(f.name)}">${esc(f.name)}</td><td class="small nowrap">${bytes(f.size)}</td>
-          <td class="small nowrap">${ago(f.ts)}</td><td>${d.legacy ? "" : `<a href="/api/my/devices/${encodeURIComponent(d.name)}/files/${f.id}" download><button>⬇</button></a>`}</td></tr>`).join("")}</table></div></details>` : ""}
+          <td class="small nowrap">${ago(f.ts)}</td><td class="nowrap">${d.legacy ? "" : `<a href="/api/my/devices/${encodeURIComponent(d.name)}/files/${f.id}" download><button title="Descargar">⬇</button></a>
+          <button title="Borrar de la Pi" data-rmfile="${f.id}">🗑</button>`}</td></tr>`).join("")}</table></div></details>` : ""}
       ${d.legacy || ["web", "telegram"].includes(d.os) ? "" : `<div class="toolbar" style="margin:10px 0 0">
         ${d.setup ? "" : '<button data-newlink>🔗 Nuevo enlace de instalación</button>'}
         <button class="danger" data-delete>Quitar equipo</button></div>`}</div>`;
@@ -307,6 +308,15 @@ const views = {
       <div class="section-title">Tus equipos</div>
       <div class="grid2" id="devs">${j.devices.map(devCard).join("") || '<div class="card muted">Aún no tienes equipos. Sube algo desde aquí o agrega una computadora.</div>'}</div>
       <div class="grid2" style="margin-top:var(--gap)">
+        <div class="card"><h3>📲 Cuando llega un respaldo</h3>
+          <label class="check"><input type="checkbox" id="pf-tg" ${j.prefs.send_telegram ? "checked" : ""} ${linked ? "" : "disabled"}>
+            Mandármelo por Telegram ${linked ? "" : '<span class="muted small">(primero vincula tu Telegram)</span>'}</label>
+          <p class="small muted" style="margin:2px 0 8px 26px">Si pesa más de 2 GB llega en partes (.001, .002…) que se juntan con 7-Zip o ZArchiver.</p>
+          <label class="check"><input type="checkbox" id="pf-del" ${j.prefs.delete_after ? "checked" : ""}>
+            Borrarlo de la Pi cuando ya lo tenga</label>
+          <p class="small muted" style="margin:2px 0 0 26px">${linked && j.prefs.send_telegram
+            ? "Se borra en cuanto te llega a Telegram. Ahí queda tu copia: no borres ese chat."
+            : "Se borra cuando lo descargas completo aquí (⬇). Mientras, siempre puedes descargarlo."}</p></div>
         <div class="card"><h3>✈ Avisos por Telegram</h3>
           ${linked ? `<p>✅ Vinculado: <b>${esc(linked.name || "tu Telegram")}</b>. Ahí te llegan los avisos de <b>tus</b> respaldos${LOGS ? " y las alertas del homelab" : ""}, y puedes mandarle fotos y archivos al bot para guardarlos.</p>
               <button class="danger" id="tgoff">Desvincular</button>`
@@ -337,6 +347,18 @@ const views = {
         const r = await api(`/api/my/devices/${encodeURIComponent(name)}`, { method: "DELETE" }); toast(r.note); views.respaldos();
       });
       c.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => navigator.clipboard?.writeText(b.dataset.copy).then(() => toast("Copiado")));
+    });
+    // --- cómo recibir los respaldos
+    const savePrefs = async () => {
+      try { await api("/api/my/prefs", { method: "POST", body: JSON.stringify({ send_telegram: $("#pf-tg").checked, delete_after: $("#pf-del").checked }) });
+        toast("Guardado"); views.respaldos(); } catch (e) { toast(e.message); }
+    };
+    $("#pf-tg").onchange = savePrefs; $("#pf-del").onchange = savePrefs;
+    view.querySelectorAll("[data-rmfile]").forEach((b) => b.onclick = async () => {
+      const name = b.closest(".dev").dataset.dev;
+      if (!confirm("¿Borrar este respaldo de la Pi? Asegúrate de tener tu copia.")) return;
+      try { await api(`/api/my/devices/${encodeURIComponent(name)}/files/${b.dataset.rmfile}`, { method: "DELETE" });
+        toast("Borrado de la Pi"); views.respaldos(); } catch (e) { toast(e.message); }
     });
     // --- Telegram
     $("#tgoff")?.addEventListener("click", async () => { await api("/api/my/telegram", { method: "DELETE" }); views.respaldos(); });

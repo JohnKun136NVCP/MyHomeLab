@@ -60,3 +60,16 @@ la barra. Te llega un solo aviso al final, aunque sean 300 fotos.
 
 Las alertas del bot solo llegan a `TELEGRAM_ALLOWED_IDS` (tú) y a las cuentas con rol
 **Ve registros** o **Administrador** que vincularon su Telegram.
+
+## Que te llegue por Telegram y se borre de la Pi
+
+En **Mis respaldos → «Cuando llega un respaldo»** cada quien elige (viene así por defecto):
+
+- **Mandármelo por Telegram** (si vinculó su Telegram): llega cada respaldo; si pesa más de 2 GB,
+  en partes `.001`, `.002`… que se juntan abriendo la `.001` con 7-Zip (Windows) o ZArchiver
+  (Android). Las subidas desde el navegador llegan una por una o, si son más de 10, en un `.zip`.
+- **Borrarlo de la Pi cuando ya lo tenga**: en cuanto llega a Telegram (o, sin Telegram, cuando
+  lo descarga completo con ⬇), se borra de la Pi para ahorrar espacio. También hay 🗑 por archivo.
+
+Ojo: con las dos opciones, **la copia queda en Telegram**: que no borren ese chat. Para el admin
+principal el borrado viene apagado.

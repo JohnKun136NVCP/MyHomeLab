@@ -106,6 +106,27 @@ def routes(db, mon) -> list[Route]:
              "VALUES (:name,:owner,:os,:label,:token,:clave,:created,:setup_code,:setup_expires)", d)
         return d
 
+    def prefs(user: str) -> dict:
+        """Por defecto: se lo manda por Telegram si lo vinculó y, ya que lo tiene, lo borra de la Pi.
+        Al admin principal no se le borra nada si no lo pide."""
+        acc = auth.account(user)
+        r = db.q("SELECT send_telegram, delete_after FROM backup_prefs WHERE username=?", (user,))
+        r = r[0] if r else {"send_telegram": 1, "delete_after": -1}
+        da = r["delete_after"]
+        if da is None or da < 0:
+            da = 0 if (acc and acc["main"]) else 1
+        return {"send_telegram": bool(r["send_telegram"]), "delete_after": bool(da)}
+
+    def bot_delete(device: str, fid: int) -> bool:
+        base = os.environ.get("BOT_URL", "http://127.0.0.1:8080").rstrip("/")
+        req = urllib.request.Request(f"{base}/internal/backup-file/{fid}?device={device}", method="DELETE",
+                                     headers={"Authorization": f"Bearer {os.environ.get('INTERNAL_TOKEN', '')}"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                return r.status == 200
+        except (urllib.error.URLError, OSError):
+            return False
+
     def ensure_device(owner: str, os_: str) -> dict:
         r = db.q("SELECT * FROM backup_devices WHERE owner=? AND os=?", (owner, os_))
         return r[0] if r else new_device(owner, os_, OS_NAMES[os_])
@@ -148,7 +169,7 @@ def routes(db, mon) -> list[Route]:
         nots = db.q("SELECT id, ts, text, level, seen FROM notices WHERE username=? ORDER BY ts DESC LIMIT 30",
                     (s["user"],))
         return JSONResponse({"user": s["user"], "role": s["role"], "devices": devs, "notices": nots,
-                             "telegram": link[0] if link else None,
+                             "telegram": link[0] if link else None, "prefs": prefs(s["user"]),
                              "bot": await asyncio.to_thread(bot_username),
                              "max_age_days": int((mon.cfg.get("backups", {}) or {}).get("max_age_days", 14) or 0)})
 
@@ -197,8 +218,30 @@ def routes(db, mon) -> list[Route]:
         d = ensure_device(s["user"], "web")
         return JSONResponse({"device": d["name"], "token": d["token"]})
 
+    async def my_prefs(request: Request):
+        s = me(request)
+        if not s:
+            return JSONResponse({"error": "Sesión caducada"}, 401)
+        b = await request.json()
+        cur = prefs(s["user"])
+        st_ = int(bool(b.get("send_telegram", cur["send_telegram"])))
+        da = int(bool(b.get("delete_after", cur["delete_after"])))
+        db.x("INSERT INTO backup_prefs (username, send_telegram, delete_after) VALUES (?,?,?) "
+             "ON CONFLICT(username) DO UPDATE SET send_telegram=excluded.send_telegram, delete_after=excluded.delete_after",
+             (s["user"], st_, da))
+        return JSONResponse({"ok": True, "prefs": prefs(s["user"])})
+
+    async def my_file_delete(request: Request):
+        s = me(request)
+        d = own_device(s, request.path_params["name"]) if s else None
+        if not d:
+            return JSONResponse({"error": "No existe"}, 404)
+        ok = bot_delete(d["name"], int(request.path_params["fid"]))
+        return JSONResponse({"ok": ok} if ok else {"error": "No pude borrarlo (¿el bot está prendido?)"}, 200 if ok else 502)
+
     async def my_download(request: Request):
-        """Descarga uno de SUS respaldos (para restaurar)."""
+        """Descarga uno de SUS respaldos (para restaurar). Si pidió «borrar de la Pi cuando ya lo tenga»
+        y no se lo manda Telegram, se borra al terminar la descarga completa."""
         s = me(request)
         d = own_device(s, request.path_params["name"]) if s else None
         if not d:
@@ -214,13 +257,23 @@ def routes(db, mon) -> list[Route]:
         except (urllib.error.URLError, OSError) as e:
             return JSONResponse({"error": f"El bot no responde: {e}"}, 502)
 
+        total = int(r.headers.get("Content-Length") or 0)
+        p = prefs(s["user"])
+        tg = db.q("SELECT 1 FROM telegram_links WHERE username=?", (s["user"],))
+        drop = p["delete_after"] and not (tg and p["send_telegram"])
+
         def chunks():
+            got = 0
             with r:
                 while True:
                     b = r.read(1024 * 256)
                     if not b:
-                        return
+                        break
+                    got += len(b)
                     yield b
+            if drop and total and got == total:          # descarga completa: ya lo tiene
+                if bot_delete(d["name"], fid):
+                    notice(s["user"], "⬇ Descargaste tu respaldo y se borró de la Pi para ahorrar espacio.", "ok")
         hdr = {"Content-Disposition": r.headers.get("Content-Disposition", "attachment")}
         if r.headers.get("Content-Length"):
             hdr["Content-Length"] = r.headers["Content-Length"]
@@ -313,6 +366,7 @@ def routes(db, mon) -> list[Route]:
             return JSONResponse({"ok": False})
         link = db.q("SELECT chat_id FROM telegram_links WHERE username=?", (owner,))
         return JSONResponse({"ok": True, "device": r[0]["name"], "os": r[0]["os"], "owner": owner,
+                             "prefs": prefs(owner),
                              "owner_role": acc["role"] if acc else "", "owner_main": bool(acc and acc["main"]),
                              "chat": link[0]["chat_id"] if link else None})
 
@@ -371,6 +425,8 @@ def routes(db, mon) -> list[Route]:
         Route("/api/my/devices/{name}/setup", my_device_setup, methods=["POST"]),
         Route("/api/my/devices/{name}", my_device_delete, methods=["DELETE"]),
         Route("/api/my/devices/{name}/files/{fid:int}", my_download),
+        Route("/api/my/devices/{name}/files/{fid:int}", my_file_delete, methods=["DELETE"]),
+        Route("/api/my/prefs", my_prefs, methods=["POST"]),
         Route("/api/my/web-token", my_web_token, methods=["POST"]),
         Route("/api/my/telegram", my_telegram_code, methods=["POST"]),
         Route("/api/my/telegram", my_telegram_unlink, methods=["DELETE"]),

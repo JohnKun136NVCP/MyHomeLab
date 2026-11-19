@@ -92,6 +92,11 @@ CREATE TABLE IF NOT EXISTS login_ips (
     username TEXT, ip TEXT, first REAL, last REAL,
     PRIMARY KEY (username, ip)
 );
+CREATE TABLE IF NOT EXISTS backup_prefs (   -- cómo quiere cada quien recibir sus respaldos
+    username      TEXT PRIMARY KEY,
+    send_telegram INTEGER DEFAULT 1,   -- mandárselo por Telegram si lo vinculó
+    delete_after  INTEGER DEFAULT -1   -- borrarlo de la Pi cuando ya lo tiene (-1 = lo de siempre)
+);
 CREATE TABLE IF NOT EXISTS suppress (       -- falsos positivos: no volver a avisar de lo mismo
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     kind    TEXT NOT NULL,
