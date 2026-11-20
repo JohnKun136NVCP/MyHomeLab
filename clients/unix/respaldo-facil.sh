@@ -5,6 +5,7 @@
 #    respaldo-facil.sh --install URL  configura con el enlace del dashboard y programa
 #    respaldo-facil.sh --programado    lo usa el temporizador (solo si ya toca)
 #    respaldo-facil.sh --remove        deja de respaldar automáticamente
+#    respaldo-facil.sh --desinstalar   lo borra todo de esta computadora (tus respaldos en el homelab se quedan)
 #  Cifrado con tu contraseña de respaldo (la ves en el dashboard → Mis respaldos).
 #  Restaurar:  openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in ARCHIVO | tar xz
 #  (si son varias partes: cat ARCHIVO.part-* | openssl enc -d … | tar xz)
@@ -116,5 +117,16 @@ case "${1:-}" in
     if ((MAC)); then launchctl unload "$HOME/Library/LaunchAgents/mx.myhomelab.respaldo.plist" 2>/dev/null; rm -f "$HOME/Library/LaunchAgents/mx.myhomelab.respaldo.plist"
     else systemctl --user disable --now myhomelab-respaldo.timer 2>/dev/null || true; (crontab -l 2>/dev/null | grep -v myhomelab) | crontab - 2>/dev/null || true; fi
     echo "Ya no se respalda automáticamente." ;;
+  --desinstalar|--uninstall)
+    "$0" --remove >/dev/null 2>&1 || true
+    if ((MAC)); then :; else
+      rm -f "$HOME/.config/systemd/user/myhomelab-respaldo.service" "$HOME/.config/systemd/user/myhomelab-respaldo.timer"
+      systemctl --user daemon-reload 2>/dev/null || true
+    fi
+    desk="$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")"
+    rm -f "$HOME/.local/share/applications/myhomelab-respaldo.desktop" "$desk/myhomelab-respaldo.desktop"
+    rm -rf "$CONF_DIR"                   # configuración y enlace con el homelab
+    rm -f "$ME"; rmdir "$(dirname "$ME")" 2>/dev/null || true
+    echo "✅ Respaldo fácil desinstalado. Lo que ya subiste sigue en el panel → Mis respaldos." ;;
   *) respaldar ;;
 esac

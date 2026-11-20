@@ -14,6 +14,7 @@
   .\Respaldo-Homelab.ps1 -Programar      # tarea programada cada 12 semanas
   .\Respaldo-Homelab.ps1 -SoloLocal      # no sube nada, solo deja el .7z
   .\Respaldo-Homelab.ps1 -Instalar       # se copia a tu perfil y crea accesos en Inicio y Escritorio
+  .\Respaldo-Homelab.ps1 -Desinstalar    # borra tarea, accesos directos y la carpeta de MyHomeLab
   .\Respaldo-Homelab.ps1 -Auto URL       # lo usa el instalador de «Mis respaldos» (sin preguntas)
 #>
 [CmdletBinding()]
@@ -22,6 +23,7 @@ param(
     [switch]$Programar,
     [switch]$SoloLocal,
     [switch]$Instalar,
+    [switch]$Desinstalar,
     [string]$Auto = ""
 )
 $ErrorActionPreference = "Stop"
@@ -64,6 +66,20 @@ if ($Auto) {
     $lnk.IconLocation = "shell32.dll,7"; $lnk.Save()
     Say "Listo: se respalda solo cada $weeks semanas (domingo 13:00) y tienes «Respaldar ahora» en el Escritorio." "Green"
     Say "Haciendo tu primer respaldo…" "Green"
+}
+
+# ------------------------------------------------- desinstalar (todo lo de esta PC)
+if ($Desinstalar) {
+    Unregister-ScheduledTask -TaskName "MyHomeLab Respaldo" -Confirm:$false -ErrorAction SilentlyContinue
+    foreach ($dir in @([Environment]::GetFolderPath("Programs"), [Environment]::GetFolderPath("Desktop"))) {
+        foreach ($n in @("Respaldo MyHomeLab", "Respaldo MyHomeLab (configurar)", "Respaldar ahora")) {
+            Remove-Item (Join-Path $dir "$n.lnk") -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Set-Location $env:TEMP                # para poder borrar la carpeta donde vive este script
+    Remove-Item (Join-Path $env:LOCALAPPDATA "MyHomeLab") -Recurse -Force -ErrorAction SilentlyContinue
+    Say "Respaldo MyHomeLab desinstalado. Lo que ya subiste sigue en el panel → Mis respaldos." "Green"
+    exit 0
 }
 
 # ------------------------------------------------- instalar (accesos directos)
