@@ -129,6 +129,17 @@ cameras:
 alerts:
   mute: []
 
+# Certificados y DNS de tus dominios: aviso si el certificado vence pronto o si cambia a
+# dónde apunta (posible secuestro de DNS). Sistema → «Certificados y DNS».
+watch:
+  domains: []                # ej. [miempresa.mx]
+  certs: []                  # opcional, otros host[:puerto]; si no, usa domains
+
+# Registro remoto (syslog) del módem y los AP: pon la IP de la Pi en cada uno (UDP 514).
+syslog:
+  enabled: true
+  port: 514
+
 # Mapa de Wi-Fi (Red → Wi-Fi). Si no lo pones, adivina tus redes por los AP a los que está la Pi.
 wifi:
   ssids: []                  # ej. ["Casa", "Casa-Arriba", "Casa-5G"]

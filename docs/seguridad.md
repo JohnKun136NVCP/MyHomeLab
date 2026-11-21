@@ -202,3 +202,31 @@ Activa además **Settings → Code security → Dependabot alerts** en el reposi
 
 El sistema de la Pi va aparte: `sudo apt update && sudo apt full-upgrade` (y
 `unattended-upgrades` para los parches de seguridad diarios).
+
+## Bitácora de equipos (syslog)
+
+El panel recibe el registro remoto de tus equipos en **UDP 514**: en el módem y cada Tenda
+busca «Registro del sistema / Syslog remoto» y pon la IP de la Pi. Se ve en **Bitácora de
+equipos** (filtro por equipo y búsqueda) y si un equipo reporta intentos de entrar con
+contraseña mala te llega un aviso 📜. `sudo ./hl firewall` abre el 514 solo para tus redes.
+
+## Captura de tráfico (.pcap)
+
+**Captura de tráfico** (solo admin): eliges equipo, interfaz, puerto y duración y bajas el
+`.pcap` para Wireshark. Sin modo puente la Pi solo ve lo que pasa por ella (consultas DNS a
+AdGuard, difusiones, mDNS); con modo puente, todo. Se guardan las últimas 20.
+
+## Discos, simulacro y certificados
+
+- `sudo ./hl disks --install`: revisa SMART y espacio cada día (sectores malos, temperatura,
+  desgaste) y avisa si algo falla. Sistema → «Revisar los discos».
+- `sudo ./hl test-backup --install`: simulacro mensual de restauración. Sistema → «Probar el
+  último respaldo».
+- `watch: {domains: [miempresa.mx]}` en homelab.yml: aviso si el certificado vence en menos
+  de 21 días o si cambia a dónde apunta tu dominio.
+
+## Resúmenes por Telegram
+
+- **Domingo**: resumen de seguridad (equipos nuevos, trampa, routers nuevos, CVE, imágenes,
+  discos, certificados, caídas). Al momento: `/semanal`.
+- **Día 1**: caídas del internet del mes, para reclamarle al proveedor. Al momento: `/caidas`.

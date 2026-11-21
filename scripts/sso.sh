@@ -237,7 +237,7 @@ https://panel.$DOM:443 {
 	handle /internal/* {
 		respond 404
 	}
-	@public path /setup/* /ca.crt /static/*
+	@public path /setup/* /ca.crt /static/* /estado /api/estado
 	handle @public {
 		reverse_proxy host.docker.internal:8000
 	}

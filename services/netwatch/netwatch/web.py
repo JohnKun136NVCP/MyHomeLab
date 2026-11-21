@@ -1017,7 +1017,8 @@ def build_app(mon: Monitor) -> Starlette:
     # ------------------------------------------------------------ sistema
     SYSTEM_ACTIONS = {"actualizar": "Actualizar desde GitHub", "actualizar-todo": "Actualizar todo",
                       "escanear-imagenes": "Revisar vulnerabilidades de las imágenes", "revisar": "Revisar el homelab",
-                      "respaldo": "Respaldar el homelab"}
+                      "respaldo": "Respaldar el homelab", "probar-respaldo": "Simulacro de restauración",
+                      "discos": "Revisar los discos"}
 
     async def system_get(_):
         rev = {}
@@ -1036,8 +1037,14 @@ def build_app(mon: Monitor) -> Starlette:
                 bk = _json.loads(f.read_text())
             except ValueError:
                 bk = {}
+        def _j(name):
+            try:
+                return json.loads((st.RUN_DIR / name).read_text())
+            except (OSError, ValueError):
+                return {}
         return JSONResponse({"apply": st.apply_status(), "revisar": rev, "backup": bk,
-                             "actions": SYSTEM_ACTIONS,
+                             "disks": _j("disks.json"), "restore_test": _j("homelab-restore-test.json"),
+                             "watch": mon.watch.results, "actions": SYSTEM_ACTIONS,
                              "ca": (st.RUN_DIR / "homelab-ca.crt").exists()})
 
     async def system_action(request: Request):
@@ -1193,9 +1200,35 @@ def build_app(mon: Monitor) -> Starlette:
 
     async def wifi_get(request: Request):
         from .wifi import vendor_of
-        if request.query_params.get("rescan"):
-            mon.wifi._at = 0
-        return JSONResponse(await asyncio.to_thread(mon.wifi.summary, vendor_of))
+        out = await asyncio.to_thread(mon.wifi.summary, vendor_of, bool(request.query_params.get("rescan")))
+        out["dhcp"] = mon.dhcp.servers()
+        out["dhcp_last"] = mon.dhcp.last
+        if mon.adguard.enabled:
+            try:
+                out["dns"] = await asyncio.to_thread(mon.adguard.dns_speed)
+            except Exception:  # noqa: BLE001
+                out["dns"] = None
+        return JSONResponse(out)
+
+    async def wifi_ack(request: Request):
+        b = await request.json()
+        if b.get("bssid"):
+            mon.wifi.ack(str(b["bssid"]), str(b.get("verdict") or "neighbor"))
+        elif b.get("server"):
+            mon.dhcp.ack(str(b["server"]))
+        else:
+            return JSONResponse({"error": "¿Cuál?"}, 400)
+        return JSONResponse({"ok": True})
+
+    async def dhcp_scan(_):
+        threading.Thread(target=mon.dhcp.run, name="dhcp", daemon=True).start()
+        return JSONResponse({"ok": True, "msg": "Preguntando quién reparte IPs en cada red (≈20 s)…"})
+
+    async def dns_optimize(_):
+        ok, msg = await asyncio.to_thread(mon.adguard.optimize_dns)
+        if ok:
+            db.add_event("info", "dns", "DNS acelerado desde el panel", msg)
+        return JSONResponse({"ok": ok, "msg": msg} if ok else {"error": msg}, 200 if ok else 400)
 
     async def device_wifi(request: Request):
         mac = request.path_params["mac"].lower()
@@ -1381,6 +1414,128 @@ def build_app(mon: Monitor) -> Starlette:
                 f.unlink()                     # se muestra una sola vez
         return JSONResponse(data, headers={"Cache-Control": "no-store"})
 
+    # ------------------------------------------------ internet, syslog, certificados, captura, invitados
+    from . import extras
+
+    async def internet_get(request: Request):
+        days = min(int(request.query_params.get("days", 90)), 366)
+        now = time.time()
+        return JSONResponse({"outages": mon.outages.list(now - days * 86400),
+                             "week": mon.outages.stats(now - 7 * 86400), "month": mon.outages.stats(now - 30 * 86400),
+                             "targets": mon.target_status})
+
+    async def internet_export(_):
+        import csv
+        import io
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["inicio", "fin", "minutos", "destino"])
+        for o in mon.outages.list(0):
+            if o["end"]:
+                w.writerow([time.strftime("%Y-%m-%d %H:%M", time.localtime(o["start"])),
+                            time.strftime("%Y-%m-%d %H:%M", time.localtime(o["end"])),
+                            round((o["end"] - o["start"]) / 60), o["target"]])
+        return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": 'attachment; filename="caidas-internet.csv"'})
+
+    async def syslog_get(request: Request):
+        qp = request.query_params
+        return JSONResponse({"rows": await asyncio.to_thread(mon.syslog.query, qp.get("host", ""), qp.get("q", "")[:100]),
+                             "hosts": [{**h, "name": mon._name_of_ip(h["host"])} for h in mon.syslog.hosts()],
+                             "port": mon.syslog.port, "error": mon.syslog.error})
+
+    async def watch_get(_):
+        w = cfg.get("watch") or {}
+        return JSONResponse({**mon.watch.results, "configured": bool(w.get("domains") or w.get("certs"))})
+
+    async def watch_run(_):
+        return JSONResponse(await asyncio.to_thread(mon.watch.run))
+
+    async def capture_get(_):
+        ifaces = sorted({n.get("interface") or mon.iface for n in mon.networks})
+        return JSONResponse({"available": mon.capture.available(), "running": mon.capture.running,
+                             "files": mon.capture.files(), "ifaces": ifaces, "bridge": mon.bridge_mode})
+
+    async def capture_start(request: Request):
+        b = await request.json()
+        iface = str(b.get("iface") or mon.iface)
+        if not re.fullmatch(r"[\w.-]{1,15}", iface):
+            return JSONResponse({"error": "Interfaz inválida"}, 400)
+        try:
+            r = mon.capture.start(iface, str(b.get("ip") or "").strip(), int(b.get("seconds") or 60),
+                                  int(b.get("port") or 0))
+        except (RuntimeError, ValueError) as e:
+            return JSONResponse({"error": str(e)}, 400)
+        db.add_event("info", "capture", f"Captura de tráfico {r['ip'] or 'de la red'} ({r['seconds']} s)", r["file"])
+        return JSONResponse({"ok": True, **r})
+
+    async def capture_file(request: Request):
+        f = extras.Capture.path(request.path_params["name"])
+        if not f:
+            return JSONResponse({"error": "No existe"}, 404)
+        if request.method == "DELETE":
+            f.unlink()
+            return JSONResponse({"ok": True})
+        return FileResponse(f, media_type="application/vnd.tcpdump.pcap", filename=f.name)
+
+    def _guest() -> dict:
+        r = db.q("SELECT value FROM watch_state WHERE key='guest'")
+        return json.loads(r[0]["value"]) if r else {}
+
+    async def guest_get(_):
+        from .vpn import qr_svg
+        g = _guest()
+        if not g.get("ssid"):
+            return JSONResponse({"configured": False})
+        return JSONResponse({"configured": True, "ssid": g["ssid"], "password": g.get("password", ""),
+                             "security": g.get("security", "WPA"),
+                             "svg": qr_svg(extras.wifi_qr_text(g["ssid"], g.get("password", ""), g.get("security", "WPA"),
+                                                               bool(g.get("hidden"))))})
+
+    async def guest_save(request: Request):
+        b = await request.json()
+        ssid, pw = str(b.get("ssid") or "").strip()[:32], str(b.get("password") or "")[:63]
+        sec = b.get("security") if b.get("security") in ("WPA", "WEP", "nopass") else "WPA"
+        if not ssid:
+            return JSONResponse({"error": "Escribe el nombre de la red"}, 400)
+        if sec == "WPA" and pw and len(pw) < 8:
+            return JSONResponse({"error": "Una contraseña WPA tiene al menos 8 caracteres"}, 400)
+        db.x("INSERT INTO watch_state (key, value, ts) VALUES ('guest', ?, ?) ON CONFLICT(key) DO UPDATE SET "
+             "value=excluded.value, ts=excluded.ts", (json.dumps({"ssid": ssid, "password": pw, "security": sec,
+                                                                  "hidden": bool(b.get("hidden"))}), time.time()))
+        return JSONResponse({"ok": True})
+
+    async def digest_get(request: Request):
+        days = min(int(request.query_params.get("days", 7)), 31)
+        return JSONResponse(await asyncio.to_thread(extras.digest, db, mon, time.time() - days * 86400))
+
+    # Página de estado para la familia: sin cuenta, sin datos técnicos
+    FAMILY_STATUS = (("jellyfin", "Cine en casa", "🎬"), ("immich", "Fotos", "📷"), ("navidrome", "Música", "🎵"),
+                     ("mealie", "Recetas y súper", "🍲"), ("homeassistant", "Casa inteligente", "🏠"),
+                     ("paperless", "Documentos", "📄"))
+
+    async def estado_api(_):
+        inet = mon.target_status.get("internet") or next(iter(mon.target_status.values()), {})
+        tools = {(t.get("home") or t.get("name") or "").lower(): t for t in await asyncio.to_thread(tool_list)}
+        items = []
+        for key, name, icon in FAMILY_STATUS:
+            t = tools.get(key) or next((x for x in tools.values() if key in str(x.get("url", "")).lower()
+                                        or key in str(x.get("name", "")).lower()), None)
+            if not t or (t.get("home") and not t.get("enabled")) or not t.get("check"):
+                continue
+            url = t.get("url", "")
+            items.append({"name": name, "icon": icon, "url": url if url.startswith("http") else "",
+                          "up": await asyncio.to_thread(check_url, t["check"])})
+        today = mon.outages.stats(time.time() - 86400)
+        down = [o for o in mon.outages.list(time.time() - 86400) if not o["end"]]
+        return JSONResponse({"internet": {"up": bool(inet.get("up", True)) and not down,
+                                          "ms": round((inet.get("latency") or 0) * 1000),
+                                          "cuts_today": today["count"], "minutes_today": today["minutes"]},
+                             "services": items, "ts": time.time()})
+
+    async def estado_page(_):
+        return HTMLResponse(ESTADO_HTML, headers={"Cache-Control": "no-cache"})
+
     routes = [
         Route("/", index), Route("/health", health), Route("/metrics", prom_metrics),
         Route("/api/summary", summary), Route("/api/devices", devices),
@@ -1420,10 +1575,18 @@ def build_app(mon: Monitor) -> Starlette:
         Route("/api/inventory", inventory_get), Route("/api/inventory/scan", inventory_scan, methods=["POST"]),
         Route("/api/inventory/export", inventory_export),
         Route("/api/wifi", wifi_get), Route("/api/devices/{mac}/wifi", device_wifi, methods=["POST"]),
+        Route("/api/wifi/ack", wifi_ack, methods=["POST"]), Route("/api/dhcp/scan", dhcp_scan, methods=["POST"]),
+        Route("/api/dns/optimize", dns_optimize, methods=["POST"]),
         Route("/api/parental", parental_get), Route("/api/parental", parental_save, methods=["POST"]),
         Route("/api/parental/{rid:int}", parental_delete, methods=["DELETE"]),
         Route("/api/passwords", passwords_list), Route("/api/passwords/reset", passwords_reset, methods=["POST"]),
         Route("/api/passwords/result/{svc}", passwords_result),
+        Route("/api/internet", internet_get), Route("/api/internet/export", internet_export),
+        Route("/api/syslog", syslog_get), Route("/api/watch", watch_get), Route("/api/watch/run", watch_run, methods=["POST"]),
+        Route("/api/capture", capture_get), Route("/api/capture", capture_start, methods=["POST"]),
+        Route("/api/capture/file/{name}", capture_file, methods=["GET", "DELETE"]),
+        Route("/api/guest", guest_get), Route("/api/guest", guest_save, methods=["POST"]),
+        Route("/api/digest", digest_get), Route("/api/estado", estado_api), Route("/estado", estado_page),
         Route("/api/bots", bots_get), Route("/api/bots/{name}/do/{act}", bot_action, methods=["POST"]),
         Route("/api/bots/{name}/logs", bot_logs), Route("/api/bots/{name}/users", bot_users),
         Route("/api/bots/{name}/users/{uid:int}", bot_user_change, methods=["POST"]),
@@ -1450,3 +1613,34 @@ def build_app(mon: Monitor) -> Starlette:
 
     return Starlette(routes=routes, exception_handlers={ValueError: bad_request, BotError: bot_error,
                                                         RuntimeError: runtime_error})
+
+
+ESTADO_HTML = """<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>¿Todo bien en casa?</title>
+<style>
+ :root{color-scheme:light dark;--ok:#2f9e44;--bad:#e03131;--mut:#868e96}
+ body{font:17px/1.45 system-ui,sans-serif;margin:0;padding:24px;max-width:560px;margin-inline:auto}
+ h1{font-size:1.5rem;margin:0 0 4px} .mut{color:var(--mut);font-size:.9rem}
+ .big{font-size:1.25rem;padding:18px;border-radius:14px;margin:18px 0;border:2px solid}
+ .ok{border-color:var(--ok)} .bad{border-color:var(--bad)}
+ ul{list-style:none;padding:0} li{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #8883}
+ li span:last-child{margin-left:auto} a{color:inherit}
+</style></head><body>
+<h1>¿Todo bien en casa?</h1><div class="mut" id="ts">Revisando…</div>
+<div id="inet" class="big">…</div><ul id="svc"></ul>
+<p class="mut">Si algo dice «no funciona» por más de 10 minutos, avísale a quien administra el homelab.</p>
+<script>
+async function load(){
+  try{
+    const r=await fetch('/api/estado',{cache:'no-store'}); const j=await r.json();
+    const i=j.internet, el=document.getElementById('inet');
+    el.className='big '+(i.up?'ok':'bad');
+    el.textContent=i.up?`✅ Hay internet${i.ms?` (responde en ${i.ms} ms)`:''}`:'❌ No hay internet ahorita. Ya se está anotando.';
+    if(i.cuts_today) el.textContent+=` · Hoy se ha ido ${i.cuts_today} vez(es), ${i.minutes_today} min en total.`;
+    document.getElementById('svc').innerHTML=j.services.map(s=>`<li><span>${s.icon}</span>
+      <span>${s.url?`<a href="${s.url}">${s.name}</a>`:s.name}</span><span>${s.up?'✅ funciona':'❌ no funciona'}</span></li>`).join('');
+    document.getElementById('ts').textContent='Actualizado '+new Date().toLocaleTimeString();
+  }catch(e){document.getElementById('ts').textContent='No pude preguntar al homelab.';}
+}
+load(); setInterval(load,30000);
+</script></body></html>"""

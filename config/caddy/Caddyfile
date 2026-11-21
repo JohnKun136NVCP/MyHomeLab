@@ -67,7 +67,7 @@ https://{$HOMELAB_HOST}:443 {
 	}
 
 	# Inicio de sesión del panel (página propia, con «Cerrar sesión»)
-	@public path /login /auth/login /auth/logout /static/* /ca.crt
+	@public path /login /auth/login /auth/logout /static/* /ca.crt /estado /api/estado
 	handle @public {
 		reverse_proxy host.docker.internal:8000
 	}

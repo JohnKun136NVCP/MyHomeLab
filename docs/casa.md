@@ -95,3 +95,12 @@ En una máquina que **no** sea la Pi: `./hl home enable dns-backup` (o el rol `d
 Copia la configuración del AdGuard de la Pi cada 10 minutos. Si el puerto 53 lo ocupa
 `systemd-resolved` (Ubuntu), el script te dice cómo liberarlo. Luego en el módem o en las
 Tenda pon como DNS 1° la Pi y 2° esta máquina.
+
+## Página «¿Todo bien en casa?» y Wi-Fi de invitados
+
+- `https://IP-de-la-Pi:8443/estado` — sin cuenta: ¿hay internet?, ¿funcionan Cine en casa,
+  Fotos, Música, Recetas…? Ponla en favoritos del celular de cada quien.
+- **Invitados** (panel): escribe el nombre y la contraseña de la red de invitados y sale el
+  **código QR** para imprimir; con la cámara del celular se conectan sin teclear.
+- **Internet** (panel): cada caída de más de 1 minuto con su hora y duración, y el CSV para
+  el proveedor.

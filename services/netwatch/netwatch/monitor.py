@@ -88,7 +88,18 @@ class Monitor:
         self.parental = Parental(db, self.adguard, os.environ.get("TZ") or "America/Mexico_City")
         self._parental_synced = 0.0
         from .bots import Bots
+        from .dhcp import Watch
         self.bots = Bots(db)
+        self.dhcp = Watch(db, self)
+        self._wifi_tracked = time.time() - 540            # primera revisión del aire al minuto
+        from . import extras
+        self.outages = extras.Outages(db)
+        self.watch = extras.Watch(db, cfg)
+        self.capture = extras.Capture()
+        sl = cfg.get("syslog") or {}
+        self.syslog = extras.Syslog(db, int(sl.get("port", 514)), self._name_of_ip)
+        if sl.get("enabled", True) and not (os.environ.get("NETWATCH_NO_SYSLOG") or os.environ.get("PYTEST_CURRENT_TEST")):
+            self.syslog.start()
         self._bots_watched = 0.0
         self.write_prom_targets()
 
@@ -328,6 +339,7 @@ class Monitor:
         for t in self.cfg.get("infrastructure", {}).get("ping_targets", []) or []:
             lat = scanner.ping(t["host"])
             self.target_status[t["name"]] = {"up": lat is not None, "latency": lat, "host": t["host"]}
+            self.outages.update(t["name"], lat is not None)
 
     # ------------------------------------------------- nombres de equipos
     def dns_servers(self, network: str) -> list[str]:
@@ -423,6 +435,13 @@ class Monitor:
                                   f"Lo pidió {who}. Si no lo abriste tú, revisa ese equipo.",
                                   f"{b['client']}|{b['domain']}")
 
+    def _name_of_ip(self, ip: str) -> str:
+        for i in self.infra:
+            if i.get("ip") == ip:
+                return i["name"]
+        d = next((d for d in self.db.devices() if d.get("ip") == ip), None)
+        return (d or {}).get("display_name") or ip
+
     def maintenance(self) -> None:
         """Inventario semanal (de madrugada) y control parental al día si un equipo cambia de IP."""
         if self.inventory.due():
@@ -430,6 +449,14 @@ class Monitor:
         if self.adguard.enabled and time.time() - self._parental_synced > 1800:
             self._parental_synced = time.time()
             self.parental.resync()
+        if time.time() - self._wifi_tracked > 600:          # routers/AP nuevos en el aire
+            self._wifi_tracked = time.time()
+            threading.Thread(target=self.wifi.track, name="wifi", daemon=True).start()
+        if time.time() - self.dhcp.last > 1800 and not self.bridge_mode:   # ¿otro router repartiendo IPs?
+            threading.Thread(target=self.dhcp.run, name="dhcp", daemon=True).start()
+        if (self.cfg.get("watch") or {}) and time.time() - self.watch.last > 6 * 3600:   # certificados y DNS
+            self.watch.last = time.time()
+            threading.Thread(target=self.watch.run, name="watch", daemon=True).start()
         if self.bots.all() and time.time() - self._bots_watched > 300:
             self._bots_watched = time.time()
             threading.Thread(target=self.bots.watch, name="bots", daemon=True).start()

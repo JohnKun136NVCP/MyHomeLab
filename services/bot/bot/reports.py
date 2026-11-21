@@ -201,3 +201,63 @@ def daily_report(cfg: dict, backups) -> str:
                       home_block(), new_devices_block(), services_block(), dns_block(),
                       vps_block(), nodes_block(), alerts_block(),
                       cameras_block(cfg), backups_block(backups)])
+
+
+# ------------------------------------------------------------------ semanal y mensual
+def weekly_digest(d: dict | None = None) -> str:
+    """Resumen de seguridad de la semana (domingo)."""
+    try:
+        d = d if d is not None else _netwatch("/api/digest?days=7")
+    except Exception as e:  # noqa: BLE001
+        return f"🛡 <b>Resumen semanal</b>\nNo pude leer el panel: {esc(str(e))}"
+    lines = ["🛡 <b>Resumen de la semana</b>"]
+    o = d.get("outages") or {}
+    ok = []
+    lines.append(f"🌐 Internet: {o.get('count', 0)} caída(s), {o.get('minutes', 0)} min · "
+                 f"{o.get('uptime_pct', 100)} % arriba" if o else "🌐 Internet: sin datos")
+    nd = d.get("new_devices") or []
+    lines.append(f"🆕 Equipos nuevos: {len(nd)}" + (": " + ", ".join(esc(x.split(': ', 1)[-1]) for x in nd[:6]) if nd else ""))
+    if d.get("honeypot"):
+        lines.append(f"🍯 Alguien tocó la trampa {d['honeypot']} vez(es): revisa Eventos")
+    else:
+        ok.append("trampa sin visitas")
+    if d.get("arp"):
+        lines.append(f"🕵️ Avisos de ARP: {d['arp']}")
+    for r in d.get("rogue") or []:
+        lines.append(f"🛰 {esc(r)}")
+    if d.get("dns_danger"):
+        lines.append(f"☠️ Sitios peligrosos bloqueados: {d['dns_danger']}")
+    for v in d.get("vulnerable") or []:
+        lines.append(f"🧬 {esc(v)}")
+    iv = d.get("images_vuln") or []
+    if iv:
+        lines.append("🐳 Imágenes con vulnerabilidades con arreglo: " + ", ".join(
+            f"{esc(i['image'].split('/')[-1])} ({i['critical']}C/{i['high']}A)" for i in iv[:5]) + " → ./hl update --all")
+    for c in d.get("certs") or []:
+        lines.append(f"🔏 Certificado de {esc(c['target'])}: vence en {int(c['days'])} días")
+    for p in (d.get("disks") or {}).get("problems") or []:
+        lines.append(esc(p))
+    if d.get("syslog_alerts"):
+        lines.append(f"📜 Avisos de los registros de tus equipos: {d['syslog_alerts']}")
+    lines.append(f"🚨 Eventos críticos: {d.get('critical', 0)}")
+    if ok and len(lines) <= 5:
+        lines.append("✅ Semana tranquila.")
+    return "\n".join(lines)
+
+
+def monthly_internet(j: dict | None = None) -> str:
+    """El 1 de cada mes: las caídas del internet del mes, para reclamarle al proveedor."""
+    try:
+        j = j if j is not None else _netwatch("/api/internet?days=31")
+    except Exception as e:  # noqa: BLE001
+        return f"🌐 No pude leer las caídas del internet: {esc(str(e))}"
+    m = j.get("month") or {}
+    outs = [o for o in j.get("outages") or [] if o.get("end")]
+    lines = [f"🌐 <b>Internet del último mes</b>",
+             f"Caídas: {m.get('count', 0)} · total {m.get('minutes', 0)} min · la más larga {m.get('longest_min', 0)} min",
+             f"Disponibilidad: {m.get('uptime_pct', 100)} %"]
+    for o in sorted(outs, key=lambda o: o["start"] - o["end"])[:5]:
+        lines.append(f"• {time.strftime('%d/%m %H:%M', time.localtime(o['start']))} — {round((o['end'] - o['start']) / 60)} min")
+    if outs:
+        lines.append("La lista completa (para el proveedor): panel → Internet → Exportar CSV.")
+    return "\n".join(lines)

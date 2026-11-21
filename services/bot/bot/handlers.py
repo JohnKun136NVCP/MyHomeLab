@@ -25,6 +25,7 @@ HELP = """🛡 <b>MyHomeLab</b>
 <b>Estado</b>
 /estado – resumen de casa, VPS y nodos
 /reporte – reporte completo ahora
+/semanal – resumen de seguridad de la semana · /caidas – caídas del internet del mes
 /vps – estado y tráfico del VPS
 /dispositivos – quién está conectado
 /nuevos – dispositivos sin revisar
@@ -261,6 +262,12 @@ class Handlers:
     def cmd_estado(self, chat, _):
         self.reply(chat, reports.home_block() + "\n" + reports.vps_block() + "\n" +
                    reports.nodes_block() + "\n" + reports.alerts_block())
+
+    def cmd_semanal(self, chat, _):
+        self.reply(chat, reports.weekly_digest())
+
+    def cmd_caidas(self, chat, _):
+        self.reply(chat, reports.monthly_internet())
 
     def cmd_reporte(self, chat, _):
         self.reply(chat, reports.daily_report(self.a.cfg, self.a.backups))

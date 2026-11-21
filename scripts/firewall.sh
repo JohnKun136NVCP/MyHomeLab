@@ -102,6 +102,7 @@ done
 for n in "${LAN[@]}"; do
   plan allow from "$n" to any port "$HTTPS_PORT" proto tcp comment "Dashboard homelab"
   plan allow from "$n" to any port "$HTTP_PORT" proto tcp comment "Dashboard (redirige a https)"
+  plan allow from "$n" to any port 514 proto udp comment "syslog de módem y AP"
   if [[ "$PROFILES" == *,dns,* ]]; then
     plan allow from "$n" to any port 53 comment "DNS AdGuard"
   fi

@@ -11,6 +11,7 @@
 #    ./hl update --all           además: imágenes nuevas (Pi, casa, Immich), limpieza y escaneo Trivy
 #    ./hl scan                   ¿qué imágenes tienen vulnerabilidades con arreglo? (Trivy)
 #    ./hl roam [add SSID|now]    que la Pi visite tus otros SSID por turnos (y revisar por qué no)
+#    sudo ./hl disks [--install] salud de los discos (SMART) y espacio; aviso diario si algo falla
 #    sudo ./hl honeypot [status|test|remove]   trampa en la red: avisa si alguien toca servicios falsos
 #    ./hl restart [svc...]       reinicia todo o los servicios indicados
 #    ./hl logs [svc]             bitácora en vivo (Ctrl+C para salir)
@@ -150,6 +151,7 @@ case "$cmd" in
   scan|escanear) exec ./scripts/update-all.sh --scan-only ;;
   honeypot|trampa) exec ./scripts/honeypot.sh "$@" ;;
   roam|redes) exec ./scripts/roam.sh "$@" ;;
+  disks|discos) exec ./scripts/disks.sh "$@" ;;
   migrate|migrar) exec ./scripts/migrate.sh "$@" ;;
   clean|limpiar) exec ./scripts/clean-pi.sh "$@" ;;
   *)

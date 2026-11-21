@@ -64,6 +64,9 @@ flowchart LR
 | Herramientas para la casa | `./hl home enable …`: Home Assistant, Paperless, Navidrome, Mealie (recetas y súper), Jellyseerr (pedir películas), Syncthing, DNS de respaldo | [casa](docs/casa.md) |
 | Tus otros bots | `sudo ./hl bots add yt ~/yt-telegrambot`: panel → Bots (estado, reinicio, logs, usuarios, premium, pagos con Stars) | [bot](docs/bot.md#tus-otros-bots-panel--bots) |
 | Recordatorios de la casa | Bot: `/recordar mañana 9:00 pagar la luz`, `cada mes 5 …`, `cada año 15/03 …` | [casa](docs/casa.md) |
+| Routers nuevos y Wi-Fi | Red → Wi-Fi: quién reparte IPs y su CIDR, routers/AP nuevos, gemelo malvado, canal óptimo, ⚡ DNS | [redes múltiples](docs/redes-multiples.md) |
+| Internet y estado | Caídas del internet (CSV y reporte mensual), página `/estado` para la familia, QR de invitados | [casa](docs/casa.md) |
+| Syslog, captura, discos | Bitácora de equipos, captura .pcap, SMART, simulacro de restauración, certificados/DNS, resumen semanal | [seguridad](docs/seguridad.md) |
 | Trampa en la red | `sudo ./hl honeypot`: servicios falsos (OpenCanary); avisa si alguien los toca | [seguridad](docs/seguridad.md#trampa-en-la-red-honeypot) |
 | Actualizar todo | `./hl update --all`: imágenes, panel y bot desde cero, limpieza y escaneo Trivy | [seguridad](docs/seguridad.md#actualizar-todo-y-revisar-vulnerabilidades) |
 | Contraseñas | Panel → Contraseñas: restablecer Grafana, AdGuard, Speedtest, Mealie, Home Assistant… | [seguridad](docs/seguridad.md#contraseñas-de-los-servicios-panel--contraseñas) |

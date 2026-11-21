@@ -137,6 +137,36 @@ class AdGuard:
         except (urllib.error.URLError, OSError) as e:
             return False, f"AdGuard no responde: {e}"
 
+    FAST = {"upstream_mode": "parallel", "cache_size": 8 * 1024 * 1024, "cache_optimistic": True}
+
+    def dns_speed(self) -> dict:
+        """Lo que hace rápido (o lento) al DNS: modo de consulta, caché y a quién le pregunta."""
+        i = self._get("/control/dns_info") or {}
+        return {"upstream_mode": i.get("upstream_mode", ""), "cache_size": i.get("cache_size", 0),
+                "cache_optimistic": bool(i.get("cache_optimistic")), "upstream_dns": i.get("upstream_dns") or [],
+                "fast": i.get("upstream_mode") in ("parallel", "fastest_addr") and bool(i.get("cache_optimistic"))
+                and int(i.get("cache_size") or 0) >= 4 * 1024 * 1024}
+
+    def optimize_dns(self) -> tuple[bool, str]:
+        """Pregunta a todos los DNS a la vez (gana el más rápido), caché de 8 MB y respuesta
+        inmediata desde la caché mientras se actualiza (caché optimista)."""
+        if not self.url:
+            return False, "AdGuard no está configurado"
+        try:
+            self._post("/control/dns_config", self.FAST)
+            return True, "DNS acelerado: consultas en paralelo, caché de 8 MB y caché optimista"
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                return False, "AdGuard no aceptó el usuario/contraseña"
+            try:   # versiones viejas de AdGuard: sin upstream_mode
+                self._post("/control/dns_config", {"parallel_requests": True, "cache_size": self.FAST["cache_size"],
+                                                   "cache_optimistic": True})
+                return True, "DNS acelerado (AdGuard viejo: consultas en paralelo y caché optimista)"
+            except (urllib.error.URLError, OSError) as e2:
+                return False, f"AdGuard respondió {getattr(e2, 'code', '')}: {e2}"
+        except (urllib.error.URLError, OSError) as e:
+            return False, f"AdGuard no responde: {e}"
+
     def top_clients(self) -> list[tuple[str, int]]:
         out = []
         for item in self.stats.get("top_clients") or []:

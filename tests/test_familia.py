@@ -315,3 +315,21 @@ def test_contrasenas_de_servicios(lab, monkeypatch):
     assert not auth.allowed("registros", "GET", "/api/passwords")
     # el panel pide app.js con versión para que el navegador no use uno viejo
     assert b"/static/app.js?v=" in req(lab["nw"], "GET", "/", headers=admin)[2]
+
+
+def test_rutas_nuevas_de_red(lab):
+    admin = login(lab, "admin", "adminpw1")
+    for path in ("/api/estado", "/api/internet", "/api/syslog", "/api/watch", "/api/capture", "/api/guest",
+                 "/api/digest", "/api/system"):
+        c, _, b = req(lab["nw"], "GET", path, headers=admin)
+        assert c == 200, (path, b[:200])
+    c, _, b = req(lab["nw"], "GET", "/estado")
+    assert c == 200 and b"Todo bien en casa" in b
+    c, _, b = req(lab["nw"], "POST", "/api/guest", json.dumps({"ssid": "Invitados", "password": "visita123"}), admin)
+    assert c == 200
+    g = json.loads(req(lab["nw"], "GET", "/api/guest", headers=admin)[2])
+    assert g["ssid"] == "Invitados" and "<svg" in g["svg"] or g["svg"] == ""      # qrcode puede faltar aquí
+    c, _, b = req(lab["nw"], "POST", "/api/capture", json.dumps({"ip": "1.2.3.4; rm -rf /", "iface": "eth0"}), admin)
+    assert c == 400
+    from netwatch import auth
+    assert not auth.allowed("registros", "GET", "/api/capture")

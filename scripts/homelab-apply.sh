@@ -38,6 +38,10 @@ start=$(date +%s)
   case "$action" in
     revisar)
       ./scripts/check.sh; exit 0 ;;
+    probar-respaldo)                   # Sistema → simulacro de restauración
+      ./scripts/test-backup.sh; exit $? ;;
+    discos)
+      ./scripts/disks.sh; exit $? ;;
     actualizar-todo)                   # Sistema → Actualizar todo (./hl update --all)
       ./scripts/update-all.sh; exit $? ;;
     escanear-imagenes)

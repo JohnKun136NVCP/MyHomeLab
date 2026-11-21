@@ -199,6 +199,13 @@ class BotApp:
                     self.store.set("last_report", today)
                     text = await asyncio.to_thread(reports.daily_report, self.cfg, self.backups)
                     self.notify(text)
+                if now.strftime("%H:%M") >= report_at and now.weekday() == 6 and self.store.get("last_weekly") != today:
+                    self.store.set("last_weekly", today)
+                    self.notify(await asyncio.to_thread(reports.weekly_digest))
+                month = now.strftime("%Y-%m")
+                if now.strftime("%H:%M") >= report_at and now.day == 1 and self.store.get("last_monthly") != month:
+                    self.store.set("last_monthly", month)
+                    self.notify(await asyncio.to_thread(reports.monthly_internet))
             except Exception:  # noqa: BLE001
                 log.exception("scheduler")
             await asyncio.sleep(30)

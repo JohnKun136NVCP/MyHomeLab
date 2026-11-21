@@ -94,3 +94,41 @@ falta para SSID con **otra red** (otro router, o una red de invitados aislada).
 
 Lo más cómodo, si no quieres que la Pi se desconecte unos segundos: un adaptador Wi-Fi USB
 (`wlan1`) fijo en la otra red, con `interface: wlan1` en esa red. Así no brinca nada.
+
+## Tu caso: casa, laboratorio y oficinas
+
+```bash
+sudo ./hl roam fix                                   # pone el SSID real del laboratorio (al que está la Wi-Fi)
+./hl roam network oficinas 192.168.2.0/24 "SSID-de-oficinas"
+sudo ./hl roam add "SSID-de-oficinas"                # su contraseña, sin desconectarse
+./hl restart netwatch && ./hl roam now
+```
+
+Agrega también `192.168.2.0/24` a `firewall.lan_networks` (y corre `sudo ./hl firewall`) para
+que las oficinas puedan usar el DNS de la Pi y ver la página de estado.
+
+## ¿Se conectó otro router? (Red → Wi-Fi → «Routers en tus redes»)
+
+Cada 30 min la Pi pregunta en cada red **quién reparte IPs (DHCP)** y anota qué red ofrece
+(**CIDR**), su puerta de enlace y su DNS. Si aparece uno que no es tu módem ni tus Tenda, te
+llega **🛰 Otro router repartiendo IPs en «casa»: 192.168.0.1** con su red (p. ej.
+`192.168.0.0/24`). Es lo que pasa cuando alguien conecta un router por su puerto LAN: los
+equipos que le hagan caso se quedan sin tu internet. «Es mío» lo deja de marcar.
+
+En el aire, cada 10 min se anotan los BSSID que se ven:
+- **Red nueva con señal fuerte (≥ 60 %)** → casi seguro está dentro de la casa (📡). Si su MAC
+  se parece a la de un equipo conectado, te dice su IP.
+- **Tu SSID desde un aparato de otro fabricante** → posible **gemelo malvado** (🚨), el truco
+  para robar contraseñas de Wi-Fi.
+
+## Optimizar la Wi-Fi (Red → Wi-Fi → «Optimizar»)
+
+Con lo que la Pi oye en el aire calcula el **canal más libre** para cada AP tuyo (1/6/11 en
+2.4 GHz; 36-48 o 149-161 en 5 GHz, sin DFS), y revisa velocidad de enlace, señal débil,
+seguridad vieja (WPA/TKIP limita a 54 Mbit/s), redes solo en 2.4 GHz y AP tuyos en el mismo
+canal. El canal se cambia en la página de cada Tenda. Además:
+
+- **⚡ Acelerar DNS** (AdGuard): consultas en paralelo, caché de 8 MB y caché optimista. Cada
+  página abre muchos nombres: se nota.
+- Lista para dejarla rápida: 20 MHz en 2.4 GHz, 80 MHz en 5 GHz, WPA2-AES, WMM, AP por cable
+  en vez de repetidor, firmware al día, router alto y al centro.

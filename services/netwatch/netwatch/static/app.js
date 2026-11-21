@@ -486,6 +486,10 @@ const views = {
             <div class="muted small">Contenedores, firewall, SSH, disco, temperatura, bot… (<span class="mono">./hl check</span>)</div></div></div>
           <div class="frow"><label>Respaldo</label><div><button data-act="respaldo">🗄 Respaldar ahora</button>
             <div class="muted small">Cifrado; queda en tu SSD y te llega por Telegram. Cada domingo se hace solo.</div></div></div>
+          <div class="frow"><label>Simulacro</label><div><button data-act="probar-respaldo">🧪 Probar el último respaldo</button>
+            <div class="muted small">Lo descifra y revisa que se pueda restaurar. Mensual en automático: <span class="mono">sudo ./hl test-backup --install</span></div></div></div>
+          <div class="frow"><label>Discos</label><div><button data-act="discos">💽 Revisar los discos</button>
+            <div class="muted small">SMART y espacio. Diario en automático: <span class="mono">sudo ./hl disks --install</span></div></div></div>
           <div class="frow"><label>Certificado</label><div>${sy.ca ? '<a href="/ca.crt"><button>⬇ Descargar certificado del homelab</button></a>' : '<span class="muted">Corre <span class="mono">./hl ca</span> en la Pi para poder descargarlo aquí.</span>'}
             <div class="muted small">Instálalo en tus equipos y el navegador deja de decir «no seguro» (docs/seguridad.md).</div></div></div>
         </div>
@@ -497,6 +501,23 @@ const views = {
             <tr><td>Copias</td><td>SSD ${(bk.sent || []).map((x) => "· " + esc(x)).join(" ")}</td></tr></table>`
             : '<p class="muted">Nunca se ha respaldado. Presiona «Respaldar ahora».</p>'}
           <p class="muted small">Restaurar en una Pi nueva: <span class="mono">./hl restore ARCHIVO</span></p></div>
+      </div>
+      <div class="grid2" style="margin-bottom:var(--gap)">
+        <div class="card"><h3>💽 Discos ${sy.disks.ts ? `<span class="muted small">${ago(sy.disks.ts)}</span>` : ""}</h3>
+          ${sy.disks.ts ? `${(sy.disks.disks || []).map((x) => `<div class="small">${x.issues.length ? "⚠️" : "✅"} <b>${esc(x.model)}</b> <span class="mono muted">${esc(x.dev)}</span>
+              ${x.temp ? ` · ${x.temp} °C` : ""}${x.wear != null ? ` · desgaste ${x.wear} %` : ""}${x.note ? ` · <span class="muted">${esc(x.note)}</span>` : ""}
+              ${x.issues.map((i) => `<div class="small" style="margin-left:1.5em">→ ${esc(i)}</div>`).join("")}</div>`).join("") || '<p class="muted small">Sin discos con SMART.</p>'}
+            ${(sy.disks.space || []).map((x) => `<div class="small">${x.pct >= 90 ? "⚠️" : "✅"} ${esc(x.mount)}: ${x.pct} % usado · ${x.free_gb} GB libres</div>`).join("")}`
+            : '<p class="muted small">Aún no se revisan. «Revisar los discos».</p>'}</div>
+        <div class="card"><h3>🧪 Simulacro de restauración</h3>
+          ${sy.restore_test.ts ? `<p>${sy.restore_test.ok ? "✅ El último respaldo se pudo abrir" : "❌ El último respaldo NO se pudo abrir"} <span class="muted small">${ago(sy.restore_test.ts)}</span></p>
+            <p class="mono small muted">${esc(sy.restore_test.file || "")}</p>` : '<p class="muted small">Nunca se ha probado. «Probar el último respaldo».</p>'}
+          <h3 style="margin-top:12px">🔏 Certificados y DNS</h3>
+          ${(sy.watch.certs || []).map((c) => `<div class="small">${c.days == null ? "❔" : c.days < 7 ? "🔴" : c.days < 21 ? "🟠" : "✅"} ${esc(c.target)}:
+              ${c.days == null ? esc(c.error) : `vence en ${Math.floor(c.days)} días (${esc(c.issuer)})`}</div>`).join("")}
+          ${(sy.watch.dns || []).map((d) => `<div class="small">🌐 ${esc(d.domain)} → <span class="mono">${esc(d.ips.join(", ") || "no resuelve")}</span></div>`).join("")}
+          ${(sy.watch.certs || []).length || (sy.watch.dns || []).length ? "" : `<p class="muted small">Pon tus dominios en Ajustes → YAML:
+            <span class="mono">watch: {domains: [miempresa.mx]}</span>. Te aviso si el certificado está por vencer o si cambia a dónde apunta.</p>`}</div>
       </div>
       <div class="card"><h3>🩺 Revisión ${r.ts ? `<span class="muted small">${ago(r.ts)}</span> <span class="pill ok">✔ ${r.ok}</span> <span class="pill warn">⚠ ${r.warn}</span> <span class="pill bad">✘ ${r.bad}</span>` : ""}</h3>
         ${r.ts ? `<div class="checks">${[...(r.items || [])].sort((a, b) => "bwo".indexOf(a.st[0]) - "bwo".indexOf(b.st[0])).map((i) => `<div class="row"><span>${icon[i.st]}</span>
@@ -1144,6 +1165,54 @@ const views = {
       ${j.mine_configured ? "" : `<p class="muted small">Tus redes se adivinaron por los aparatos a los que está conectada la Pi.
         Si falta alguna, ponlas en Ajustes → YAML: <span class="mono">wifi: {ssids: ["Casa", "Casa-Arriba"]}</span>.</p>`}
       ${j.tips.length ? `<div class="card" style="margin-bottom:var(--gap)"><h3>💡 Sugerencias</h3>${j.tips.map((t) => `<div class="small" style="margin:4px 0">${esc(t)}</div>`).join("")}</div>` : ""}
+      ${(() => {   // routers/AP nuevos o sospechosos y quién reparte IPs
+        const rogue = j.seen.filter((x) => !x.ack), dh = j.dhcp || [];
+        return `<div class="card" style="margin-bottom:var(--gap)"><div class="toolbar"><h3 class="grow">🛰 Routers en tus redes</h3>
+          ${ADMIN ? '<button id="dhs">🔍 Buscar ahora</button>' : ""}</div>
+          <p class="muted small">Quién reparte IPs (DHCP) en cada red y qué red ofrece. Si alguien conecta otro router, aparece aquí con su red (CIDR).
+            ${j.dhcp_last ? `Última búsqueda ${ago(j.dhcp_last)}.` : "Se busca cada 30 min."}</p>
+          ${dh.length ? `<table><tr><th>Red</th><th>Router (DHCP)</th><th>Red que ofrece (CIDR)</th><th>Puerta de enlace · DNS</th><th>Visto</th><th></th></tr>
+            ${dh.map((r) => `<tr><td>${esc(r.network)} <span class="muted small mono">${esc(r.iface)}</span></td><td class="mono">${esc(r.server)}</td>
+              <td class="mono"><b>${esc(r.cidr || "¿?")}</b></td><td class="small mono">${esc(r.router || "—")} · ${esc(r.dns || "—")}</td>
+              <td class="small">${ago(r.last)}</td>
+              <td>${r.known ? '<span class="pill ok">conocido</span>' : r.ack ? '<span class="pill">es mío</span>'
+                : `<span class="pill bad">¡nuevo!</span>${ADMIN ? ` <button data-dack="${esc(r.server)}">Es mío</button>` : ""}`}</td></tr>`).join("")}</table>`
+            : '<p class="muted">Todavía no se ha preguntado.</p>'}
+          ${j.seen.length ? `<h4 style="margin:12px 0 4px">Wi-Fi nuevas o sospechosas</h4><table><tr><th>Red</th><th>Aparato</th><th>Canal</th><th>Señal máx.</th><th>Desde</th><th></th></tr>
+            ${j.seen.map((x) => `<tr><td>${x.status === "twin" ? "🚨 " : ""}${esc(x.ssid)}</td><td class="mono small">${esc(x.bssid)}<br><span class="muted">${esc(x.vendor || "")}</span></td>
+              <td>${x.channel} <span class="muted small">${esc(x.band || "")}</span></td><td>${bar(x.max_signal)}</td><td class="small">${ago(x.first)}</td>
+              <td>${x.ack ? `<span class="pill">${x.status === "mine" ? "es mío" : "vecino"}</span>` : ADMIN
+                ? `<button data-wack="${esc(x.bssid)}" data-v="mine">Es mío</button> <button data-wack="${esc(x.bssid)}" data-v="neighbor">Vecino</button>`
+                : `<span class="pill ${x.status === "twin" ? "bad" : "warn"}">${x.status === "twin" ? "¿gemelo?" : "nueva"}</span>`}</td></tr>`).join("")}</table>
+            ${rogue.length ? `<p class="small">🚨 = transmite el nombre de TU red desde un aparato de otro fabricante (posible «gemelo malvado» para robar contraseñas).</p>` : ""}` : ""}
+        </div>`;
+      })()}
+      ${(() => {   // optimizar
+        const o = j.optimize || { aps: [], tips: [] }, dns = j.dns;
+        const mv = o.aps.filter((a) => a.best !== a.channel);
+        return `<div class="card" style="margin-bottom:var(--gap)"><h3>🚀 Optimizar la Wi-Fi</h3>
+          ${o.aps.length ? `<table><tr><th>Red</th><th>Banda</th><th>Canal ahora</th><th>Sugerido</th><th>Señal en la Pi</th><th>Velocidad</th></tr>
+            ${o.aps.map((a) => `<tr><td>${esc(a.ssid)} <span class="muted small mono">${esc(a.bssid)}</span></td><td>${a.band}</td><td>${a.channel}</td>
+              <td>${a.best !== a.channel ? `<b class="pill warn">→ ${a.best}</b><div class="muted small">${esc(a.why || "")}</div>` : '<span class="pill ok">bien</span>'}</td>
+              <td>${bar(a.signal)}</td><td class="small">${esc(a.rate || "—")}</td></tr>`).join("")}</table>
+            ${mv.length ? `<p class="small">El canal se cambia en la página de cada router/AP (Wi-Fi → Canal). Después pulsa «Volver a buscar».</p>` : ""}`
+            : '<p class="muted">No encontré tus AP en el aire.</p>'}
+          ${o.tips.map((t) => `<div class="small" style="margin:4px 0">⚠ ${esc(t)}</div>`).join("")}
+          <details style="margin-top:8px"><summary class="small">Lista para dejarla rápida (en cada router y AP)</summary><ul class="small">
+            <li><b>2.4 GHz:</b> canal 1, 6 u 11 (el sugerido arriba), ancho <b>20 MHz</b>. 40 MHz en 2.4 choca con todos.</li>
+            <li><b>5 GHz:</b> ancho <b>80 MHz</b>, canal 36-48 o 149-161; activa 5 GHz si está apagado. Es donde está la velocidad.</li>
+            <li><b>Seguridad WPA2-PSK (AES)</b> o WPA2/WPA3. Con TKIP/WPA «mixto» se limita a 54 Mbit/s.</li>
+            <li><b>Modo 802.11ax/ac/n</b> (no «b/g» heredado) y WMM encendido.</li>
+            <li><b>AP por cable</b> al router siempre que se pueda: un repetidor inalámbrico parte la velocidad a la mitad.</li>
+            <li>Cada AP en un <b>canal distinto</b> y lejos del otro; potencia alta solo si la casa es grande.</li>
+            <li><b>Firmware al día</b> y reinicio semanal programado si el modelo lo permite.</li>
+            <li>Aleja el router de microondas, espejos, peceras y del piso; mejor alto y al centro.</li></ul></details>
+          ${dns ? `<p style="margin-top:8px">${dns.fast ? '✅ <b>DNS rápido</b>' : '🐢 <b>El DNS puede ir más rápido</b>'}
+              <span class="muted small">modo ${esc(dns.upstream_mode || "uno por uno")}, caché ${Math.round((dns.cache_size || 0) / 1048576)} MB${dns.cache_optimistic ? ", optimista" : ""}</span>
+              ${ADMIN && !dns.fast ? '<button id="dnsfast" class="primary">⚡ Acelerar DNS</button>' : ""}</p>
+            <p class="muted small">Cada página que abres pregunta varios nombres; en paralelo y con caché optimista se siente mucho más rápido.</p>` : ""}
+        </div>`;
+      })()}
       <div class="grid2">${j.networks.map((n) => `<div class="card"><h3>📶 ${esc(n.ssid)} <span class="muted small">${n.bands.join(" + ")}</span></h3>
         <table><tr><th>Punto de acceso</th><th>Banda</th><th>Canal</th><th>Señal</th><th>Seguridad</th></tr>
         ${n.aps.map((a) => `<tr><td class="mono small">${esc(a.bssid)}${a.connected ? " ⭐" : ""}<br><span class="muted">${esc(a.vendor || "")}</span></td>
@@ -1159,6 +1228,19 @@ const views = {
         <table>${d.devices.filter((x) => x.online).map((x) => `<tr><td>${esc(x.display_name)}</td><td><select data-wmac="${x.mac}">
           <option value="">—</option>${ssids.map((s) => `<option ${x.wifi === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select></td></tr>`).join("")}</table></div>` : ""}`;
     $("#wre").onclick = async () => { $("#wre").disabled = true; await api("/api/wifi?rescan=1").catch(() => {}); route(); };
+    $("#dhs")?.addEventListener("click", async () => {
+      try { toast((await api("/api/dhcp/scan", { method: "POST" })).msg); setTimeout(() => location.hash === "#wifi" && route(), 25000); }
+      catch (e) { toast(e.message); }
+    });
+    $("#dnsfast")?.addEventListener("click", async () => {
+      try { toast((await api("/api/dns/optimize", { method: "POST" })).msg); route(); } catch (e) { toast(e.message); }
+    });
+    view.querySelectorAll("[data-wack]").forEach((b) => b.onclick = async () => {
+      await api("/api/wifi/ack", { method: "POST", body: JSON.stringify({ bssid: b.dataset.wack, verdict: b.dataset.v }) }); route();
+    });
+    view.querySelectorAll("[data-dack]").forEach((b) => b.onclick = async () => {
+      await api("/api/wifi/ack", { method: "POST", body: JSON.stringify({ server: b.dataset.dack }) }); route();
+    });
     view.querySelectorAll("select[data-wmac]").forEach((s) => s.onchange = async () => {
       try { await api(`/api/devices/${s.dataset.wmac}/wifi`, { method: "POST", body: JSON.stringify({ ssid: s.value }) }); toast("Guardado"); }
       catch (e) { toast(e.message); }
@@ -1443,6 +1525,97 @@ const views = {
     });
   },
 
+  async internet() {
+    const j = await api("/api/internet");
+    const dur = (o) => { const m = Math.round(((o.end || Date.now() / 1000) - o.start) / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; };
+    const t = j.targets.internet || {};
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Internet</h2><a href="/api/internet/export"><button>Exportar caídas (CSV)</button></a></div>
+      <div class="grid" style="margin-bottom:var(--gap)">
+        <div class="stat"><span class="muted small">Ahora</span><b>${t.up === false ? "❌ sin internet" : `✅ ${t.latency ? Math.round(t.latency * 1000) + " ms" : "bien"}`}</b></div>
+        <div class="stat"><span class="muted small">Caídas esta semana</span><b>${j.week.count} · ${j.week.minutes} min</b></div>
+        <div class="stat"><span class="muted small">Caídas en 30 días</span><b>${j.month.count} · ${j.month.minutes} min</b></div>
+        <div class="stat"><span class="muted small">Disponibilidad (30 días)</span><b>${j.month.uptime_pct} %</b></div>
+        <div class="stat"><span class="muted small">La más larga (30 días)</span><b>${j.month.longest_min} min</b></div></div>
+      <div class="card"><h3>Bitácora de caídas</h3>
+        <p class="muted small">Cada vez que el ping a internet falla más de 1 minuto queda aquí. El CSV te sirve para reclamarle al proveedor
+          (fecha, hora y duración). El 1 de cada mes te llega el resumen por Telegram.</p>
+        <table><tr><th>Empezó</th><th>Terminó</th><th>Duró</th></tr>
+        ${j.outages.map((o) => `<tr><td>${fmtTime(o.start)}</td><td>${o.end ? fmtTime(o.end) : '<span class="pill bad">sigue caído</span>'}</td><td>${dur(o)}</td></tr>`).join("")
+          || '<tr><td colspan="3" class="muted">Sin caídas registradas 🎉</td></tr>'}</table></div>
+      <p class="muted small">Página sencilla para la familia (sin cuenta): <a href="/estado">/estado</a></p>`;
+  },
+
+  async bitacora() {
+    const host = globalThis.HL_SLH || "", q = globalThis.HL_SLQ || "";
+    const j = await api(`/api/syslog?host=${encodeURIComponent(host)}&q=${encodeURIComponent(q)}`);
+    const SEV = ["emerg", "alert", "crit", "err", "warn", "notice", "info", "debug"];
+    view.innerHTML = `<div class="toolbar"><h2 class="grow">Bitácora de equipos (syslog)</h2>
+        <select id="slh"><option value="">Todos los equipos</option>${j.hosts.map((h) => `<option value="${esc(h.host)}" ${h.host === host ? "selected" : ""}>${esc(h.name)} (${h.n})</option>`).join("")}</select>
+        <input id="slq" placeholder="Buscar…" value="${esc(q)}"></div>
+      ${j.error ? `<div class="banner">${esc(j.error)}</div>` : ""}
+      <p class="muted small">Pon la IP de la Pi como «servidor syslog / registro remoto» (puerto ${j.port} UDP) en el módem y en cada Tenda
+        (Administración → Registro del sistema). Si un equipo reporta intentos de entrar con contraseña mala, te llega un aviso.</p>
+      ${j.hosts.length ? `<table class="small"><tr><th>Hora</th><th>Equipo</th><th>Nivel</th><th>Mensaje</th></tr>
+        ${j.rows.map((r) => `<tr><td class="mono">${fmtTime(r.ts)}</td><td>${esc((j.hosts.find((h) => h.host === r.host) || {}).name || r.host)}</td>
+          <td><span class="pill ${r.severity <= 3 ? "bad" : r.severity === 4 ? "warn" : ""}">${SEV[r.severity]}</span></td>
+          <td>${r.tag ? `<b>${esc(r.tag)}</b> ` : ""}${esc(r.msg)}</td></tr>`).join("")}</table>`
+        : '<div class="card"><p class="muted">Todavía no llega nada. Configura el registro remoto en tus equipos.</p></div>'}`;
+    $("#slh").onchange = (e) => { globalThis.HL_SLH = e.target.value; route(); };
+    let t; $("#slq").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { globalThis.HL_SLQ = e.target.value; route(); }, 400); };
+  },
+
+  async captura() {
+    const [j, d] = await Promise.all([api("/api/capture"), api("/api/devices")]);
+    view.innerHTML = `<h2>Captura de tráfico</h2>
+      ${j.available ? "" : '<div class="banner">Falta tcpdump en el panel: corre <span class="mono">./hl update --all</span>.</div>'}
+      <p class="muted">Graba unos segundos de tráfico en un archivo <b>.pcap</b> para abrirlo en Wireshark.
+        ${j.bridge ? "Con el modo puente ves todo lo que pasa por la Pi." : `Ojo: sin modo puente la Pi solo ve el tráfico que pasa por ella
+        (las consultas DNS a AdGuard, difusiones, mDNS y lo que vaya a la Pi), no la navegación de otros equipos.`}</p>
+      <div class="card" style="margin-bottom:var(--gap)"><div class="toolbar">
+        <select id="cip"><option value="">Toda la interfaz</option>${d.devices.filter((x) => x.ip).map((x) => `<option value="${esc(x.ip)}">${esc(x.display_name)} — ${esc(x.ip)}</option>`).join("")}</select>
+        <select id="cif">${j.ifaces.map((i) => `<option>${esc(i)}</option>`).join("")}</select>
+        <input id="cport" type="number" min="0" max="65535" placeholder="puerto (opcional)" style="width:9em">
+        <select id="csec"><option value="30">30 s</option><option value="60" selected>1 min</option><option value="120">2 min</option><option value="300">5 min</option></select>
+        <button class="primary" id="cgo" ${j.running || !j.available ? "disabled" : ""}>⏺ Grabar</button></div>
+        ${j.running ? `<p>⏺ Grabando ${esc(j.running.ip || j.running.iface)}… (${j.running.seconds} s)</p>` : ""}</div>
+      <div class="card"><h3>Capturas</h3><table><tr><th>Archivo</th><th>Tamaño</th><th>Cuándo</th><th></th></tr>
+        ${j.files.map((f) => `<tr><td class="mono small">${esc(f.name)}</td><td>${bytes(f.size)}</td><td>${ago(f.ts)}</td>
+          <td><a href="/api/capture/file/${encodeURIComponent(f.name)}"><button>⬇</button></a> <button class="danger" data-cdel="${esc(f.name)}">🗑</button></td></tr>`).join("")
+          || '<tr><td colspan="4" class="muted">Ninguna todavía.</td></tr>'}</table>
+        <p class="muted small">Se guardan las últimas 20.</p></div>`;
+    $("#cgo").onclick = async () => {
+      try {
+        await api("/api/capture", { method: "POST", body: JSON.stringify({ ip: $("#cip").value, iface: $("#cif").value,
+          port: Number($("#cport").value) || 0, seconds: Number($("#csec").value) }) });
+        toast("Grabando…"); route(); setTimeout(() => location.hash === "#captura" && route(), (Number($("#csec")?.value) || 60) * 1000 + 3000);
+      } catch (e) { toast(e.message); }
+    };
+    view.querySelectorAll("[data-cdel]").forEach((b) => b.onclick = async () => {
+      await api(`/api/capture/file/${encodeURIComponent(b.dataset.cdel)}`, { method: "DELETE" }); route();
+    });
+  },
+
+  async invitados() {
+    const j = await api("/api/guest");
+    view.innerHTML = `<h2>Wi-Fi de invitados</h2>
+      <div class="grid2"><div class="card">${j.configured ? `<div style="max-width:280px;background:#fff;padding:8px;border-radius:8px">${j.svg}</div>
+          <h3 style="margin-top:8px">📶 ${esc(j.ssid)}</h3>${j.password ? `<p>Contraseña: <b class="mono">${esc(j.password)}</b></p>` : "<p>Sin contraseña</p>"}
+          <p class="muted small">Apunta la cámara del celular al código y se conecta solo.</p>
+          <button onclick="window.print()">🖨 Imprimir</button>`
+        : '<p class="muted">Escribe los datos de tu red de invitados y aquí sale el código QR para que se conecten sin teclear.</p>'}</div>
+      ${ADMIN ? `<div class="card"><h3>Datos de la red</h3>
+        <input id="gs" placeholder="Nombre (SSID)" value="${esc(j.ssid || "")}" style="width:100%"><br><br>
+        <input id="gp" placeholder="Contraseña" value="${esc(j.password || "")}" style="width:100%"><br><br>
+        <select id="gsec"><option value="WPA">WPA/WPA2/WPA3</option><option value="nopass" ${j.security === "nopass" ? "selected" : ""}>Abierta</option></select>
+        <label class="small"><input type="checkbox" id="gh"> Red oculta</label>
+        <div class="toolbar" style="margin-top:8px"><button class="primary" id="gsave">Guardar</button></div>
+        <p class="muted small">Tip: en el Tenda activa «Red de invitados» con aislamiento: los invitados tienen internet pero no ven tus equipos.</p></div>` : ""}</div>`;
+    $("#gsave")?.addEventListener("click", async () => {
+      try { await api("/api/guest", { method: "POST", body: JSON.stringify({ ssid: $("#gs").value, password: $("#gp").value, security: $("#gsec").value, hidden: $("#gh").checked }) }); route(); }
+      catch (e) { toast(e.message); }
+    });
+  },
+
   async acl() {
     const [j, d] = await Promise.all([api("/api/acl"), api("/api/devices")]);
     view.innerHTML = `<h2>Control de acceso (ACL)</h2>
@@ -1530,7 +1703,9 @@ const views = {
 
 const EV_ICON = { new_device: "🆕", arp_spoof: "🕵", ports_changed: "🚪", ids: "🚨", blocked_seen: "⛔",
   quarantine: "🧪", acl: "🔒", honeypot: "🍯", dns_danger: "☣", roam_failed: "📶", login_failed: "🔑",
-  login_new_ip: "👤", camera_found: "📷", wol: "⏻", log_cleared: "🧹", vulnerable: "🧬", crowdsec: "🛑", bots: "🤖", bot_down: "🤖" };
+  login_new_ip: "👤", camera_found: "📷", wol: "⏻", log_cleared: "🧹", vulnerable: "🧬", crowdsec: "🛑", bots: "🤖", bot_down: "🤖", wifi_new: "📡", wifi_twin: "🚨",
+  rogue_dhcp: "🛰", infra_ip_changed: "🔀", dns: "⚡", outage: "📉",
+  syslog_alert: "📜", cert_expiring: "🔏", dns_changed: "🌐", capture: "⏺" };
 function evList(evs, actions = false) {
   if (!evs.length) return '<p class="muted">Sin eventos. Todo tranquilo.</p>';
   return evs.map((e) => `<div class="ev${e.fp ? " fp" : ""}"><span>${EV_ICON[e.kind] || "•"}</span>
@@ -1583,9 +1758,10 @@ const TITLES = { inicio: "Inicio", resumen: "Resumen", dispositivos: "Dispositiv
   conexiones: "Conexiones", ap: "Por AP", mapa: "Mapa", camaras: "Cámaras", servicios: "Servicios",
   accesos: "Accesos", eventos: "Eventos", acl: "ACL", vpn: "VPN", sistema: "Sistema", cuentas: "Cuentas",
   ajustes: "Ajustes", cuenta: "Mi cuenta", respaldos: "Mis respaldos", inventario: "Inventario", wifi: "Wi-Fi",
-  parental: "Control parental", bots: "Bots", contrasenas: "Contraseñas" };
-const ADMIN_ONLY = ["acl", "vpn", "sistema", "cuentas", "ajustes", "parental", "bots", "contrasenas"];
-const LOGS_ONLY = ["resumen", "dispositivos", "trafico", "conexiones", "ap", "mapa", "eventos", "inventario", "wifi"];
+  parental: "Control parental", bots: "Bots", contrasenas: "Contraseñas",
+  internet: "Internet", bitacora: "Bitácora de equipos", captura: "Captura de tráfico", invitados: "Wi-Fi de invitados" };
+const ADMIN_ONLY = ["acl", "vpn", "sistema", "cuentas", "ajustes", "parental", "bots", "contrasenas", "captura"];
+const LOGS_ONLY = ["resumen", "dispositivos", "trafico", "conexiones", "ap", "mapa", "eventos", "inventario", "wifi", "internet", "bitacora", "invitados"];
 const setNav = (open) => {
   document.body.classList.toggle("nav-open", open);
   $("#scrim").hidden = !open;
