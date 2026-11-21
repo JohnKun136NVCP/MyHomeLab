@@ -179,3 +179,20 @@ def test_reminder_store(tmp_path):
         rs.done(r, TZ)
     left = rs.of(1)
     assert [r["id"] for r in left] == [b] and left[0]["run_at"] > now.timestamp()
+
+
+def test_inventory_vulners_tables_and_bad_scores():
+    xml = """<?xml version="1.0"?><nmaprun><host><address addr="192.168.1.254" addrtype="ipv4"/>
+<ports><port protocol="tcp" portid="53"><state state="open"/><service name="domain" product="dnsmasq" version="2.78"/>
+<script id="vulners" output="&#xa;  cpe:/a:thekelleys:dnsmasq:2.78: &#xa;    	CVE-2020-25682	8.1	https://vulners.com/cve/CVE-2020-25682&#xa;    	CVE-2026-12969	15485	https://x&#xa;">
+<table key="cpe:/a:thekelleys:dnsmasq:2.78">
+<table><elem key="id">CVE-2020-25682</elem><elem key="cvss">8.1</elem><elem key="type">cve</elem></table>
+<table><elem key="id">PACKETSTORM:15485</elem><elem key="cvss">7.5</elem><elem key="type">packetstorm</elem></table>
+<table><elem key="id">CVE-2026-4892</elem><elem key="cvss">274</elem><elem key="type">cve</elem></table>
+<table><elem key="id">PRION:CVE-2020-25681</elem><elem key="cvss">8.1</elem><elem key="type">prion</elem></table>
+</table></script></port></ports></host></nmaprun>"""
+    s = inventory.parse(xml)[0]
+    assert s["cves"] == [{"id": "CVE-2020-25681", "cvss": 8.1}, {"id": "CVE-2020-25682", "cvss": 8.1}]
+    # sin tablas: el texto, y los puntajes imposibles fuera
+    s = inventory.parse(xml.split("<table key")[0] + "</script></port></ports></host></nmaprun>")[0]
+    assert s["cves"] == [{"id": "CVE-2020-25682", "cvss": 8.1}]

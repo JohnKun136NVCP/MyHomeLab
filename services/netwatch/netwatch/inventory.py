@@ -39,7 +39,37 @@ CREATE TABLE IF NOT EXISTS inventory_scans (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, hosts INTEGER, services INTEGER, vulnerable INTEGER, secs REAL
 );
 """
-CVE_RE = re.compile(r"((?:CVE|PRION|GHSA|EDB-ID)[-:][\w-]+)\s+(\d+(?:\.\d+)?)")
+# Texto del script vulners, una línea por hallazgo:  «\tCVE-2020-25681\t8.1\thttps://vulners.com/…»
+# El puntaje es CVSS (0–10, con un decimal); se exige la URL detrás para no confundir números de otros IDs.
+CVE_RE = re.compile(r"^\s*((?:CVE|PRION:CVE)-\d{4}-\d{4,})\s+(\d{1,2}(?:\.\d)?)\s+https?://", re.M)
+
+
+def _cvss(v) -> float | None:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if 0 <= f <= 10 else None
+
+
+def _vulners(sc: ET.Element) -> dict[str, float]:
+    """CVE → CVSS de la salida de vulners: primero las tablas del XML (exactas), si no, el texto."""
+    out: dict[str, float] = {}
+    for t in sc.iter("table"):
+        elems = {e.get("key"): (e.text or "").strip() for e in t.findall("elem")}
+        cid, score = elems.get("id", ""), _cvss(elems.get("cvss"))
+        if score is None or not re.fullmatch(r"(?:PRION:)?CVE-\d{4}-\d{4,}", cid):
+            continue
+        cid = cid.removeprefix("PRION:")
+        out[cid] = max(out.get(cid, 0.0), score)
+    if out:
+        return out
+    for m in CVE_RE.finditer(sc.get("output", "")):
+        score = _cvss(m.group(2))
+        if score is not None:
+            cid = m.group(1).removeprefix("PRION:")
+            out[cid] = max(out.get(cid, 0.0), score)
+    return out
 PORTS = "21,22,23,25,53,80,81,110,139,143,443,445,554,631,993,995,1883,3000,3306,3389,5000,5001,5432,5900," \
         "6379,8000,8008,8080,8081,8443,8554,8888,9000,9090,9100,10000,32400,34567,49152,62078"
 
@@ -68,15 +98,13 @@ def parse(xml: str) -> list[dict]:
             for sc in p.iter("script"):
                 if sc.get("id") != "vulners":
                     continue
-                for m in CVE_RE.finditer(sc.get("output", "")):
-                    cid = m.group(1).replace("CVE:", "CVE-")
-                    if cid.startswith("CVE"):
-                        cves[cid] = max(cves.get(cid, 0), float(m.group(2)))
+                for cid, score in _vulners(sc).items():
+                    cves[cid] = max(cves.get(cid, 0.0), score)
             out.append({"ip": ip, "mac": mac, "port": int(p.get("portid", 0)), "proto": p.get("protocol", "tcp"),
                         "service": sv.get("name", ""), "product": sv.get("product", ""),
                         "version": " ".join(x for x in (sv.get("version", ""), sv.get("extrainfo", "")) if x),
                         "cpe": ",".join(c.text or "" for c in sv.iter("cpe")),
-                        "cves": sorted(({"id": k, "cvss": v} for k, v in cves.items()), key=lambda c: -c["cvss"])[:50]})
+                        "cves": sorted(({"id": k, "cvss": v} for k, v in cves.items()), key=lambda c: (-c["cvss"], c["id"]))[:50]})
     return out
 
 
@@ -97,7 +125,8 @@ class Inventory:
         devs = {d["mac"]: d for d in self.db.devices()}
         by: dict[str, dict] = {}
         for r in rows:
-            r["cves"] = json.loads(r["cves"] or "[]")
+            r["cves"] = [c for c in json.loads(r["cves"] or "[]") if _cvss(c.get("cvss")) is not None]
+            r["max_cvss"] = max((c["cvss"] for c in r["cves"]), default=0)
             d = devs.get(r["mac"], {})
             e = by.setdefault(r["mac"], {"mac": r["mac"], "ip": d.get("ip") or r["ip"],
                                          "name": d.get("name") or d.get("hostname") or d.get("vendor") or r["mac"],
