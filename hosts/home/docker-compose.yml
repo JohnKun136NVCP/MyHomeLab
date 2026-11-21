@@ -54,7 +54,7 @@ services:
   paperless-redis:
     <<: *common
     profiles: ["paperless"]
-    image: redis:7-alpine
+    image: redis:8-alpine
 
   # --- Navidrome: tu música en streaming, apps Subsonic en el celular (http://IP:4533)
   navidrome:
