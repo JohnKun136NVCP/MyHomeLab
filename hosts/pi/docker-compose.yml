@@ -269,7 +269,7 @@ services:
   ntopng-redis:
     <<: *common
     profiles: ["ntopng"]
-    image: redis:7-alpine
+    image: redis:8-alpine
     ports: ["127.0.0.1:6380:6379"]
 
   # --- Trampa en la red (opcional): sudo ./hl honeypot ---------------------
