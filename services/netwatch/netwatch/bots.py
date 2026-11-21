@@ -254,6 +254,115 @@ class Bot:
             out["songs_mb"] = round(sum(f.stat().st_size for f in folder.iterdir() if f.is_file()) / 2**20)
         return out
 
+    # ------------------------------------------------ canciones (caché del bot)
+    AUDIO = (".flac", ".m4a", ".mp3")
+
+    def _song_files(self) -> dict[str, list[Path]]:
+        """Archivos de Songs/ agrupados por nombre (sin extensión), igual que los busca el bot."""
+        out: dict[str, list[Path]] = {}
+        folder = self.dir / "Songs"
+        if folder.is_dir():
+            for f in folder.rglob("*"):
+                if f.is_file() and f.suffix.lower() in self.AUDIO:
+                    out.setdefault(f.stem.strip().lower(), []).append(f)
+        return out
+
+    def _files_for(self, song: dict, index: dict[str, list[Path]]) -> list[Path]:
+        files = list(index.get(str(song["uri"]).lower(), []))
+        if not files and song.get("name"):                      # versiones viejas: por título
+            files = list(index.get(str(song["name"]).strip().lower(), []))
+        return files
+
+    def _busy_uris(self) -> set[str]:
+        """Videos que la cola está bajando o mandando ahora mismo: esos no se borran."""
+        q = self.dir / "database" / "queue.db"
+        if not q.exists():
+            return set()
+        with contextlib.suppress(sqlite3.Error), contextlib.closing(self._ro(q)) as c:
+            return {r[0] for r in c.execute("SELECT payload FROM jobs")}
+        return set()
+
+    def songs(self, q: str = "", sort: str = "recent", limit: int = 300, offset: int = 0) -> dict:
+        db = self.dir / "database" / "idSongs.db"
+        if not db.exists():
+            raise BotError("Todavía no hay database/idSongs.db")
+        index = self._song_files()
+        order = {"recent": "id DESC", "name": "name COLLATE NOCASE", "channel": "channel COLLATE NOCASE, name",
+                 "duration": "duration DESC"}.get(sort, "id DESC")
+        where, args = "", ()
+        if q:
+            where, args = " WHERE name LIKE ? OR channel LIKE ? OR uri = ?", (f"%{q}%", f"%{q}%", q)
+        with contextlib.closing(self._ro(db)) as c:
+            total = c.execute("SELECT COUNT(*) FROM songs" + where, args).fetchone()[0]
+            rows = [dict(r) for r in c.execute(f"SELECT id, name, channel, uri, duration FROM songs{where} "
+                                              f"ORDER BY {order} LIMIT ? OFFSET ?", (*args, limit, offset))]
+            known = {str(r[0]).lower() for r in c.execute("SELECT uri FROM songs")} | \
+                    {str(r[0]).strip().lower() for r in c.execute("SELECT name FROM songs WHERE name IS NOT NULL")}
+        busy = " ".join(self._busy_uris())
+        for r in rows:
+            files = self._files_for(r, index)
+            r["files"] = [{"name": f.name, "mb": round(f.stat().st_size / 2**20, 1)} for f in files]
+            r["mb"] = round(sum(x["mb"] for x in r["files"]), 1)
+            r["busy"] = bool(r["uri"]) and r["uri"] in busy
+        orphans = [f for stem, fs in index.items() if stem not in known for f in fs]
+        return {"songs": rows, "total": total,
+                "orphans": [{"name": str(f.relative_to(self.dir / "Songs")), "mb": round(f.stat().st_size / 2**20, 1)}
+                            for f in sorted(orphans)[:200]],
+                "orphans_mb": round(sum(f.stat().st_size for f in orphans) / 2**20, 1)}
+
+    def delete_songs(self, ids: list[int], orphans: list[str] | None = None) -> dict:
+        """Borra canciones de idSongs.db y sus archivos (audio en Songs/ y miniatura en thumbimg/).
+
+        La próxima vez que alguien la pida, el bot la vuelve a bajar como si fuera nueva.
+        """
+        db = self.dir / "database" / "idSongs.db"
+        songs_dir, thumbs = (self.dir / "Songs").resolve(), self.dir / "thumbimg"
+        index = self._song_files()
+        busy = " ".join(self._busy_uris())
+        removed, freed, skipped = 0, 0, []
+        ids = [int(i) for i in ids][:1000]
+        if ids:
+            c = sqlite3.connect(str(db), timeout=30)
+            try:
+                c.row_factory = sqlite3.Row
+                rows = [dict(r) for r in c.execute(
+                    f"SELECT id, name, uri FROM songs WHERE id IN ({','.join('?' * len(ids))})", ids)]
+                for r in rows:
+                    if r["uri"] and r["uri"] in busy:
+                        skipped.append(r["name"] or r["uri"])
+                        continue
+                    for f in self._files_for(r, index):
+                        with contextlib.suppress(OSError):
+                            freed += f.stat().st_size
+                            f.unlink()
+                    with contextlib.suppress(OSError):
+                        (thumbs / f"{r['uri']}_tg.jpg").unlink()
+                    c.execute("DELETE FROM songs WHERE id = ?", (r["id"],))
+                    removed += 1
+                c.commit()
+            finally:
+                c.close()
+                self._fix_owner_of(db)
+        for name in orphans or []:
+            f = (songs_dir / name).resolve()
+            if f.parent != songs_dir and songs_dir not in f.parents:
+                continue                                         # nada fuera de Songs/
+            if f.is_file() and f.suffix.lower() in self.AUDIO:
+                freed += f.stat().st_size
+                f.unlink()
+                removed += 1
+        return {"removed": removed, "freed_mb": round(freed / 2**20, 1), "skipped": skipped}
+
+    def _fix_owner_of(self, db: Path) -> None:
+        try:
+            st = db.stat()
+        except OSError:
+            return
+        for p in (db, Path(f"{db}-wal"), Path(f"{db}-shm")):
+            with contextlib.suppress(OSError):
+                if p.exists() and (p.stat().st_uid, p.stat().st_gid) != (st.st_uid, st.st_gid):
+                    os.chown(p, st.st_uid, st.st_gid)
+
     def recipients(self) -> list[int]:
         with contextlib.closing(self._ro(self.users_db)) as c:
             return [r[0] for r in c.execute("SELECT telegram_id FROM users")]

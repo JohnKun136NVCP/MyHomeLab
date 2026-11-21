@@ -1291,6 +1291,23 @@ def build_app(mon: Monitor) -> Starlette:
         db.add_event("info", "bots", f"Bot «{b.name}»: {msg}")
         return JSONResponse({"ok": True, "msg": msg})
 
+    async def bot_songs(request: Request):
+        b, qp = _bot(request), request.query_params
+        try:
+            return JSONResponse(await asyncio.to_thread(b.songs, qp.get("q", "").strip()[:100], qp.get("sort", "recent"),
+                                                        min(int(qp.get("limit", 300)), 1000), int(qp.get("offset", 0))))
+        except (BotError, sqlite3.Error) as e:
+            return JSONResponse({"error": str(e)}, 400)
+
+    async def bot_songs_delete(request: Request):
+        b, body = _bot(request), await request.json()
+        try:
+            r = await asyncio.to_thread(b.delete_songs, body.get("ids") or [], body.get("orphans") or [])
+        except (BotError, sqlite3.Error) as e:
+            return JSONResponse({"error": str(e)}, 400)
+        db.add_event("info", "bots", f"Bot «{b.name}»: {r['removed']} canción(es) borradas, {r['freed_mb']} MB liberados")
+        return JSONResponse({"ok": True, **r})
+
     async def bot_message(request: Request):
         b = _bot(request)
         body = await request.json()
@@ -1353,6 +1370,7 @@ def build_app(mon: Monitor) -> Starlette:
         Route("/api/bots/{name}/users/{uid:int}", bot_user_change, methods=["POST"]),
         Route("/api/bots/{name}/payments", bot_payments), Route("/api/bots/{name}/refund", bot_refund, methods=["POST"]),
         Route("/api/bots/{name}/message", bot_message, methods=["POST"]),
+        Route("/api/bots/{name}/songs", bot_songs), Route("/api/bots/{name}/songs/delete", bot_songs_delete, methods=["POST"]),
         Route("/api/system", system_get), Route("/api/system/{action}", system_action, methods=["POST"]),
         Route("/ca.crt", ca_cert),
         Route("/api/vpn", vpn_get), Route("/api/vpn/client", vpn_client, methods=["POST"]),

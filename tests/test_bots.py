@@ -127,3 +127,40 @@ def test_missing_mount(ytbot, tmp_path):
     shutil.rmtree(d)
     s = bots.get("yt").summary({})
     assert "./hl bots add yt /home/john/yt" in s["error"]
+
+
+def test_songs_list_and_delete(ytbot):
+    bots, d = ytbot
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ytdb2", d / "database" / "databases.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    yt = mod.ytdatabase(str(d / "database" / "idSongs.db"))
+    yt.insertData("Lemon", "Kenshi Yonezu", "SX_ViT4Ra7k", 255, "")
+    yt.insertData("Plastic Love", "Mariya Takeuchi", "3bNITQR4Uso", 480, "")
+    yt.insertData("Vieja", "Alguien", "OLDvid00001", 100, "")
+    yt.close()
+    songs, thumbs = d / "Songs", d / "thumbimg"
+    songs.mkdir()
+    thumbs.mkdir()
+    (songs / "SX_ViT4Ra7k.flac").write_bytes(b"x" * 2**20)
+    (songs / "SX_ViT4Ra7k.mp3").write_bytes(b"x" * 1000)
+    (thumbs / "SX_ViT4Ra7k_tg.jpg").write_bytes(b"j")
+    (songs / "Vieja.mp3").write_bytes(b"x")                    # nombre de versiones viejas (por título)
+    (songs / "3bNITQR4Uso.m4a").write_bytes(b"x")
+    (songs / "huerfana.mp3").write_bytes(b"x" * 10)
+    with sqlite3.connect(d / "database" / "queue.db") as c:
+        c.execute("CREATE TABLE jobs (job_id TEXT PRIMARY KEY, chat_id INTEGER, user_id INTEGER, payload TEXT, status TEXT, created_at TEXT)")
+        c.execute("INSERT INTO jobs VALUES ('j1', 1, 1, '{\"url\": \"https://youtu.be/3bNITQR4Uso\"}', 'processing', '')")
+    bot = bots.get("yt")
+    r = bot.songs()
+    by = {s["uri"]: s for s in r["songs"]}
+    assert r["total"] == 3 and len(by["SX_ViT4Ra7k"]["files"]) == 2 and by["OLDvid00001"]["files"][0]["name"] == "Vieja.mp3"
+    assert by["3bNITQR4Uso"]["busy"] and [o["name"] for o in r["orphans"]] == ["huerfana.mp3"]
+    assert [s["name"] for s in bot.songs("kenshi")["songs"]] == ["Lemon"]
+    out = bot.delete_songs([by["SX_ViT4Ra7k"]["id"], by["3bNITQR4Uso"]["id"], by["OLDvid00001"]["id"]], ["huerfana.mp3", "../.env"])
+    assert out["removed"] == 3 and out["skipped"] == ["Plastic Love"]       # 2 canciones + 1 huérfana; la que se envía no
+    assert not (songs / "SX_ViT4Ra7k.flac").exists() and not (thumbs / "SX_ViT4Ra7k_tg.jpg").exists()
+    assert not (songs / "Vieja.mp3").exists() and (songs / "3bNITQR4Uso.m4a").exists()
+    assert (d / ".env").exists()                                         # nada fuera de Songs/
+    assert [s["uri"] for s in bot.songs()["songs"]] == ["3bNITQR4Uso"]

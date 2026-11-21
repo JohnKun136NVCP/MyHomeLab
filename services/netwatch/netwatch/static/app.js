@@ -1253,6 +1253,7 @@ const views = {
                ["Gratis hoy", s.free_downloads_today]].map(([k, v]) => `<div class="stat"><span class="muted small">${k}</span><b>${v ?? "—"}</b></div>`).join("")}</div>
             <div class="toolbar"><button data-btab="users" data-b="${b.name}" class="${tab[b.name] === "users" ? "primary" : ""}">👥 Usuarios</button>
               <button data-btab="pay" data-b="${b.name}" class="${tab[b.name] === "pay" ? "primary" : ""}">⭐ Pagos</button>
+              <button data-btab="songs" data-b="${b.name}" class="${tab[b.name] === "songs" ? "primary" : ""}">🎵 Canciones</button>
               <button data-btab="msg" data-b="${b.name}" class="${tab[b.name] === "msg" ? "primary" : ""}">✉ Mensaje</button></div>
             <div id="bt-${b.name}"></div>`) : ""}
           ${b.broadcast ? `<p class="small">✉ Aviso: ${b.broadcast.sent}/${b.broadcast.total} enviados${b.broadcast.failed ? `, ${b.broadcast.failed} fallaron` : ""}${b.broadcast.running ? "…" : "."}</p>` : ""}
@@ -1334,6 +1335,52 @@ const views = {
           try { toast((await api(`/api/bots/${b.name}/refund`, { method: "POST", body: JSON.stringify({ charge_id: x.dataset.refund }) })).msg); route(); }
           catch (e) { toast(e.message); }
         });
+      } else if (t === "songs") {
+        const mmss = (n) => n ? `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}` : "—";
+        box.innerHTML = `<div class="toolbar"><input id="sq-${b.name}" placeholder="Buscar título, canal o ID de YouTube" value="${esc(globalThis.HL_SONGQ || "")}" class="grow">
+            <select id="ss-${b.name}"><option value="recent">Más recientes</option><option value="name">Título</option>
+              <option value="channel">Canal</option><option value="duration">Más largas</option></select>
+            <button class="danger" id="sd-${b.name}" disabled>🗑 Borrar seleccionadas</button></div>
+          <p class="muted small">Borrar quita la canción de <span class="mono">idSongs.db</span>, su audio de <span class="mono">Songs/</span> y su miniatura.
+            Si alguien la vuelve a pedir, el bot la baja de nuevo.</p><div id="sl-${b.name}">Cargando…</div>`;
+        const sel = new Set(), btn = $(`#sd-${b.name}`), sortSel = $(`#ss-${b.name}`);
+        sortSel.value = globalThis.HL_SONGS || "recent";
+        const upd = () => { btn.disabled = !sel.size; btn.textContent = sel.size ? `🗑 Borrar ${sel.size}` : "🗑 Borrar seleccionadas"; };
+        const del = async (ids, orphans, what) => {
+          if (!confirm(`¿Borrar ${what}? Se quita de la base del bot y del disco; no se puede deshacer.`)) return;
+          try {
+            const r = await api(`/api/bots/${b.name}/songs/delete`, { method: "POST", body: JSON.stringify({ ids, orphans }) });
+            toast(`Borradas ${r.removed} · ${r.freed_mb} MB liberados${r.skipped.length ? ` · ${r.skipped.length} se están enviando ahora, no se tocaron` : ""}`);
+            sel.clear(); upd(); load();
+          } catch (e) { toast(e.message); }
+        };
+        const load = async () => {
+          const q = $(`#sq-${b.name}`).value.trim(); globalThis.HL_SONGQ = q; globalThis.HL_SONGS = sortSel.value;
+          const r = await api(`/api/bots/${b.name}/songs?q=${encodeURIComponent(q)}&sort=${sortSel.value}`).catch((e) => ({ error: e.message }));
+          const box2 = $(`#sl-${b.name}`);
+          if (r.error) { box2.innerHTML = `<div class="banner">${esc(r.error)}</div>`; return; }
+          box2.innerHTML = `<p class="small">${r.total} canción(es)${r.total > r.songs.length ? `, se muestran ${r.songs.length}` : ""}
+              · ${r.songs.reduce((a, x) => a + x.mb, 0).toFixed(0)} MB en esta lista</p>
+            <table><tr><th><input type="checkbox" id="sa-${b.name}" title="Seleccionar todas"></th><th>Título</th><th>Canal</th><th>Duración</th><th>Archivo</th><th></th></tr>
+            ${r.songs.map((x) => `<tr><td><input type="checkbox" data-sid="${x.id}" ${x.busy ? "disabled" : ""} ${sel.has(x.id) ? "checked" : ""}></td>
+              <td>${esc(x.name || "—")}${x.uri ? `<br><a class="mono small muted" href="https://youtu.be/${encodeURIComponent(x.uri)}" target="_blank" rel="noopener">${esc(x.uri)}</a>` : ""}</td>
+              <td class="small">${esc(x.channel || "")}</td><td class="mono small">${mmss(x.duration)}</td>
+              <td class="small">${x.files.length ? x.files.map((f) => `${esc(f.name.split(".").pop())} · ${f.mb} MB`).join("<br>") : '<span class="muted">solo en la base</span>'}</td>
+              <td>${x.busy ? '<span class="pill warn">enviándose</span>' : `<button class="danger" data-sdel="${x.id}" title="Borrar">🗑</button>`}</td></tr>`).join("")
+              || '<tr><td colspan="6" class="muted">Nada con ese filtro</td></tr>'}</table>
+            ${r.orphans.length ? `<div class="card" style="margin-top:var(--gap)"><h3>Archivos sin registro</h3>
+              <p class="muted small">${r.orphans.length} audio(s) en <span class="mono">Songs/</span> que la base no conoce (${r.orphans_mb} MB). El bot no los usa.</p>
+              <div class="small mono" style="max-height:140px;overflow:auto">${r.orphans.map((o) => `${esc(o.name)} · ${o.mb} MB`).join("<br>")}</div>
+              <button class="danger" id="so-${b.name}">🗑 Borrar estos archivos</button></div>` : ""}`;
+          box2.querySelectorAll("[data-sid]").forEach((c) => c.onchange = () => { c.checked ? sel.add(+c.dataset.sid) : sel.delete(+c.dataset.sid); upd(); });
+          $(`#sa-${b.name}`).onchange = (e) => box2.querySelectorAll("[data-sid]:not(:disabled)").forEach((c) => { c.checked = e.target.checked; c.onchange(); });
+          box2.querySelectorAll("[data-sdel]").forEach((x) => x.onclick = () => del([+x.dataset.sdel], [], "esta canción"));
+          $(`#so-${b.name}`)?.addEventListener("click", () => del([], r.orphans.map((o) => o.name), `${r.orphans.length} archivo(s) sin registro`));
+        };
+        btn.onclick = () => del([...sel], [], `${sel.size} canción(es)`);
+        let tm; $(`#sq-${b.name}`).oninput = () => { clearTimeout(tm); tm = setTimeout(load, 300); };
+        sortSel.onchange = load;
+        load();
       } else if (t === "msg") {
         box.innerHTML = `<p class="muted small">Un aviso a todos los usuarios del bot (mantenimiento, novedades). Llega como mensaje del propio bot.</p>
           <textarea id="bm-${b.name}" rows="4" style="width:100%" maxlength="4000" placeholder="Ej.: El bot estará en mantenimiento hoy de 10 a 11 pm 🙏"></textarea>

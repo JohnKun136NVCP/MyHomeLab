@@ -91,6 +91,11 @@ En el panel (solo administrador):
     A los de `ADMIN_IDS` del `.env` del bot no se les quita nada desde aquí.
   - **Pagos**: la lista y **Reembolsar** (igual que su `/refund`: Telegram regresa las
     Stars, se marca el pago y se le quita el premium).
+  - **Canciones**: la caché del bot (título, canal, duración, formato y MB), con búsqueda y
+    orden. Borrar una (o varias seleccionadas) la quita de `idSongs.db`, borra su audio de
+    `Songs/` y su miniatura; si alguien la vuelve a pedir, el bot la baja de nuevo. Las que se
+    están enviando en ese momento no se tocan. También lista y borra los **archivos sin
+    registro** (audios en `Songs/` que la base no conoce).
   - **Mensaje** a todos los usuarios (mantenimiento, novedades).
 - Si el bot deja de contestar (se juntan mensajes sin leer por 15 min) te llega un aviso
   «🤖 Bot … no está contestando».
