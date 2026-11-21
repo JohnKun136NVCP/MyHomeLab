@@ -49,6 +49,7 @@ services:
       HOMELAB_RUN: /homelab/run
       DATA_DIR: /data
       UFW_LOG: /hostlog/ufw.log
+      CANARY_LOG: /homelab/run/honeypot/opencanary.log   # trampa (./hl honeypot)
       ADGUARD_USER: ${ADGUARD_USER:-}
       ADGUARD_PASSWORD: ${ADGUARD_PASSWORD:-}
       PROMETHEUS_URL: http://127.0.0.1:9090/prometheus
@@ -270,6 +271,17 @@ services:
     profiles: ["ntopng"]
     image: redis:7-alpine
     ports: ["127.0.0.1:6380:6379"]
+
+  # --- Trampa en la red (opcional): sudo ./hl honeypot ---------------------
+  # Finge ser un NAS viejo (FTP, Telnet, SSH, MySQL, RDP…). Si algo se conecta, te avisa.
+  honeypot:
+    <<: *common
+    profiles: ["honeypot"]
+    image: thinkst/opencanary:latest
+    network_mode: host                  # para ver la IP real de quien se conecta
+    volumes:
+      - ../../run/honeypot/opencanary.conf:/root/.opencanary.conf:ro
+      - ../../run/honeypot:/var/tmp/opencanary
 
   # --- Avisos de imágenes nuevas (opcional): --profile diun -----------------
   # Revisa cada día si hay versión nueva de las imágenes que usas y te avisa (sin sonido).

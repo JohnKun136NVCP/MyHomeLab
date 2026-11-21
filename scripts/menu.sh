@@ -195,6 +195,8 @@ menu_seguridad() {
   5) Inicio de sesión único (Authelia)
   6) ¿En qué puerto está mi SSH?
   7) CrowdSec: bloquear a quien ataca (instalar / ver bloqueos)
+  8) Trampa en la red (honeypot): encender / ver quién cayó
+  9) Revisar vulnerabilidades de las imágenes (Trivy)
   0) Volver
 EOF
     case "$(ask "Elige")" in
@@ -205,6 +207,8 @@ EOF
       5) run ./hl sso; pause ;;
       6) echo; (HL_REPO="$REPO"; . scripts/lib/ssh.sh; echo "  SSH escucha en: $(ssh_ports | paste -sd' ' -)"); pause ;;
       7) if [[ -f /etc/crowdsec/.homelab ]]; then run sudo ./hl crowdsec status; else run sudo ./hl crowdsec install; fi; pause ;;
+      8) if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^homelab-pi-honeypot'; then run ./hl honeypot status; else run sudo ./hl honeypot; fi; pause ;;
+      9) run ./hl scan; pause ;;
       0|"") return ;;
     esac
   done

@@ -161,3 +161,44 @@ sudo ./hl passwords reset homeassistant TU_USUARIO
 
 Las cuentas del panel —que también son las de Authelia— se cambian en **Cuentas**; la del
 admin de la web con `./hl password`. Speedtest: `./hl speedtest-login`.
+
+## Trampa en la red (honeypot)
+
+```bash
+sudo ./hl honeypot            # la enciende
+./hl honeypot status          # señuelos y quién cayó
+sudo ./hl honeypot test       # aviso de prueba (para ver que llega a Telegram)
+sudo ./hl honeypot remove
+```
+
+La Pi finge ser un NAS viejo llamado **nas-respaldos** con FTP, Telnet, SSH, MySQL, RDP, VNC,
+Redis, MSSQL y una página de acceso (OpenCanary). Nadie de la casa tiene por qué tocarlos: si
+algo se conecta es un equipo infectado, alguien en tu Wi-Fi que no debería, o alguien
+escaneando. Llega **🍯 Honeypot: EQUIPO tocó Telnet** en Eventos y por Telegram, con el
+usuario y la contraseña que probó.
+
+- Elige puertos libres (si tu SSH real no usa el 22, el señuelo SSH se pone ahí; tu SSH no se
+  toca) y abre UFW **solo** para tus redes (`lan_networks`).
+- No cuenta lo que hace la propia Pi (inventario y escaneos).
+- Si usas Kali o nmap desde el laboratorio contra la Pi, va a sonar: es justo lo que debe pasar.
+
+## Actualizar todo y revisar vulnerabilidades
+
+```bash
+./hl update --all             # o Sistema → «Actualizar todo»
+./hl update --all --no-scan
+./hl scan                     # solo revisar (o Sistema → «Solo revisar imágenes»)
+```
+
+`--all` hace `git pull`, baja las imágenes nuevas de la Pi, de las herramientas de la casa y de
+Immich, reconstruye el panel y el bot desde cero (Python y paquetes al día), borra las imágenes
+viejas y revisa con **Trivy** las imágenes que están corriendo. Solo cuenta vulnerabilidades
+**altas y críticas que ya tienen arreglo** (las que se quitan actualizando). El resumen llega por
+Telegram y queda en panel → Inventario → «Imágenes de Docker».
+
+GitHub: `.github/dependabot.yml` revisa cada sábado los paquetes de Python, la imagen base de
+los Dockerfiles y las imágenes con versión fija de los compose, y abre un pull request.
+Activa además **Settings → Code security → Dependabot alerts** en el repositorio.
+
+El sistema de la Pi va aparte: `sudo apt update && sudo apt full-upgrade` (y
+`unattended-upgrades` para los parches de seguridad diarios).

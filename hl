@@ -8,6 +8,9 @@
 #    ./hl help                   esta lista
 #    ./hl status                 contenedores y si están sanos
 #    ./hl update                 git pull + reconstruir + levantar
+#    ./hl update --all           además: imágenes nuevas (Pi, casa, Immich), limpieza y escaneo Trivy
+#    ./hl scan                   ¿qué imágenes tienen vulnerabilidades con arreglo? (Trivy)
+#    sudo ./hl honeypot [status|test|remove]   trampa en la red: avisa si alguien toca servicios falsos
 #    ./hl restart [svc...]       reinicia todo o los servicios indicados
 #    ./hl logs [svc]             bitácora en vivo (Ctrl+C para salir)
 #    ./hl check                  diagnóstico completo
@@ -56,6 +59,7 @@ case "$cmd" in
   status|estado)
     "${C[@]}" ps --format 'table {{.Service}}\t{{.Status}}\t{{.Ports}}' ;;
   update|actualizar)
+    [[ "${1:-}" == --all || "${1:-}" == --todo ]] && { shift; exec ./scripts/update-all.sh "$@"; }
     owner="$(stat -c %U .)"
     if [[ "$(id -un)" == "$owner" ]]; then git pull --ff-only; else sudo -u "$owner" git pull --ff-only; fi
     "${C[@]}" up -d --build --remove-orphans
@@ -91,7 +95,7 @@ case "$cmd" in
     echo "  Si lo encendiste ANTES de esta versión, el usuario es el de fábrica:  admin@example.com / password"
     echo "  Si es nuevo:  ${em:-admin@example.com} / ${pw:-password}"
     echo "  Cámbialo en la web: tu avatar → Perfil. ¿No entras? Pon una nueva aquí:"
-    echo "    ./hl exec speedtest php /app/www/artisan app:user-reset-password" ;;
+    echo "    sudo ./hl passwords reset speedtest   (o panel → Contraseñas)" ;;
   export-logs|exportar-logs)
     since="${1:-7d}"; t="$(mktemp -d)"; out="run/logs-$(date +%Y%m%d-%H%M).tar.gz"; mkdir -p run
     for s in $("${C[@]}" ps --services 2>/dev/null); do "${C[@]}" logs --no-color --since "$since" "$s" > "$t/$s.log" 2>&1 || true; done
@@ -142,6 +146,8 @@ case "$cmd" in
   crowdsec|cs) exec ./scripts/crowdsec.sh "$@" ;;
   bots|bot) exec ./scripts/bots.sh "$@" ;;
   passwords|contraseñas|contrasenas) exec ./scripts/passwords.sh "$@" ;;
+  scan|escanear) exec ./scripts/update-all.sh --scan-only ;;
+  honeypot|trampa) exec ./scripts/honeypot.sh "$@" ;;
   migrate|migrar) exec ./scripts/migrate.sh "$@" ;;
   clean|limpiar) exec ./scripts/clean-pi.sh "$@" ;;
   *)

@@ -783,3 +783,23 @@ def test_kuma_status_page_parse():
     assert ms[1]["msg"] == "timeout" and ms[1]["history"] == [1, 0] and ms[1]["uptime_24h"] == 0.95
     assert kuma.status("http://127.0.0.1:9", "homelab")["ok"] is False
     assert "slug" in kuma.status("http://127.0.0.1:9", "")["error"]
+
+
+def test_honeypot_ignores_the_pi_itself(tmp_path):
+    from netwatch.inbound import Inbound
+    log = tmp_path / "opencanary.log"
+    log.write_text("")
+    ib = Inbound(DB(tmp_path / "n.db"), str(tmp_path / "ufw.log"), str(log))
+    import json
+    import netwatch.inbound as I
+    real = I.local_ifaces
+    I.local_ifaces = lambda: {"192.168.1.69": "eth0"}       # la IP de la Pi
+    try:
+        ib.collect()                                        # empieza al final del archivo
+        with log.open("a") as f:
+            for src in ("192.168.1.69", "127.0.0.1", "192.168.1.66"):
+                f.write(json.dumps({"logtype": 6001, "src_host": src, "dst_port": 23}) + "\n")
+            f.write(json.dumps({"logtype": 1001, "src_host": "", "dst_port": -1}) + "\n")   # arranque
+        assert [e["src_host"] for e in ib.collect()] == ["192.168.1.66"]
+    finally:
+        I.local_ifaces = real

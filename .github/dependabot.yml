@@ -1,11 +1,21 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
-
+# Dependabot: abre un pull request cuando hay versión nueva (o un parche de seguridad) de lo
+# que usa el homelab. Activa también Settings → Code security → Dependabot alerts.
 version: 2
 updates:
-  - package-ecosystem: "docker" # See documentation for possible values
-    directory: "/" # Location of package manifests
-    schedule:
-      interval: "weekly"
+  # Paquetes de Python del panel y del bot
+  - package-ecosystem: "pip"
+    directories: ["/services/netwatch", "/services/bot", "/clients/linux-guardian"]
+    schedule: { interval: "weekly", day: "saturday" }
+    groups:
+      python: { patterns: ["*"] }
+
+  # Imagen base (python:3.12-slim) de sus Dockerfiles
+  - package-ecosystem: "docker"
+    directories: ["/services/netwatch", "/services/bot"]
+    schedule: { interval: "weekly", day: "saturday" }
+
+  # Imágenes con versión fija en los docker-compose (authelia:4.39, diun:4, frr:10.2.1…);
+  # las que usan :latest las avisa Diun y las baja ./hl update --all
+  - package-ecosystem: "docker-compose"
+    directories: ["/hosts/pi", "/hosts/home", "/hosts/server", "/lab/security"]
+    schedule: { interval: "weekly", day: "saturday" }

@@ -478,6 +478,10 @@ const views = {
         <div class="card"><h3>Acciones</h3>
           <div class="frow"><label>Actualizar</label><div><button class="primary" data-act="actualizar">⬇ Actualizar desde GitHub</button>
             <div class="muted small">git pull + reconstruye y reinicia lo que cambió. Igual que <span class="mono">./hl update</span>.</div></div></div>
+          <div class="frow"><label>Todo</label><div><button data-act="actualizar-todo">⬇⬇ Actualizar todo</button>
+            <button data-act="escanear-imagenes">🛡 Solo revisar imágenes</button>
+            <div class="muted small">Además baja imágenes nuevas (Pi, casa, Immich), reconstruye panel y bot, limpia y revisa
+              vulnerabilidades con Trivy (<span class="mono">./hl update --all</span>). Tarda varios minutos.</div></div></div>
           <div class="frow"><label>Revisar</label><div><button data-act="revisar">🩺 Revisar el homelab</button>
             <div class="muted small">Contenedores, firewall, SSH, disco, temperatura, bot… (<span class="mono">./hl check</span>)</div></div></div>
           <div class="frow"><label>Respaldo</label><div><button data-act="respaldo">🗄 Respaldar ahora</button>
@@ -506,11 +510,13 @@ const views = {
     };
     if (ap.pending) show(ap);
     view.querySelectorAll("[data-act]").forEach((b) => b.onclick = async () => {
+      if (b.dataset.act === "actualizar-todo" && !confirm("¿Actualizar TODO? Tarda varios minutos y los servicios se reinician.")) return;
       if (b.dataset.act === "actualizar" && !confirm("¿Actualizar el homelab desde GitHub? Los servicios se reinician unos segundos.")) return;
       try {
         await api(`/api/system/${b.dataset.act}`, { method: "POST" });
         show({ pending: true });
-        for (let i = 0; i < 150; i++) {
+        const long = ["actualizar-todo", "escanear-imagenes"].includes(b.dataset.act);
+        for (let i = 0; i < (long ? 900 : 150); i++) {
           await new Promise((r) => setTimeout(r, 2000));
           try { const st = await api("/api/apply"); if (!st.pending) { show(st); setTimeout(() => views.sistema(), 1500); return; } } catch { /* reiniciando */ }
         }
@@ -1115,6 +1121,13 @@ const views = {
               class="pill ${sev(c.cvss)}">${esc(c.id)} · ${c.cvss}</a>`).join(" ") + (s.cves.length > 5 ? ` <span class="muted small">+${s.cves.length - 5}</span>` : "")
             : '<span class="muted">—</span>'}</td></tr>`).join("")}</table></div>`).join("")
         : '<div class="card"><p class="muted">Aún no hay datos. Pulsa «Escanear ahora» (tarda unos minutos).</p></div>'}
+      <div class="card" style="margin-top:var(--gap)"><h3>🐳 Imágenes de Docker ${j.trivy.ts ? `<span class="muted small">${ago(j.trivy.ts)}</span>` : ""}</h3>
+        ${j.trivy.images ? `<p class="muted small">Vulnerabilidades altas y críticas que ya tienen arreglo: se quitan con «Actualizar todo» (Sistema).</p>
+          <table><tr><th>Imagen</th><th>Críticas</th><th>Altas</th><th>Arreglos</th></tr>
+          ${j.trivy.images.map((i) => `<tr><td class="mono small">${esc(i.image)}</td>
+            <td>${i.critical ? `<span class="pill bad">${i.critical}</span>` : "0"}</td><td>${i.high ? `<span class="pill warn">${i.high}</span>` : "0"}</td>
+            <td class="small">${i.fixes.length ? `<details><summary>${i.fixes.length} paquete(s)</summary>${i.fixes.map(esc).join("<br>")}</details>` : '<span class="pill ok">al día</span>'}</td></tr>`).join("")}</table>`
+          : '<p class="muted">Aún no se revisan. Sistema → «Solo revisar imágenes» (o <span class="mono">./hl scan</span>).</p>'}</div>
       <p class="muted small">Para un análisis más profundo (credenciales por defecto, configuraciones inseguras) usa Greenbone del laboratorio de seguridad.</p>`;
     $("#iscan")?.addEventListener("click", async () => {
       try { const r = await api("/api/inventory/scan", { method: "POST" }); toast(r.msg); route(); } catch (e) { toast(e.message); }

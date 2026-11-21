@@ -156,7 +156,9 @@ class Inbound:
         # 2) UFW
         rows += parse_ufw(self.ufw.read(), self.mine)
         # 3) honeypot
-        canary = parse_canary(self.canary.read())
+        # lo que hace la propia Pi (inventario, escaneos) no es un intruso
+        canary = [e for e in parse_canary(self.canary.read()) if e["src_host"] not in self.mine
+                  and not e["src_host"].startswith("127.")]
         for ev in canary:
             rows.append((ev["src_host"], int(ev.get("dst_port") or 0), "tcp", "", "honeypot"))
         for r in rows:

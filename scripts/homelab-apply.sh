@@ -38,6 +38,10 @@ start=$(date +%s)
   case "$action" in
     revisar)
       ./scripts/check.sh; exit 0 ;;
+    actualizar-todo)                   # Sistema → Actualizar todo (./hl update --all)
+      ./scripts/update-all.sh; exit $? ;;
+    escanear-imagenes)
+      ./scripts/update-all.sh --scan-only; exit $? ;;
     respaldo)
       ./scripts/backup.sh; exit $? ;;
     home-enable:*|home-disable:*)      # panel → Inicio → En casa → Encender/Apagar

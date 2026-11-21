@@ -1015,7 +1015,8 @@ def build_app(mon: Monitor) -> Starlette:
         return JSONResponse(res)
 
     # ------------------------------------------------------------ sistema
-    SYSTEM_ACTIONS = {"actualizar": "Actualizar desde GitHub", "revisar": "Revisar el homelab",
+    SYSTEM_ACTIONS = {"actualizar": "Actualizar desde GitHub", "actualizar-todo": "Actualizar todo",
+                      "escanear-imagenes": "Revisar vulnerabilidades de las imágenes", "revisar": "Revisar el homelab",
                       "respaldo": "Respaldar el homelab"}
 
     async def system_get(_):
@@ -1159,7 +1160,11 @@ def build_app(mon: Monitor) -> Starlette:
 
     # ------------------------------------------------ inventario, Wi-Fi y control parental
     async def inventory_get(_):
-        return JSONResponse({"devices": await asyncio.to_thread(mon.inventory.devices),
+        try:
+            trivy = json.loads((st.RUN_DIR / "trivy.json").read_text())
+        except (OSError, ValueError):
+            trivy = {}
+        return JSONResponse({"trivy": trivy, "devices": await asyncio.to_thread(mon.inventory.devices),
                              "scan": mon.inventory.last_scan(),
                              "every_days": float((mon.cfg.get("inventory") or {}).get("every_days", 7))})
 
@@ -1334,11 +1339,16 @@ def build_app(mon: Monitor) -> Starlette:
         ("grafana", "Grafana", "📈", "usuario admin", False),
         ("adguard", "AdGuard Home", "🛡", "el usuario de ADGUARD_USER", True),
         ("vaultwarden-admin", "Vaultwarden /admin", "🔐", "solo el token de administración; no toca las bóvedas", False),
+        ("speedtest", "Velocidad del internet", "🚀", "Speedtest Tracker: tu correo (si no lo dices, el primero)", True),
+        ("uptime-kuma", "Uptime Kuma", "🟢", "el usuario que digas (o el primero)", True),
+        ("ntopng", "ntopng", "📶", "vuelve a admin/admin y te pide una nueva al entrar", False),
+        ("mealie", "Recetas y súper (Mealie)", "🍲", "correo o usuario (si no lo dices, el administrador)", True),
         ("homeassistant", "Home Assistant", "🏠", "un usuario (si no dices cuál, el primero)", True),
         ("paperless", "Paperless", "📄", "PAPERLESS_ADMIN_USER o el que digas", True),
         ("syncthing", "Syncthing", "🔄", "acceso a su página (usuario admin)", False),
         ("umami", "Umami", "📊", "usuario admin o el que digas", True),
         ("immich", "Immich", "📷", "el administrador; Immich genera la contraseña", False),
+        ("linux", "La Raspberry (tu usuario de Linux)", "🍓", "la de sudo y la de la pantalla; tu SSH con llave no cambia", True),
     ]
 
     def _pw_file(svc: str):

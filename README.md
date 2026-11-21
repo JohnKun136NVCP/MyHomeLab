@@ -64,6 +64,9 @@ flowchart LR
 | Herramientas para la casa | `./hl home enable …`: Home Assistant, Paperless, Navidrome, Mealie (recetas y súper), Jellyseerr (pedir películas), Syncthing, DNS de respaldo | [casa](docs/casa.md) |
 | Tus otros bots | `sudo ./hl bots add yt ~/yt-telegrambot`: panel → Bots (estado, reinicio, logs, usuarios, premium, pagos con Stars) | [bot](docs/bot.md#tus-otros-bots-panel--bots) |
 | Recordatorios de la casa | Bot: `/recordar mañana 9:00 pagar la luz`, `cada mes 5 …`, `cada año 15/03 …` | [casa](docs/casa.md) |
+| Trampa en la red | `sudo ./hl honeypot`: servicios falsos (OpenCanary); avisa si alguien los toca | [seguridad](docs/seguridad.md#trampa-en-la-red-honeypot) |
+| Actualizar todo | `./hl update --all`: imágenes, panel y bot desde cero, limpieza y escaneo Trivy | [seguridad](docs/seguridad.md#actualizar-todo-y-revisar-vulnerabilidades) |
+| Contraseñas | Panel → Contraseñas: restablecer Grafana, AdGuard, Speedtest, Mealie, Home Assistant… | [seguridad](docs/seguridad.md#contraseñas-de-los-servicios-panel--contraseñas) |
 | CrowdSec | `sudo ./hl crowdsec`: bloquea en el firewall a quien ataca SSH o el panel | [seguridad](docs/seguridad.md#crowdsec-bloquea-a-quien-ataca) |
 | Inventario y CVE | Panel → Inventario: versiones abiertas de cada equipo y vulnerabilidades conocidas | [seguridad](docs/seguridad.md) |
 | Control parental | Panel → Control parental: apps bloqueadas y horarios por equipo (AdGuard) | [seguridad](docs/seguridad.md) |
