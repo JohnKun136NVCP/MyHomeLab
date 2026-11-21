@@ -1396,6 +1396,40 @@ const views = {
     }
   },
 
+  async contrasenas() {
+    const j = await api("/api/passwords");
+    view.innerHTML = `<h2>Contraseñas de los servicios</h2>
+      <p class="muted">Si olvidaste la de algún servicio, aquí se genera una nueva, se aplica y se muestra <b>una sola vez</b>.
+        Guárdala en tu Vaultwarden. Las cuentas del panel (que también son las de Authelia) se cambian en <a href="#cuentas">Cuentas</a>.</p>
+      <div class="grid2">${j.services.map((s) => `<div class="card"><h3>${s.icon} ${esc(s.name)}</h3>
+        <p class="muted small">${esc(s.desc)}</p>
+        <div class="toolbar">${s.user ? `<input data-pwu="${s.key}" placeholder="usuario (opcional)" style="width:11em">` : ""}
+          <button class="danger" data-pw="${s.key}">Restablecer</button></div>
+        <div id="pwr-${s.key}"></div></div>`).join("")}</div>`;
+    view.querySelectorAll("[data-pw]").forEach((b) => b.onclick = async () => {
+      const k = b.dataset.pw, name = j.services.find((s) => s.key === k).name, box = $(`#pwr-${k}`);
+      if (!confirm(`¿Cambiar la contraseña de ${name}? La actual deja de servir.`)) return;
+      b.disabled = true; box.innerHTML = '<p class="small">Aplicando… (unos segundos; Home Assistant tarda un poco más)</p>';
+      try {
+        await api("/api/passwords/reset", { method: "POST", body: JSON.stringify({ service: k, user: $(`[data-pwu="${k}"]`)?.value || "" }) });
+        for (let i = 0; i < 60; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const r = await api(`/api/passwords/result/${k}`);
+          if (r.pending) continue;
+          if (r.error) { box.innerHTML = `<div class="banner">${esc(r.error)}</div>`; break; }
+          box.innerHTML = `<div class="banner" style="border-color:var(--ok)">
+            ${r.user ? `Usuario: <b class="mono">${esc(r.user)}</b><br>` : ""}
+            Contraseña: <b class="mono" style="user-select:all">${esc(r.password)}</b> <button data-copy>📋 Copiar</button>
+            ${r.note ? `<br><span class="small">${esc(r.note)}</span>` : ""}<br><span class="small muted">No se vuelve a mostrar.</span></div>`;
+          box.querySelector("[data-copy]").onclick = () => navigator.clipboard?.writeText(r.password).then(() => toast("Copiada"));
+          break;
+        }
+        if (box.textContent.startsWith("Aplicando")) box.innerHTML = '<div class="banner">No llegó respuesta. Revisa en la Pi:  ./hl passwords</div>';
+      } catch (e) { box.innerHTML = `<div class="banner">${esc(e.message)}</div>`; }
+      b.disabled = false;
+    });
+  },
+
   async acl() {
     const [j, d] = await Promise.all([api("/api/acl"), api("/api/devices")]);
     view.innerHTML = `<h2>Control de acceso (ACL)</h2>
@@ -1536,8 +1570,8 @@ const TITLES = { inicio: "Inicio", resumen: "Resumen", dispositivos: "Dispositiv
   conexiones: "Conexiones", ap: "Por AP", mapa: "Mapa", camaras: "Cámaras", servicios: "Servicios",
   accesos: "Accesos", eventos: "Eventos", acl: "ACL", vpn: "VPN", sistema: "Sistema", cuentas: "Cuentas",
   ajustes: "Ajustes", cuenta: "Mi cuenta", respaldos: "Mis respaldos", inventario: "Inventario", wifi: "Wi-Fi",
-  parental: "Control parental", bots: "Bots" };
-const ADMIN_ONLY = ["acl", "vpn", "sistema", "cuentas", "ajustes", "parental", "bots"];
+  parental: "Control parental", bots: "Bots", contrasenas: "Contraseñas" };
+const ADMIN_ONLY = ["acl", "vpn", "sistema", "cuentas", "ajustes", "parental", "bots", "contrasenas"];
 const LOGS_ONLY = ["resumen", "dispositivos", "trafico", "conexiones", "ap", "mapa", "eventos", "inventario", "wifi"];
 const setNav = (open) => {
   document.body.classList.toggle("nav-open", open);

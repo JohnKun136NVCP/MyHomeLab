@@ -22,6 +22,7 @@
 #    ./hl test-backup [--install]  descifra el último respaldo y revisa que sirve
 #    ./hl ca                     copia el certificado de Caddy para instalarlo
 #    ./hl password               cambia la contraseña del usuario admin de la web
+#    ./hl passwords [reset SERVICIO [USUARIO]]  restablecer Grafana, AdGuard, Home Assistant, Paperless…
 #    ./hl secrets                genera las llaves que falten en .env
 #    ./hl speedtest-login        usuario y contraseña de Speedtest (y cómo cambiarla)
 #    ./hl export-logs [7d]       bitácoras de todos los servicios en un .tar.gz (para revisar o pedir ayuda)
@@ -140,6 +141,7 @@ case "$cmd" in
   sso|authelia) exec ./scripts/sso.sh "$@" ;;
   crowdsec|cs) exec ./scripts/crowdsec.sh "$@" ;;
   bots|bot) exec ./scripts/bots.sh "$@" ;;
+  passwords|contraseñas|contrasenas) exec ./scripts/passwords.sh "$@" ;;
   migrate|migrar) exec ./scripts/migrate.sh "$@" ;;
   clean|limpiar) exec ./scripts/clean-pi.sh "$@" ;;
   *)

@@ -44,6 +44,10 @@ start=$(date +%s)
       n="${action#*:}"; what="${action%%:*}"; what="${what#home-}"
       [[ $n =~ ^(homeassistant|paperless|navidrome|mealie|jellyseerr|syncthing|umami|cloudflared|dns-backup)$ ]] || { echo "   herramienta desconocida: $n"; exit 1; }
       ./scripts/home.sh "$what" "$n" --yes; exit $? ;;
+    password-reset:*)                  # panel → Contraseñas
+      IFS=: read -r _ svc usr <<<"$action"
+      [[ $svc =~ ^[a-z-]{2,30}$ && ( -z $usr || $usr =~ ^[A-Za-z0-9@._-]{1,64}$ ) ]] || { echo "   petición inválida"; exit 1; }
+      HL_QUIET=1 ./scripts/passwords.sh reset "$svc" ${usr:+"$usr"}; exit $? ;;
     bots-status)                       # panel → Bots (estado de sus servicios)
       ./scripts/bots.sh status-json; exit $? ;;
     bot-start:*|bot-stop:*|bot-restart:*|bot-logs:*)

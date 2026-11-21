@@ -136,3 +136,28 @@ móviles o VPN se lo salta: esto cuida la red de la casa, no el celular fuera de
 ## Revisión rápida
 `./hl check` (o dashboard → Sistema) te dice si SSH acepta contraseña, si UFW está
 apagado, si Vaultwarden deja registrarse a cualquiera y cuándo fue el último respaldo.
+
+## Contraseñas de los servicios (panel → Contraseñas)
+
+Si olvidas la de un servicio, el panel genera una nueva, la aplica y te la muestra **una sola
+vez** (no queda en la bitácora). Lo mismo en la terminal:
+
+```bash
+./hl passwords                              # cuáles se pueden y si están encendidos
+sudo ./hl passwords reset grafana
+sudo ./hl passwords reset homeassistant TU_USUARIO
+```
+
+| Servicio | Qué cambia |
+|---|---|
+| Grafana | usuario `admin` (y `GRAFANA_ADMIN_PASSWORD` en `.env`) |
+| AdGuard Home | el usuario de `ADGUARD_USER` (y `ADGUARD_PASSWORD`, para que el panel siga entrando) |
+| Vaultwarden | solo el token de `/vault/admin`; las bóvedas y sus contraseñas maestras no se tocan |
+| Home Assistant | el usuario que digas (o el primero); se reinicia |
+| Paperless | `PAPERLESS_ADMIN_USER` o el que digas |
+| Syncthing | acceso a su página (usuario `admin`) |
+| Umami | `admin` o el que digas |
+| Immich | el administrador; Immich genera la contraseña |
+
+Las cuentas del panel —que también son las de Authelia— se cambian en **Cuentas**; la del
+admin de la web con `./hl password`. Speedtest: `./hl speedtest-login`.

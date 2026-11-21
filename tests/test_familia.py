@@ -293,3 +293,25 @@ def test_bots_solo_admin(lab):
     assert c == 400 and "No existe" in json.loads(body)["error"]
     from netwatch import auth
     assert not auth.allowed("registros", "GET", "/api/bots")
+
+
+def test_contrasenas_de_servicios(lab, monkeypatch):
+    from netwatch import settings as st
+    run = lab["tmp"] / "run"
+    (run / "passwords").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(st, "RUN_DIR", run)
+    admin = login(lab, "admin", "adminpw1")
+    c, _, b = req(lab["nw"], "POST", "/api/passwords/reset", json.dumps({"service": "grafana"}), admin)
+    assert c == 200 and json.loads((run / "apply-request").read_text())["action"] == "password-reset:grafana"
+    c, _, b = req(lab["nw"], "POST", "/api/passwords/reset", json.dumps({"service": "paperless", "user": "x;rm -rf"}), admin)
+    assert c == 400
+    c, _, b = req(lab["nw"], "POST", "/api/passwords/reset", json.dumps({"service": "nope"}), admin)
+    assert c == 400
+    assert json.loads(req(lab["nw"], "GET", "/api/passwords/result/grafana", headers=admin)[2])["pending"]
+    (run / "passwords" / "grafana.json").write_text(json.dumps({"service": "grafana", "user": "admin", "password": "Nueva123"}))
+    r = json.loads(req(lab["nw"], "GET", "/api/passwords/result/grafana", headers=admin)[2])
+    assert r["password"] == "Nueva123" and not (run / "passwords" / "grafana.json").exists()   # una sola vez
+    from netwatch import auth
+    assert not auth.allowed("registros", "GET", "/api/passwords")
+    # el panel pide app.js con versión para que el navegador no use uno viejo
+    assert b"/static/app.js?v=" in req(lab["nw"], "GET", "/", headers=admin)[2]

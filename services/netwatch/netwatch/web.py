@@ -38,7 +38,12 @@ def build_app(mon: Monitor) -> Starlette:
     prom = os.environ.get("PROMETHEUS_URL", "http://127.0.0.1:9090/prometheus")
 
     async def index(_):
-        return FileResponse(STATIC / "index.html")
+        # ?v=<fecha del archivo>: tras ./hl update el navegador baja el app.js nuevo (no el de su caché)
+        html_ = (STATIC / "index.html").read_text()
+        for f in ("app.js", "style.css"):
+            v = int((STATIC / f).stat().st_mtime)
+            html_ = html_.replace(f'/static/{f}"', f'/static/{f}?v={v}"')
+        return HTMLResponse(html_, headers={"Cache-Control": "no-cache"})
 
     async def health(_):
         return JSONResponse({"ok": True, "last_scan": mon.last_scan})
@@ -1324,6 +1329,48 @@ def build_app(mon: Monitor) -> Starlette:
             return JSONResponse({"error": str(e) or "Destino inválido"}, 400)
         return JSONResponse({"ok": True, "msg": "Enviado"})
 
+    # ------------------------------------------------ contraseñas de servicios (scripts/passwords.sh)
+    PW_SERVICES = [
+        ("grafana", "Grafana", "📈", "usuario admin", False),
+        ("adguard", "AdGuard Home", "🛡", "el usuario de ADGUARD_USER", True),
+        ("vaultwarden-admin", "Vaultwarden /admin", "🔐", "solo el token de administración; no toca las bóvedas", False),
+        ("homeassistant", "Home Assistant", "🏠", "un usuario (si no dices cuál, el primero)", True),
+        ("paperless", "Paperless", "📄", "PAPERLESS_ADMIN_USER o el que digas", True),
+        ("syncthing", "Syncthing", "🔄", "acceso a su página (usuario admin)", False),
+        ("umami", "Umami", "📊", "usuario admin o el que digas", True),
+        ("immich", "Immich", "📷", "el administrador; Immich genera la contraseña", False),
+    ]
+
+    def _pw_file(svc: str):
+        return st.RUN_DIR / "passwords" / f"{svc}.json"
+
+    async def passwords_list(_):
+        return JSONResponse({"services": [dict(key=k, name=n, icon=i, desc=d, user=u) for k, n, i, d, u in PW_SERVICES]})
+
+    async def passwords_reset(request: Request):
+        b = await request.json()
+        svc, usr = str(b.get("service") or ""), str(b.get("user") or "").strip()
+        if svc not in {k for k, *_ in PW_SERVICES}:
+            return JSONResponse({"error": "Servicio desconocido"}, 400)
+        if usr and not re.fullmatch(r"[A-Za-z0-9@._-]{1,64}", usr):
+            return JSONResponse({"error": "Usuario inválido"}, 400)
+        with contextlib.suppress(OSError):
+            _pw_file(svc).unlink()
+        st.request_apply(action=f"password-reset:{svc}" + (f":{usr}" if usr else ""))
+        db.add_event("info", "security", f"Contraseña de {svc} restablecida desde el panel")
+        return JSONResponse({"ok": True})
+
+    async def passwords_result(request: Request):
+        f = _pw_file(request.path_params["svc"])
+        if not re.fullmatch(r"[a-z-]{2,30}", request.path_params["svc"]) or not f.exists():
+            return JSONResponse({"pending": True})
+        try:
+            data = json.loads(f.read_text())
+        finally:
+            with contextlib.suppress(OSError):
+                f.unlink()                     # se muestra una sola vez
+        return JSONResponse(data, headers={"Cache-Control": "no-store"})
+
     routes = [
         Route("/", index), Route("/health", health), Route("/metrics", prom_metrics),
         Route("/api/summary", summary), Route("/api/devices", devices),
@@ -1365,6 +1412,8 @@ def build_app(mon: Monitor) -> Starlette:
         Route("/api/wifi", wifi_get), Route("/api/devices/{mac}/wifi", device_wifi, methods=["POST"]),
         Route("/api/parental", parental_get), Route("/api/parental", parental_save, methods=["POST"]),
         Route("/api/parental/{rid:int}", parental_delete, methods=["DELETE"]),
+        Route("/api/passwords", passwords_list), Route("/api/passwords/reset", passwords_reset, methods=["POST"]),
+        Route("/api/passwords/result/{svc}", passwords_result),
         Route("/api/bots", bots_get), Route("/api/bots/{name}/do/{act}", bot_action, methods=["POST"]),
         Route("/api/bots/{name}/logs", bot_logs), Route("/api/bots/{name}/users", bot_users),
         Route("/api/bots/{name}/users/{uid:int}", bot_user_change, methods=["POST"]),
