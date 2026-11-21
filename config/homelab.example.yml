@@ -20,11 +20,17 @@ network:
       cidr: 192.168.100.0/24
       notify_new_devices: false # en el lab conectas y desconectas cosas seguido
 
-  # Con UNA sola Wi-Fi para varias redes: enabled: true y cada red con su ssid
-  # (ver docs/redes-multiples.md). Con una interfaz por red, déjalo en false.
+  # Varios SSID por la MISMA Wi-Fi: pon cada uno como red con «interface: wlan0» y su «ssid»;
+  # la Pi los visita por turnos y regresa al primero (casa por cable se sigue viendo siempre).
+  # Guarda cada Wi-Fi una vez:  sudo ./hl roam add "SSID"   ·  revisar:  ./hl roam
+  #   - name: oficinas
+  #     interface: wlan0
+  #     ssid: OFICINAS
+  #     cidr: 192.168.50.0/24
   roaming:
-    enabled: false
+    enabled: false            # se activa solo si dos redes comparten interfaz
     home: casa
+    hop_every: 900            # cada cuánto visita las otras (segundos)
 
   # Modo puente (cable, una sola red): la Pi entre el módem y los AP. docs/modo-puente.md
   bridge_mode: false

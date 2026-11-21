@@ -72,7 +72,7 @@ def build_app(mon: Monitor) -> Starlette:
             "acl_rules": len(db.acl()), "icons": ICONS,
             "ups": mon.ups.status() if mon.ups.enabled else {"enabled": False},
             "roaming": mon.roaming, "current_network": mon.current, "home_network": mon.home,
-            "hop_every": mon.hop_every, "last_hop": mon.last_hop,
+            "hop_every": mon.hop_every, "last_hop": mon.last_hop, "roam_on": mon.roam_on,
             "networks": [{"name": n["name"], "cidr": n["cidr"], "ssid": n.get("ssid", ""),
                           **mon.net_status.get(n["name"], {})} for n in mon.networks],
         })

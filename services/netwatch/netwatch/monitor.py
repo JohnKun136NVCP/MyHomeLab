@@ -35,8 +35,21 @@ class Monitor:
         self.networks = [{"interface": self.iface, **n} for n in nets]
         r = net.get("roaming", {}) or {}
         self.home = r.get("home") or self.networks[0]["name"]
-        self.roaming = bool(r.get("enabled")) and len(self.networks) > 1 and not self.bridge_mode
-        self.hop_every = int(r.get("hop_every", 1800))
+        # Redes que comparten interfaz (varios SSID en la misma Wi-Fi) se visitan por turnos;
+        # las que tienen interfaz propia (eth0 a casa) se escanean siempre, sin moverse.
+        groups: dict[str, list[dict]] = {}
+        for n in self.networks:
+            groups.setdefault(n["interface"], []).append(n)
+        self.roam_groups = {i: g for i, g in groups.items() if len(g) > 1}
+        self.roaming = (bool(r.get("enabled")) or bool(self.roam_groups)) and len(self.networks) > 1 \
+            and not self.bridge_mode
+        if self.roaming and not self.roam_groups:          # roaming «clásico»: todas por la misma Wi-Fi
+            self.roam_groups = {self.networks[0]["interface"]: self.networks}
+        # en cada interfaz que brinca: su red «base» (a la que regresa) y en la que está ahora
+        self.roam_base = {i: next((n["name"] for n in g if n["name"] == self.home), g[0]["name"])
+                          for i, g in self.roam_groups.items()}
+        self.roam_on = dict(self.roam_base)
+        self.hop_every = int(r.get("hop_every", 900))
         self.dwell = int(r.get("dwell", 20))
         self.current = self.home
         self.last_hop = 0.0
@@ -93,7 +106,10 @@ class Monitor:
     def reachable(self) -> set[str]:
         """Redes que la Pi ve ahora: todas si cada una tiene su interfaz (sin roaming),
         o solo la red donde está la Wi-Fi si va brincando entre SSIDs."""
-        return {self.current} if self.roaming else {n["name"] for n in self.networks}
+        if not self.roaming:
+            return {n["name"] for n in self.networks}
+        fixed = {n["name"] for n in self.networks if n["interface"] not in self.roam_groups}
+        return fixed | set(self.roam_on.values())
 
     def scan_all(self) -> None:
         for name in sorted(self.reachable(), key=lambda n: n != self.home):
@@ -203,40 +219,79 @@ class Monitor:
 
     def detect_arp_spoof(self, hosts: list[scanner.Host], infra: dict | None = None) -> None:
         """Alerta si la IP del módem (u otro equipo de infraestructura) cambia de MAC
-        o si una sola MAC responde por varias IPs de infraestructura."""
+        o si una sola MAC responde por varias IPs de infraestructura.
+
+        Sin falsas alarmas por lo normal de una casa:
+        * MAC conocida (``mac``/``macs`` del equipo en homelab.yml, o marcada «es normal» en
+          Eventos) → se acepta en silencio.
+        * El equipo de siempre sigue en la red con OTRA IP → el DHCP le cambió la IP
+          (aviso de «reserva su IP»), no es spoofing.
+        * MAC nueva privada/aleatoria → aviso, no crítico.
+        * Un repetidor (AP) que contesta por los equipos que tiene detrás (MAC-NAT) → normal.
+        """
         infra = self.infra_ips(self.current) if infra is None else infra
         by_ip: dict[str, list[str]] = {}
+        ip_of: dict[str, str] = {}
         for h in hosts:
             by_ip.setdefault(h.ip, []).append(h.mac)
+            ip_of[h.mac] = h.ip
+
+        def known(item: dict, mac: str) -> bool:
+            cfg = {str(m).lower() for m in ([item.get("mac")] if item.get("mac") else []) + list(item.get("macs") or [])}
+            return mac.lower() in cfg or bool(self.db.suppressed("arp_spoof", mac, ""))
+
         for ip, item in infra.items():
-            macs = by_ip.get(ip, [])
-            if len(set(macs)) > 1:
-                self._spoof_event(ip, item["name"], f"Varias MAC responden por {ip}: {', '.join(macs)}")
+            macs = sorted(set(by_ip.get(ip, [])))
+            if len(macs) > 1 and not all(known(item, m) for m in macs):
+                lvl = "critical" if item.get("role") == "modem" else "warning"
+                self._spoof_event(ip, item["name"], f"Varias MAC responden por {ip}: {', '.join(macs)}", level=lvl)
             if not macs:
                 continue
+            new = by_ip[ip][0]
             prev = self._infra_mac.get(ip)
             if prev is None:  # primera vez desde que arrancó: lo último que guardó la base
-                hist = [m for m in self.db.macs_for_ip(ip, time.time() - 30 * 86400) if m != macs[0]]
-                prev = macs[0] if not hist else None
-            if prev and prev != macs[0]:
-                self._spoof_event(ip, item["name"],
-                                  f"{item['name']} ({ip}) cambió de MAC: antes {prev}, "
-                                  f"ahora {macs[0]}. Si no cambiaste el equipo puede ser ARP spoofing.",
-                                  macs[0])
-            self._infra_mac[ip] = macs[0]
+                hist = [m for m in self.db.macs_for_ip(ip, time.time() - 30 * 86400) if m != new]
+                prev = new if not hist else None
+            nat = item.get("role") != "modem" and any(
+                o != ip and new in by_ip.get(o, []) and infra[o].get("role") == "ap" for o in infra)
+            if prev and prev != new and not known(item, new) and not nat:
+                if prev in ip_of and ip_of[prev] != ip:
+                    if not self.db.recent_event("infra_ip_changed", prev, 6 * 3600):
+                        self.db.add_event("warning", "infra_ip_changed", f"{item['name']} cambió de IP",
+                                          f"{item['name']} ({prev}) ahora está en {ip_of[prev]}; la IP {ip} la tiene "
+                                          f"{new}. No es un ataque: el DHCP le dio otra IP. Resérvale su IP en el "
+                                          f"router o pon la nueva en homelab.yml.", prev)
+                elif scanner.is_random_mac(new):
+                    self._spoof_event(ip, item["name"],
+                                      f"{item['name']} ({ip}) contesta ahora con una MAC privada/aleatoria {new} "
+                                      f"(antes {prev}). Si es un equipo tuyo que cambia de MAC, márcalo «es normal».",
+                                      new, level="warning")
+                else:
+                    self._spoof_event(ip, item["name"],
+                                      f"{item['name']} ({ip}) cambió de MAC: antes {prev}, ahora {new}. Si no cambiaste "
+                                      f"el equipo puede ser ARP spoofing; si sí, márcalo «es normal».", new,
+                                      level="critical" if item.get("role") == "modem" else "warning")
+            self._infra_mac[ip] = new
         mac_ips: dict[str, set] = {}
         for h in hosts:
             if h.ip in infra:
                 mac_ips.setdefault(h.mac, set()).add(h.ip)
         for mac, ips in mac_ips.items():
-            if len(ips) > 1:
-                self._spoof_event(",".join(sorted(ips)), "infraestructura",
-                                  f"La MAC {mac} responde por varias IPs de infraestructura: "
-                                  f"{', '.join(sorted(ips))}", mac)
+            if len(ips) < 2:
+                continue
+            roles = {infra[i].get("role") for i in ips}
+            if "modem" not in roles and "ap" in roles:
+                continue            # repetidor con MAC-NAT: contesta por lo que tiene detrás
+            if all(known(infra[i], mac) for i in ips):
+                continue
+            self._spoof_event(",".join(sorted(ips)), "infraestructura",
+                              f"La MAC {mac} responde por varias IPs de infraestructura: "
+                              f"{', '.join(sorted(ips))}", mac)
 
-    def _spoof_event(self, ip: str, name: str, detail: str, mac: str = "") -> None:
+    def _spoof_event(self, ip: str, name: str, detail: str, mac: str = "", level: str = "critical") -> None:
         if not self.db.recent_event("arp_spoof", mac or ip, 6 * 3600):
-            self.db.add_event("critical", "arp_spoof", f"Posible ARP spoofing en {name}", detail, mac or ip)
+            title = f"Posible ARP spoofing en {name}" if level == "critical" else f"{name}: cambió la MAC que contesta"
+            self.db.add_event(level, "arp_spoof", title, detail, mac or ip)
 
     def daily_port_scan(self) -> None:
         when = self.cfg.get("network", {}).get("daily_port_scan")
@@ -381,40 +436,48 @@ class Monitor:
 
     # ---------------------------------------------------------- roaming
     def maybe_roam(self) -> None:
-        """Visita las otras redes (otros SSID), las escanea y regresa a casa."""
-        if not self.roaming or time.time() - self.last_hop < self.hop_every:
+        """Visita las otras redes (otros SSID) de cada Wi-Fi que comparte, las escanea y regresa."""
+        force = Path(os.environ.get("HOMELAB_RUN", "/homelab/run")) / "roam-now"   # ./hl roam now
+        forced = force.exists()
+        if not self.roaming or (time.time() - self.last_hop < self.hop_every and not forced):
             return
+        force.unlink(missing_ok=True)
         self.last_hop = time.time()
         if not roam.available():
             self.scan_error = "Roaming activado pero falta nmcli/NetworkManager en el contenedor"
             return
-        home = self.net(self.home)
-        try:
-            for n in self.networks:
-                if n["name"] == self.home:
-                    continue
-                ok, msg = roam.connect(n.get("connection") or n.get("ssid") or n["name"],
-                                       n.get("interface", self.iface), n["cidr"])
+        home_iface = self.net(self.home)["interface"]
+        for iface, group in self.roam_groups.items():
+            base = self.net(self.roam_base[iface])
+            try:
+                for n in group:
+                    if n["name"] == base["name"]:
+                        continue
+                    ok, msg = roam.connect(n.get("connection") or n.get("ssid") or n["name"], iface, n["cidr"])
+                    if not ok:
+                        self.net_status[n["name"]]["error"] = f"No pude conectarme: {msg}"
+                        if not self.db.recent_event("roam_failed", n["name"], 6 * 3600):
+                            self.db.add_event("warning", "roam_failed", f"No pude entrar a la red {n['name']}",
+                                              msg + "\n¿Guardaste su Wi-Fi en la Pi?  ./hl roam add", n["name"])
+                        continue
+                    self.roam_on[iface] = n["name"]
+                    if iface == home_iface:
+                        self.current = n["name"]
+                    self.net_status[n["name"]]["error"] = ""
+                    self.stop.wait(min(self.dwell, 10))     # que el ARP de la red se llene un poco
+                    self.scan(n["name"])
+                    self.ping_all()
+                    self.daily_port_scan()
+                    log.info("Red %s escaneada (%d dispositivos)", n["name"], self.net_status[n["name"]]["devices"])
+            finally:
+                ok, msg = roam.connect(base.get("connection") or base.get("ssid") or base["name"], iface, base["cidr"], 60)
+                self.roam_on[iface] = base["name"]
+                if iface == home_iface:
+                    self.current = self.home
                 if not ok:
-                    self.net_status[n["name"]]["error"] = f"No pude conectarme: {msg}"
-                    if not self.db.recent_event("roam_failed", n["name"], 6 * 3600):
-                        self.db.add_event("warning", "roam_failed", f"No pude entrar a la red {n['name']}",
-                                          msg, n["name"])
-                    continue
-                self.current = n["name"]
-                self.stop.wait(min(self.dwell, 5))     # que el ARP de la red se llene un poco
-                self.scan(n["name"])
-                self.ping_all()
-                self.daily_port_scan()
-                log.info("Red %s escaneada (%d dispositivos)", n["name"], self.net_status[n["name"]]["devices"])
-        finally:
-            ok, msg = roam.connect(home.get("connection") or home.get("ssid") or home["name"],
-                                   home.get("interface", self.iface), home["cidr"], 60)
-            self.current = self.home
-            if not ok:
-                log.error("¡No pude regresar a %s!: %s", self.home, msg)
-                self.db.add_event("critical", "roam_failed", f"No pude regresar a la red {self.home}",
-                                  msg, self.home)
+                    log.error("¡No pude regresar a %s!: %s", base["name"], msg)
+                    self.db.add_event("critical", "roam_failed", f"No pude regresar a la red {base['name']}",
+                                      msg, base["name"])
 
     # -------------------------------------------------------------- ACL
     def sync_acl(self) -> None:

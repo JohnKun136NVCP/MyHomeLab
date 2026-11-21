@@ -74,3 +74,23 @@ wifi:
 
 El router no le dice a la Pi a qué red se conecta cada equipo, así que al final de la página
 eliges una vez a qué SSID va cada uno y queda en su tarjeta.
+
+## Varios SSID con una sola Wi-Fi (roaming mixto)
+
+Lo normal en la Pi: **casa por cable** (`eth0`) y **la Wi-Fi** (`wlan0`) para las demás. Si
+hay más de un SSID que ver por la Wi-Fi (laboratorio, oficinas…), ponlos todos con
+`interface: wlan0`: la Pi se queda en el primero, cada `roaming.hop_every` segundos visita los
+otros (escanea y regresa) y casa por cable se sigue escaneando siempre.
+
+```bash
+./hl roam                     # qué redes tiene, si la Wi-Fi está guardada y si la ve
+sudo ./hl roam add "OFICINAS" # guarda la contraseña SIN conectarse
+./hl roam now                 # que dé la vuelta ya
+```
+
+Si dos SSID son del **mismo router y la misma red** (mismas IP 192.168.X.*, por ejemplo la
+de 2.4 GHz y la de 5 GHz), no hace falta brincar: la Pi ya ve a todos sus equipos. Solo hace
+falta para SSID con **otra red** (otro router, o una red de invitados aislada).
+
+Lo más cómodo, si no quieres que la Pi se desconecte unos segundos: un adaptador Wi-Fi USB
+(`wlan1`) fijo en la otra red, con `interface: wlan1` en esa red. Así no brinca nada.

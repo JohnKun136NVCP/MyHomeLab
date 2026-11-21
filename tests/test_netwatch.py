@@ -803,3 +803,64 @@ def test_honeypot_ignores_the_pi_itself(tmp_path):
         assert [e["src_host"] for e in ib.collect()] == ["192.168.1.66"]
     finally:
         I.local_ifaces = real
+
+
+def test_arp_spoof_sin_falsas_alarmas(tmp_path):
+    from netwatch import monitor as M
+    from netwatch.scanner import Host
+    db = DB(tmp_path / "n.db")
+    cfg = {"network": {"networks": [{"name": "casa", "cidr": "192.168.1.0/24"}]},
+           "infrastructure": {"modem": {"name": "Módem", "ip": "192.168.1.254"},
+                              "access_points": [{"name": "Tenda Sala", "ip": "192.168.1.2"},
+                                                {"name": "Tenda Cuarto", "ip": "192.168.1.3", "macs": ["aa:aa:aa:00:00:33"]}]}}
+    mon = M.Monitor(cfg, db, tmp_path)
+    modem, sala = "00:11:22:33:44:54", "c8:3a:35:00:00:02"
+    mon.detect_arp_spoof([Host("192.168.1.254", modem), Host("192.168.1.2", sala), Host("192.168.1.3", "c8:3a:35:00:00:03")])
+    kinds = lambda: [(e["kind"], e["level"]) for e in db.events()]     # más reciente primero
+    assert kinds() == []
+    # el DHCP le dio otra IP al AP y la suya la tomó un celular con MAC aleatoria → no es ataque
+    mon.detect_arp_spoof([Host("192.168.1.254", modem), Host("192.168.1.2", "da:11:22:33:44:55"),
+                          Host("192.168.1.40", sala)])
+    assert kinds() == [("infra_ip_changed", "warning")]
+    # MAC declarada en homelab.yml → en silencio
+    mon.detect_arp_spoof([Host("192.168.1.254", modem), Host("192.168.1.3", "aa:aa:aa:00:00:33")])
+    assert len(db.events()) == 1
+    # repetidor con MAC-NAT contesta por dos AP → normal
+    mon.detect_arp_spoof([Host("192.168.1.254", modem), Host("192.168.1.2", "aa:aa:aa:00:00:33"),
+                          Host("192.168.1.3", "aa:aa:aa:00:00:33")])
+    assert len(db.events()) == 1
+    # el módem cambia de MAC y la de antes ya no está → crítico (esto sí puede ser spoofing)
+    mon.detect_arp_spoof([Host("192.168.1.254", "02:de:ad:be:ef:01")])
+    assert kinds()[0] == ("arp_spoof", "warning")               # MAC aleatoria: aviso
+    mon._infra_mac["192.168.1.254"] = modem
+    mon.detect_arp_spoof([Host("192.168.1.254", "00:de:ad:be:ef:01")])
+    assert kinds()[0] == ("arp_spoof", "critical")
+    # «es normal» (regla de falso positivo) → no vuelve a avisar por esa MAC
+    db.mark_fp(db.events()[0]["id"], "cambié el módem", suppress=True)
+    mon._infra_mac["192.168.1.254"] = modem
+    n = len(db.events())
+    mon.detect_arp_spoof([Host("192.168.1.254", "00:de:ad:be:ef:01")])
+    assert len(db.events()) == n
+
+
+def test_roaming_mixto_cable_fijo_y_wifi_por_turnos(tmp_path, monkeypatch):
+    from netwatch import monitor as M
+    cfg = {"network": {"networks": [
+        {"name": "casa", "interface": "eth0", "cidr": "192.168.1.0/24"},
+        {"name": "laboratorio", "interface": "wlan0", "cidr": "192.168.100.0/24", "ssid": "LAB"},
+        {"name": "oficinas", "interface": "wlan0", "cidr": "192.168.50.0/24", "ssid": "OFICINAS"}]}}
+    mon = M.Monitor(cfg, DB(tmp_path / "n.db"), tmp_path)
+    assert mon.roaming and mon.reachable() == {"casa", "laboratorio"}      # casa por cable siempre
+    visits, scans = [], []
+    monkeypatch.setattr(M.roam, "available", lambda: True)
+    monkeypatch.setattr(M.roam, "connect", lambda prof, iface, cidr, t=45: visits.append((prof, iface)) or (True, "ok"))
+    monkeypatch.setattr(mon, "scan", lambda name=None: scans.append(name))
+    monkeypatch.setattr(mon, "ping_all", lambda: None)
+    monkeypatch.setattr(mon, "daily_port_scan", lambda: None)
+    mon.dwell = 0
+    mon.maybe_roam()
+    assert visits == [("OFICINAS", "wlan0"), ("LAB", "wlan0")] and scans == ["oficinas"]
+    assert mon.current == "casa" and mon.roam_on == {"wlan0": "laboratorio"}
+    # una interfaz por red y sin roaming: todas, como siempre
+    cfg2 = {"network": {"networks": cfg["network"]["networks"][:2]}}
+    assert not M.Monitor(cfg2, DB(tmp_path / "m.db"), tmp_path).roaming

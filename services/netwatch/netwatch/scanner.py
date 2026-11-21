@@ -29,6 +29,13 @@ class Host:
         return bool(int(self.mac.split(":")[0], 16) & 0x02)
 
 
+def is_random_mac(mac: str) -> bool:
+    try:
+        return bool(int(mac.split(":")[0], 16) & 0x02)
+    except ValueError:
+        return False
+
+
 def _run(cmd: list[str], timeout: int = 120) -> str:
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)

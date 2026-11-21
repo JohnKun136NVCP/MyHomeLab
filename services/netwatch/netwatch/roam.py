@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -41,8 +42,22 @@ def in_cidr(ip: str, cidr: str) -> bool:
         return False
 
 
+def is_wifi(iface: str) -> bool:
+    return os.path.isdir(f"/sys/class/net/{iface}/wireless")
+
+
+def wifi_iface() -> str:
+    """La primera interfaz Wi-Fi (wlan0 casi siempre)."""
+    try:
+        return next(i for i in sorted(os.listdir("/sys/class/net")) if is_wifi(i))
+    except (OSError, StopIteration):
+        return "wlan0"
+
+
 def connect(profile: str, iface: str, cidr: str, timeout: int = 45) -> tuple[bool, str]:
     """Activa el perfil y espera a tener IP dentro de `cidr`."""
+    if not is_wifi(iface) and os.path.isdir("/sys/class/net"):
+        iface = wifi_iface()            # «interface: eth0» por omisión, pero los SSID van por la Wi-Fi
     if in_cidr(current_ip(iface), cidr):
         return True, "ya conectado"
     code, out = _run(["nmcli", "--wait", str(timeout), "connection", "up", "id", profile,
