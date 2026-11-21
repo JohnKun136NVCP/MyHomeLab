@@ -26,6 +26,7 @@
 #    ./hl speedtest-login        usuario y contraseña de Speedtest (y cómo cambiarla)
 #    ./hl export-logs [7d]       bitácoras de todos los servicios en un .tar.gz (para revisar o pedir ayuda)
 #    ./hl vps [IP:9100]          ¿por qué Prometheus ve el VPS abajo? (y lo agrega/corrige)
+#    ./hl vps --mute|--unmute    apagar / prender los avisos de «VPS caído»
 #    ./hl ups                    no-break por USB: avisos y apagado en orden (NUT)
 #    ./hl sso [--remove]         inicio de sesión único con Authelia (panel.casa.lan)
 #    ./hl crowdsec [status|unban IP|remove]  bloquea IPs que atacan SSH o el panel (CrowdSec)

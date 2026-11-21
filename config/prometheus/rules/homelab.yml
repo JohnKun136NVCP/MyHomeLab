@@ -3,7 +3,9 @@ groups:
   - name: nodos
     rules:
       - alert: NodoCaido
-        expr: up{job="node"} == 0
+        expr: |
+          up{job="node"} == 0
+            unless on(instance) label_replace(homelab_alert_muted, "instance", "$1", "name", "(.*)")
         for: 3m
         labels: { severity: critical }
         annotations:
@@ -52,7 +54,9 @@ groups:
           description: "No hay respuesta de 1.1.1.1 desde hace 2 minutos."
 
       - alert: TunelVPNSinContacto
-        expr: time() - homelab_wg_peer_last_handshake_seconds{peer="VPS"} > 300
+        expr: |
+          (time() - homelab_wg_peer_last_handshake_seconds{peer="VPS"} > 300)
+            unless on(peer) label_replace(homelab_alert_muted, "peer", "$1", "name", "(.*)")
         for: 5m
         labels: { severity: critical }
         annotations:

@@ -118,6 +118,11 @@ cameras:
   notify_labels: [person, car]              # el bot avisa con foto cuando detecta esto
   notify_cooldown: 300                      # segundos entre avisos de la misma cámara
 
+# Avisos de «caído» que no quieres recibir (nombre del nodo o peer, o parte de él).
+# ./hl vps --mute lo llena con «vps». Las gráficas siguen igual.
+alerts:
+  mute: []
+
 # Mapa de Wi-Fi (Red → Wi-Fi). Si no lo pones, adivina tus redes por los AP a los que está la Pi.
 wifi:
   ssids: []                  # ej. ["Casa", "Casa-Arriba", "Casa-5G"]

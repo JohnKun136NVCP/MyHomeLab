@@ -74,6 +74,13 @@ def render(mon: Monitor) -> str:
                 rows_hs.append((lab, p["handshake"]))
             rows_rx.append((lab, p["rx"]))
             rows_tx.append((lab, p["tx"]))
+    # alerts.mute de homelab.yml: nodos/peers cuyas alertas de «caído» no se mandan (ej. el VPS)
+    mute = [str(m).lower() for m in ((mon.cfg.get("alerts") or {}).get("mute") or []) if str(m).strip()]
+    nodes = [n.get("name", "") for n in (mon.cfg.get("infrastructure", {}) or {}).get("nodes") or []]
+    cands = {*nodes, *(r[0]["peer"] for r in rows_hs), *mute}
+    muted = sorted({c for c in cands if c and any(m in c.lower() for m in mute)})
+    metric("homelab_alert_muted", "gauge", "1 = no avisar si este nodo/peer se cae (alerts.mute)",
+           [(dict(name=m), 1) for m in muted])
     metric("homelab_wg_interface_up", "gauge", "Interfaces WireGuard activas", rows_up)
     metric("homelab_wg_peer_last_handshake_seconds", "gauge", "Último contacto con cada peer (epoch)", rows_hs)
     metric("homelab_wg_peer_receive_bytes_total", "counter", "Bytes recibidos por peer", rows_rx)

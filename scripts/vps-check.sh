@@ -4,6 +4,7 @@
 #    ./hl vps            revisa homelab.yml, el túnel, el puerto 9100 y el error de Prometheus
 #    ./hl vps IP:9100    agrega/corrige el VPS en homelab.yml con esa dirección
 #    ./hl vps --remove   deja de pedirle métricas al VPS (no instala nada en él)
+#    ./hl vps --mute     no avisar por Telegram si el VPS o su túnel no responden (--unmute: volver)
 #  En el VPS corre la otra mitad:  ./hosts/vps/check.sh --fix
 # ======================================================================
 set -uo pipefail
@@ -24,6 +25,25 @@ for n in (c.get("infrastructure") or {}).get("nodes") or []:
 PY
 }
 
+if [[ "${1:-}" == --mute || "${1:-}" == --unmute ]]; then   # avisos del VPS por Telegram: apagar / prender
+  python3 - "$1" <<'PY'
+import sys, yaml
+p = "config/homelab.yml"; c = yaml.safe_load(open(p)) or {}
+al = c.get("alerts") or {}
+mute = [m for m in al.get("mute") or [] if str(m).lower() != "vps"]
+if sys.argv[1] == "--mute":
+    mute.append("vps")
+al["mute"] = mute
+c["alerts"] = al
+with open(p, "w") as f:
+    yaml.safe_dump(c, f, sort_keys=False, allow_unicode=True)
+print("  ✔ Ya no te aviso si el VPS o su túnel se caen" if sys.argv[1] == "--mute" else "  ✔ Vuelvo a avisarte si el VPS se cae")
+PY
+  "${C[@]}" restart netwatch >/dev/null 2>&1 || true
+  curl -fsS -m 5 -X POST http://127.0.0.1:9090/prometheus/-/reload >/dev/null 2>&1 || "${C[@]}" restart prometheus >/dev/null 2>&1 || true
+  echo "  Las gráficas y el túnel siguen igual. Si ya había una alerta abierta, te llega un «resuelto» y se calla."
+  exit 0
+fi
 if [[ "${1:-}" == --remove ]]; then   # dejar de pedirle métricas al VPS (el ping se queda)
   python3 - <<'PY'
 import yaml

@@ -496,6 +496,10 @@ def test_vpn_web(tmp_path, monkeypatch):
     from netwatch.metrics import render
     txt = render(mon)
     assert 'homelab_wg_peer_last_handshake_seconds{iface="wg-hoshimy",peer="VPS",endpoint="203.0.113.7:51820"}' in txt
+    assert "homelab_alert_muted{" not in txt
+    mon.cfg["alerts"] = {"mute": ["vps"]}                 # ./hl vps --mute
+    txt = render(mon)
+    assert 'homelab_alert_muted{name="VPS"} 1' in txt and 'homelab_alert_muted{name="vps"} 1' in txt
     server.should_exit = True
 
 
