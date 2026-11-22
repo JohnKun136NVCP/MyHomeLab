@@ -820,16 +820,26 @@ const views = {
         <div class="card" id="c-home"></div>
         <div class="card"><h3>Infraestructura</h3><table>${inf}${tg}</table></div>
         <div class="card"><h3>Redes ${s.roaming ? `<span class="pill ok">roaming cada ${Math.round(s.hop_every / 60)} min</span>` : ""}</h3><table>
-          <tr><th>Red</th><th>SSID</th><th>Segmento</th><th>Dispositivos</th><th>Escaneo</th></tr>
-          ${s.networks.map((n) => `<tr><td>${n.name === s.current_network ? "📍 " : ""}${esc(n.name)}</td><td>${esc(n.ssid || "—")}</td>
-            <td class="mono">${esc(n.cidr)}</td><td>${n.devices ?? "—"}</td>
-            <td>${n.error ? `<span class="pill bad" title="${esc(n.error)}">error</span>` : ago(n.last_scan)}</td></tr>`).join("")}</table>
-          ${s.roaming ? `<p class="muted small">📍 = red donde está la Pi ahora. Último cambio de red: ${ago(s.last_hop)}.</p>` : ""}</div>
+          <tr><th>Red</th><th>SSID</th><th>Segmento</th><th>Dispositivos</th><th>Estado</th></tr>
+          ${s.networks.map((n) => {
+            const next = s.last_hop ? Math.max(0, Math.round((s.last_hop + s.hop_every - Date.now() / 1000) / 60)) : null;
+            const st = n.error ? `<span class="pill bad">no pudo entrar</span><div class="small">${esc(n.error)}</div>`
+              : n.here ? `<span class="pill ok">${n.rotates ? "📍 aquí ahora" : "siempre"}</span> <span class="muted small">escaneo ${ago(n.last_scan)}</span>`
+              : `<span class="pill">🔄 por turnos</span> <span class="muted small">${n.last_visit ? `visitada ${ago(n.last_visit)}` : "aún no se visita"}${next != null ? ` · próxima en ~${next} min` : ""}</span>`;
+            return `<tr><td>${esc(n.name)} <span class="muted small mono">${esc(n.interface || "")}</span></td><td>${esc(n.ssid || "—")}</td>
+              <td class="mono">${esc(n.cidr)}</td><td>${n.devices ?? "—"}</td><td>${st}</td></tr>`;
+          }).join("")}</table>
+          ${s.roaming ? `<p class="muted small">La Wi-Fi de la Pi está en una red a la vez: las «por turnos» se visitan cada ${Math.round(s.hop_every / 60)} min
+            unos segundos y sus equipos se quedan con el último estado visto (no es que estén desconectados).
+            ${ADMIN ? '<button id="roamnow" class="small">🔄 Visitar ahora</button>' : ""}</p>` : ""}</div>
         <div class="card"><h3>Tipos de dispositivo en línea</h3><div class="bars">${types.map(([t, n]) =>
           `<div class="row"><span>${s.icons[t] || "❔"} ${esc(t)}</span><div class="bar" style="width:${(n / maxT) * 100}%"></div><b>${n}</b></div>`).join("") || '<p class="muted">Aún no hay escaneos.</p>'}</div></div>
         <div class="card"><h3>Últimos eventos <a href="#eventos" class="small">ver todos</a></h3>${evList(ev.events)}</div>
       </div>`;
     chartCard($("#c-home"), "Tráfico de la casa (24 h)", "home", "24h");
+    $("#roamnow")?.addEventListener("click", async () => {
+      try { toast((await api("/api/roam/now", { method: "POST" })).msg); } catch (e) { toast(e.message); }
+    });
     api("/api/dns").then((d) => {
       if (!d.enabled) return;
       const card = document.createElement("div"); card.className = "card";

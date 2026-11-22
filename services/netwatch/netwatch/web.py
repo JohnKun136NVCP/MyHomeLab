@@ -74,6 +74,8 @@ def build_app(mon: Monitor) -> Starlette:
             "roaming": mon.roaming, "current_network": mon.current, "home_network": mon.home,
             "hop_every": mon.hop_every, "last_hop": mon.last_hop, "roam_on": mon.roam_on,
             "networks": [{"name": n["name"], "cidr": n["cidr"], "ssid": n.get("ssid", ""),
+                          "interface": n.get("interface", ""), "here": n["name"] in mon.reachable(),
+                          "rotates": n.get("interface") in mon.roam_groups,
                           **mon.net_status.get(n["name"], {})} for n in mon.networks],
         })
 
@@ -1224,6 +1226,12 @@ def build_app(mon: Monitor) -> Starlette:
         threading.Thread(target=mon.dhcp.run, name="dhcp", daemon=True).start()
         return JSONResponse({"ok": True, "msg": "Preguntando quién reparte IPs en cada red (≈20 s)…"})
 
+    async def roam_now(_):
+        if not mon.roaming:
+            return JSONResponse({"error": "No hay redes por turnos: agrega otra con  ./hl roam network …"}, 400)
+        (st.RUN_DIR / "roam-now").touch()
+        return JSONResponse({"ok": True, "msg": "En 1-2 min la Pi visita las otras redes y regresa"})
+
     async def dns_optimize(_):
         ok, msg = await asyncio.to_thread(mon.adguard.optimize_dns)
         if ok:
@@ -1577,6 +1585,7 @@ def build_app(mon: Monitor) -> Starlette:
         Route("/api/wifi", wifi_get), Route("/api/devices/{mac}/wifi", device_wifi, methods=["POST"]),
         Route("/api/wifi/ack", wifi_ack, methods=["POST"]), Route("/api/dhcp/scan", dhcp_scan, methods=["POST"]),
         Route("/api/dns/optimize", dns_optimize, methods=["POST"]),
+        Route("/api/roam/now", roam_now, methods=["POST"]),
         Route("/api/parental", parental_get), Route("/api/parental", parental_save, methods=["POST"]),
         Route("/api/parental/{rid:int}", parental_delete, methods=["DELETE"]),
         Route("/api/passwords", passwords_list), Route("/api/passwords/reset", passwords_reset, methods=["POST"]),

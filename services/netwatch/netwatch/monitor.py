@@ -488,6 +488,7 @@ class Monitor:
                                               msg + "\n¿Guardaste su Wi-Fi en la Pi?  ./hl roam add", n["name"])
                         continue
                     self.roam_on[iface] = n["name"]
+                    self.net_status[n["name"]]["last_visit"] = time.time()
                     if iface == home_iface:
                         self.current = n["name"]
                     self.net_status[n["name"]]["error"] = ""
