@@ -106,7 +106,10 @@ PY
     echo "  Pruébala:  ./hl roam now   y mira panel → Red en un par de minutos." ;;
 
   now|ya)
-    mkdir -p run && touch run/roam-now
+    # run/ lo crean los contenedores como root: si no puedo escribir, con sudo
+    if ! { mkdir -p run && touch run/roam-now; } 2>/dev/null; then
+      sudo mkdir -p run && sudo touch run/roam-now
+    fi
     echo "  Listo: en el siguiente ciclo (1-2 min) la Pi visita las otras redes y regresa." ;;
 
   -h|--help|help) sed -n 2,13p "$0" ;;
