@@ -64,8 +64,10 @@ groups:
           description: "WireGuard no ha tenido contacto con {{ $labels.endpoint }}. Revisa el VPS o la red."
 
       - alert: AccessPointCaido
-        expr: homelab_infra_up{role="ap"} == 0
-        for: 3m
+        expr: |
+          homelab_infra_up{role="ap"} == 0
+            unless on(name) homelab_alert_muted
+        for: 5m
         labels: { severity: critical }
         annotations:
           summary: "{{ $labels.name }} ({{ $labels.ip }}) no responde"

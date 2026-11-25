@@ -329,13 +329,22 @@ class Monitor:
             # Desde otra red solo se le puede hacer ping por su IP WAN (si la tiene)
             ip = i["ip"] if (i.get("network") or self.home) in self.reachable() else i.get("wan_ip")
             if not ip:
+                # La Pi no está en su red y no tiene wan_ip: no sabemos. Sin dato no hay alarma
+                # (antes se quedaba el último «no responde» de la visita y sonaba sin parar).
+                self.infra_status.pop(i["name"], None)
                 continue
             lat = scanner.ping(ip)
-            prev = self.infra_status.get(i["name"], {}).get("up", True)
-            self.infra_status[i["name"]] = {"up": lat is not None, "latency": lat, "ip": i["ip"],
-                                            "role": i["role"], "via": ip}
-            if prev and lat is None:
-                log.info("%s no responde", i["name"])
+            if lat is None:                      # un ping perdido en Wi-Fi no es una caída
+                self.stop.wait(1)
+                lat = scanner.ping(ip)
+            old = self.infra_status.get(i["name"], {})
+            fails = 0 if lat is not None else old.get("fails", 0) + 1
+            # «caído» solo tras 2 rondas seguidas sin respuesta y por la misma ruta
+            down = fails >= 2 and old.get("via") in (None, ip)
+            self.infra_status[i["name"]] = {"up": not down, "latency": lat, "ip": i["ip"], "role": i["role"],
+                                            "via": ip, "fails": fails}
+            if down and old.get("up", True):
+                log.info("%s no responde (%s)", i["name"], ip)
         for t in self.cfg.get("infrastructure", {}).get("ping_targets", []) or []:
             lat = scanner.ping(t["host"])
             self.target_status[t["name"]] = {"up": lat is not None, "latency": lat, "host": t["host"]}

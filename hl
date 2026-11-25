@@ -11,6 +11,7 @@
 #    ./hl update --all           además: imágenes nuevas (Pi, casa, Immich), limpieza y escaneo Trivy
 #    ./hl scan                   ¿qué imágenes tienen vulnerabilidades con arreglo? (Trivy)
 #    ./hl roam [add SSID|now]    que la Pi visite tus otros SSID por turnos (y revisar por qué no)
+#    ./hl mute|unmute "NOMBRE"   callar / prender los avisos de «no responde» de un AP o nodo
 #    sudo ./hl disks [--install] salud de los discos (SMART) y espacio; aviso diario si algo falla
 #    sudo ./hl honeypot [status|test|remove]   trampa en la red: avisa si alguien toca servicios falsos
 #    ./hl restart [svc...]       reinicia todo o los servicios indicados
@@ -152,6 +153,8 @@ case "$cmd" in
   honeypot|trampa) exec ./scripts/honeypot.sh "$@" ;;
   roam|redes) exec ./scripts/roam.sh "$@" ;;
   disks|discos) exec ./scripts/disks.sh "$@" ;;
+  mute|callar) HL_OP=mute exec ./scripts/mute.sh "$@" ;;
+  unmute) HL_OP=unmute exec ./scripts/mute.sh "$@" ;;
   migrate|migrar) exec ./scripts/migrate.sh "$@" ;;
   clean|limpiar) exec ./scripts/clean-pi.sh "$@" ;;
   *)

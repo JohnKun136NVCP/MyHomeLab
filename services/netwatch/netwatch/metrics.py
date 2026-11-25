@@ -77,7 +77,7 @@ def render(mon: Monitor) -> str:
     # alerts.mute de homelab.yml: nodos/peers cuyas alertas de «caído» no se mandan (ej. el VPS)
     mute = [str(m).lower() for m in ((mon.cfg.get("alerts") or {}).get("mute") or []) if str(m).strip()]
     nodes = [n.get("name", "") for n in (mon.cfg.get("infrastructure", {}) or {}).get("nodes") or []]
-    cands = {*nodes, *(r[0]["peer"] for r in rows_hs), *mute}
+    cands = {*nodes, *(r[0]["peer"] for r in rows_hs), *mon.infra_status, *mute}
     muted = sorted({c for c in cands if c and any(m in c.lower() for m in mute)})
     metric("homelab_alert_muted", "gauge", "1 = no avisar si este nodo/peer se cae (alerts.mute)",
            [(dict(name=m), 1) for m in muted])

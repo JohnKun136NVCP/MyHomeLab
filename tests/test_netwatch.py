@@ -864,3 +864,32 @@ def test_roaming_mixto_cable_fijo_y_wifi_por_turnos(tmp_path, monkeypatch):
     # una interfaz por red y sin roaming: todas, como siempre
     cfg2 = {"network": {"networks": cfg["network"]["networks"][:2]}}
     assert not M.Monitor(cfg2, DB(tmp_path / "m.db"), tmp_path).roaming
+
+
+def test_ap_de_otra_red_sin_falsas_alarmas(tmp_path, monkeypatch):
+    from netwatch import monitor as M
+    from netwatch.metrics import render
+    cfg = {"network": {"networks": [
+        {"name": "casa", "interface": "eth0", "cidr": "192.168.1.0/24"},
+        {"name": "laboratorio", "interface": "wlan0", "cidr": "192.168.100.0/24", "ssid": "LAB"},
+        {"name": "oficinas", "interface": "wlan0", "cidr": "192.168.2.0/24", "ssid": "fsociety_node_01"}]},
+        "infrastructure": {"access_points": [{"name": "Router Oficinas", "network": "oficinas", "ip": "192.168.2.1"}]}}
+    mon = M.Monitor(cfg, DB(tmp_path / "n.db"), tmp_path)
+    answers = []
+    monkeypatch.setattr(M.scanner, "ping", lambda ip: answers.pop(0) if answers else None)
+    monkeypatch.setattr(mon.stop, "wait", lambda t: None)
+    mon.roam_on["wlan0"] = "oficinas"          # de visita: un ping perdido no basta
+    answers[:] = [None, None]
+    mon.ping_all()
+    assert mon.infra_status["Router Oficinas"]["up"]
+    answers[:] = [None, None]
+    mon.ping_all()
+    assert not mon.infra_status["Router Oficinas"]["up"]     # dos rondas: sí está caído
+    mon.roam_on["wlan0"] = "laboratorio"       # se fue de la red: sin dato, sin alarma
+    mon.ping_all()
+    assert "Router Oficinas" not in mon.infra_status
+    mon.roam_on["wlan0"] = "oficinas"
+    answers[:] = [None, None]
+    mon.ping_all()
+    mon.cfg["alerts"] = {"mute": ["router oficinas"]}
+    assert 'homelab_alert_muted{name="Router Oficinas"} 1' in render(mon)
