@@ -1,5 +1,5 @@
-starlette>=0.37
-uvicorn>=0.30
-PyYAML>=6.0
-bcrypt>=4.0
-qrcode>=7.4
+starlette>=1.10.0
+uvicorn>=0.54.0
+PyYAML>=6.0.4
+bcrypt>=5.0.0
+qrcode>=8.2
